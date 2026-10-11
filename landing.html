@@ -115,6 +115,7 @@
     nav { border-radius: 24px; gap: 8px; }
     nav .beat { max-width: 100%; flex: 1 1 180px; }
   }
+  a[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -148,10 +149,10 @@
     <div class="intro glass">
       <p class="eyebrow">Hand-tracked music &amp; games</p>
       <h1>Turn it around.<br>Play it with your hands.</h1>
-      <p class="lede">AirDeck reads both of your hands through a webcam. Mix songs, effects and visuals in the air, or challenge a friend to an arcade battle. Pick your stage and let your hands take over.</p>
+      <p class="lede">AirDeck reads both of your hands through a webcam. Mix songs, effects and visuals in the air, and create a set with your hands. Arcade battles are coming soon. Pick your stage and let your hands take over.</p>
       <div class="row">
         <a class="aqua" data-preview="dj" href="index.html">DJ Deck</a>
-        <a class="lime" data-preview="arcade" href="arcade.html">Arcade</a>
+        <a class="lime" data-preview="arcade" aria-disabled="true" role="link" title="Arcade is unavailable while its branch is being integrated">Arcade · Soon</a>
       </div>
 
     </div>
@@ -193,7 +194,7 @@
           <div><b>Left half of the frame</b><span>Player 1</span></div>
           <div><b>Right half of the frame</b><span>Player 2</span></div>
         </div>
-        <p class="note">Bubble Trails: don't hit a wall or a trail. First to 5 points wins.</p>
+        <p class="note">Coming soon: the Arcade game is being integrated from a teammate’s branch.</p>
       </article>
 
 

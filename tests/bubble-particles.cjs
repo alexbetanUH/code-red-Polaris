@@ -1,0 +1,15 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert'),path=require('path');
+const code=fs.readFileSync(path.join(__dirname,'../bubble-particles.js'),'utf8').replace('export class','class');
+const gradient={addColorStop(){}};const ctx=new Proxy({createRadialGradient(){return gradient}},{get:(o,k)=>o[k]??(()=>{})});
+const box={Math};vm.createContext(box);vm.runInContext(code+'\nglobalThis.BubbleParticles=BubbleParticles;',box);
+const fx=new box.BubbleParticles({width:1280,height:720,getContext:()=>ctx},()=>.3);
+const quad=[{x:540,y:300},{x:740,y:300},{x:740,y:420},{x:540,y:420}];
+for(let i=0;i<150;i++)fx.render(quad,.5,i*1000/60);
+assert(fx.particles.some(p=>p.x>740+p.radius),'bubbles escape beyond the portal edge');
+assert(fx.particles.length>0&&fx.particles.length<=64,'pool stays bounded');
+const p=fx.particles[0],oldY=p.y;
+fx.render(null,0,2500);assert(p.y<oldY,'existing bubbles keep floating with no portal');
+for(let i=1;i<400;i++)fx.render(null,0,2500+i*1000/60);
+assert.equal(fx.particles.length,0,'bubbles expire after emission stops');
+fx.render(quad,1,10000);fx.render(quad,1,10060);fx.clear();assert.equal(fx.particles.length,0);
+console.log('PASS: bubbles escape portal, keep floating, expire, and stay bounded');

@@ -323,7 +323,10 @@ export function createTransitions(deck) {
       const now = () => Math.max(0, deck.position() % current.duration);
       const speed = () => handSpeed * nudge;
       const outBy = Math.min(mixOutAt ?? bounds(current).end, bounds(current).end);
-      const style = styleFor(current, next, { mixOutAt: Math.max(outBy, now()), fromBpm, toBpm, nudge, short });
+      // Manual blends accept any pair: no tempo analysis, speed matching or beat wait.
+      const style = hands
+        ? { blend: true, knownOut: false, beatsOut: { bpm: null }, beatsIn: { bpm: null }, ratio: 1 }
+        : styleFor(current, next, { mixOutAt: Math.max(outBy, now()), fromBpm, toBpm, nudge, short });
       const { knownOut, beatsOut, beatsIn, ratio } = style;
       let { blend } = style;
 
@@ -332,6 +335,7 @@ export function createTransitions(deck) {
       let length;
       const plan = () => {
         const earliest = now() + scheduleAhead * 2;
+        if (hands) { at = now() + scheduleAhead; length = short ? shortBlendSeconds : blendSeconds; return; }
         if (blend) {
           length = blendLength(beatsOut, short);
           // A move made just after the downbeat (hands) still counts for that downbeat.
@@ -379,10 +383,10 @@ export function createTransitions(deck) {
       const nodes = [tailFilter, tailGain];
 
       // The next song, scheduled on the downbeat: what Deck.play() does, with a start time.
-      const comesIn = entry(next, short).at;
-      nudge = blend ? outNudge * ratio : 1;
+      const comesIn = hands ? bounds(next).start : entry(next, short).at;
+      nudge = hands ? 1 : blend ? outNudge * ratio : 1;
       const rate = handSpeed * nudge;
-      const offset = blend
+      const offset = blend && !hands
         ? (downbeatAfter(beatsIn, Math.max(0, comesIn - 0.05)) + (late / (handSpeed * outNudge)) * rate) % next.duration
         : comesIn;
       const incoming = ctx.createBufferSource();
@@ -390,7 +394,7 @@ export function createTransitions(deck) {
       incoming.loop = true;
       incoming.playbackRate.value = rate;
       const inGain = gainNode(0);
-      const inFilter = filterNode("highpass", blend ? bassCutHz : openHz);
+      const inFilter = filterNode("highpass", blend && !hands ? bassCutHz : openHz);
       incoming.connect(inGain).connect(inFilter).connect(deck.filter);
       incoming.start(when, offset);
       Object.assign(deck, { buffer: next, source: incoming, offset, anchorTime: when, rate, playing: true });
@@ -423,6 +427,8 @@ export function createTransitions(deck) {
           },
           // Only one bass line at a time: the old song's goes, the new one's comes in.
           swapBass() {
+            // Manual blending leaves both songs' sound intact; only their levels change.
+            if (hands) return null;
             if (!live() || swapAt !== null) return swapAt;
             swapAt = nextDownbeat();
             tailFilter.frequency.setValueAtTime(openHz, Math.max(ctx.currentTime, swapAt - beat));
@@ -502,7 +508,7 @@ export function createTransitions(deck) {
         hands: controls,
         seconds: ends === null ? null : round(ends - when),
         from: { bpm: beatsOut.bpm, trusted: knownOut, mixAt: round(at) },
-        to: { bpm: beatsIn.bpm, trusted: trusted(beatsIn.bpm, toBpm), startsAt: round(offset), speed: round(nudge) },
+        to: { bpm: beatsIn.bpm, trusted: hands ? false : trusted(beatsIn.bpm, toBpm), startsAt: round(offset), speed: round(nudge) },
       };
     },
   };
