@@ -331,11 +331,15 @@ def tempo_gap(a, b):
 
 
 def dj_pick(request):
-    """Ask Gemini for the next songs. Returns a list of {artist, title, reason, intro}.
+    """Ask Gemini for the next songs. Returns (picks, offline): picks is a list of
+    {artist, title, reason, intro}; offline is why Gemini couldn't be used, or None.
 
     With a "library" ([{id, artist, title, bpm, genre}]) in the request, Gemini may only pick
-    from it and each pick also has its "id"; otherwise it can pick any song (beta).
+    from it and each pick also has its "id". If Gemini fails (no key, no internet, rate
+    limit, overload), the closest library songs are picked instead, so the music keeps
+    going. Without a library Gemini can pick any song (beta), and has to work.
     """
+    offline = None
     count = max(1, min(int(request.get("count") or 3), 5))
     listing = lambda name: "\n".join(f"- {clean(t, 120)}" for t in request.get(name, [])[-25:]) or "(none)"
     situation = (
@@ -399,12 +403,27 @@ def dj_pick(request):
                 "intro": clean(intro, 300),
             }
 
+        try:
+            gemini_picks = ask_gemini_for_picks(prompt, LIBRARY_PICK_SCHEMA)
+        except DjError as error:
+            print(f"[dj] Gemini unavailable ({error}): picking from the library", flush=True)
+            gemini_picks, offline = [], str(error)
+        # Every song played already: repeats are fine, the ones played longest ago first.
+        fresh_left = bool(unused)
+        if not fresh_left:
+            played_order = {clean(t, 200).lower(): n for n, t in enumerate(request.get("played", []))}
+            queued = {clean(t, 200).lower() for t in request.get("queued", [])}
+            unused = sorted(
+                (s for s in library.values() if label(s) not in queued),
+                key=lambda s: played_order.get(label(s), -1),
+            )[: max(count, len(library) // 2)]
+
         cleaned = []
-        for pick in ask_gemini_for_picks(prompt, LIBRARY_PICK_SCHEMA):
+        for pick in gemini_picks:
             song = library.get(clean(pick.get("id", ""), 20))
             if not song or any(p["id"] == song["id"] for p in cleaned):
                 continue  # made-up or repeated id
-            if label(song) in used and unused:
+            if label(song) in used and fresh_left:
                 continue  # Gemini picked a repeat while fresh songs remain
             cleaned.append(entry(song, pick.get("reason", ""), pick.get("intro", "")))
             if len(cleaned) == count:
@@ -416,7 +435,8 @@ def dj_pick(request):
             if not choices:
                 break
             song = closest(library.get(cleaned[-1]["id"]) if cleaned else playing, choices)
-            cleaned.append(entry(song, "keeps the set going", f"Up next, {song.get('title', '')} by {song.get('artist', '')}."))
+            reason = "closest match (AI offline)" if offline else "keeps the set going"
+            cleaned.append(entry(song, reason, f"Here's {song.get('title', '')} by {song.get('artist', '')}."))
     else:
         cleaned = []
         for pick in ask_gemini_for_picks(f"{situation}Pick {count} songs.", PICK_SCHEMA)[:count]:
@@ -429,8 +449,8 @@ def dj_pick(request):
                     "intro": clean(pick.get("intro", ""), 300),
                 })
     if not cleaned:
-        raise DjError("Gemini didn't pick any songs")
-    return cleaned
+        raise DjError(offline or "Gemini didn't pick any songs")
+    return cleaned, offline
 
 
 def dj_voice(text):
@@ -530,12 +550,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def pick(self, body):
         try:
-            picks = dj_pick(body)
+            picks, offline = dj_pick(body)
         except DjError as error:
             print(f"[dj] pick failed: {error}", flush=True)
             return self.send_json(502, {"error": str(error)})
         print(f"[dj] picked: {'; '.join(p['artist'] + ' - ' + p['title'] for p in picks)}", flush=True)
-        self.send_json(200, {"picks": picks})
+        self.send_json(200, {"picks": picks, "offline": offline})
 
     def voice(self, body):
         try:
@@ -568,7 +588,7 @@ if __name__ == "__main__":
         sys.exit(f"Port {PORT} is already in use (another server.py still running?)\n"
                  f"Stop it, or pick another port:  python server.py {PORT + 1}")
     print(f"AirDeck running at http://localhost:{PORT} (yt-dlp: {' '.join(YTDLP + JS_RUNTIME)})")
-    gemini = f"on ({GEMINI_MODEL})" if os.environ.get("GEMINI_API_KEY") else "off (set GEMINI_API_KEY)"
+    gemini = f"on ({GEMINI_MODEL})" if os.environ.get("GEMINI_API_KEY") else "library picks only (set GEMINI_API_KEY for Gemini)"
     voice = "ElevenLabs" if os.environ.get("ELEVENLABS_API_KEY") else "browser voice (set ELEVENLABS_API_KEY for ElevenLabs)"
     print(f"AI DJ: {gemini}, voice: {voice}")
     server.serve_forever()

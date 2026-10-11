@@ -373,7 +373,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       // With a library, the DJ only picks from it (instant, nothing to download).
       // Without one it can pick any song, downloaded from YouTube (the slow beta path).
       const useLibrary = library.length > 0;
-      const { picks } = await postJson("/dj/pick", {
+      const { picks, offline } = await postJson("/dj/pick", {
         vibe: dj.vibe,
         nowPlaying: current?.title ?? "",
         queued: items.map((item) => item.title),
@@ -414,7 +414,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
       }
       if (stillValid() && !added) throw new Error("none of the picks could be loaded");
-      setDjStatus(null);
+      // Gemini was unreachable: the server picked the closest library songs instead.
+      const why = offline?.includes("GEMINI_API_KEY") ? "no Gemini key" : offline;
+      setDjStatus(offline ? `AI offline (${why}): picking from the library by genre and tempo.` : null);
     } catch (error) {
       if (dj.generation === generation) dj.busy = false;
       setDjStatus(`AI DJ: ${error.message}`, true);

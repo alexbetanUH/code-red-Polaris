@@ -85,7 +85,8 @@ export GEMINI_API_KEY="..." ELEVENLABS_API_KEY="..."   # PowerShell: $env:GEMINI
 python3 server.py
 ```
 
-The server prints whether the DJ is on. Without an ElevenLabs key the browser's built-in voice is used. Optional:
+If Gemini can't be reached (no key, no internet, rate limit, overload), the DJ keeps going with the closest
+library songs by genre and tempo, and says so. The server prints whether Gemini is on. Without an ElevenLabs key the browser's built-in voice is used. Optional:
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
 The server only answers this computer, so nobody on the venue Wi-Fi can spend your API credits (set
 `AIRDECK_HOST=0.0.0.0` to open it up), and only AirDeck's own pages may call its API.
