@@ -7,15 +7,15 @@ function boot(path) {
  const noop=()=>{}, gradient={addColorStop:noop};
  const ctx=new Proxy({measureText:t=>({width:t.length*7}),createLinearGradient:()=>gradient}, {get:(o,k)=>k in o?o[k]:noop});
  const elements=new Map();
- const el=()=>({width:1280,height:720,style:{},classList:{toggle:noop,contains:()=>false,add:noop,remove:noop},addEventListener:noop,appendChild:noop,insertBefore:noop,append:noop,remove:noop,getContext:()=>ctx,querySelector:()=>({style:{}}),querySelectorAll:()=>[],textContent:'',value:''});
+ const el=()=>({width:1280,height:720,style:{setProperty:noop},classList:{toggle:noop,contains:()=>false,add:noop,remove:noop},addEventListener:noop,appendChild:noop,insertBefore:noop,append:noop,remove:noop,getContext:()=>ctx,querySelector:()=>({style:{}}),querySelectorAll:()=>[],textContent:'',value:''});
  const events={};
  const box={console,performance,Math,Float32Array,Uint8Array, setTimeout:()=>0,clearTimeout:noop,
  window:{addEventListener:(k,f)=>(events[k]??=[]).push(f)},document:{addEventListener:noop,getElementById:k=>{if(!elements.has(k))elements.set(k,el());return elements.get(k)},createElement:el,querySelector:el,querySelectorAll:()=>[],body:el()},
  localStorage:{getItem:()=>null,setItem:noop},requestAnimationFrame:noop,Audio:class{play(){return Promise.resolve()}},
- Deck:class {constructor(){return new Proxy({currentSlot:null,blendState:()=>null,effectState:()=>({}),slotState:()=>[],waveform:()=>new Float32Array(128),bass:()=>0},{get:(o,k)=>k in o?o[k]:noop})}},
+ Deck:class {constructor(){return new Proxy({playing:false,currentSlot:null,blendState:()=>null,effectState:()=>({}),slotState:()=>[],waveform:()=>new Float32Array(128),bass:()=>0},{get:(o,k)=>k in o?o[k]:noop})}},
  BubbleParticles:class{render(){}clear(){}},
  FrameFx:class{constructor(){this.canvas=el();this.ok=true} resize(){}clear(){}render(){}},
- createQueue:()=>({calls:[],on:noop,next(){this.calls.push('next')},play(id){this.calls.push('play:'+id)},seek(t){this.calls.push('seek:'+t)},getUpNext:()=>null,mixNow:()=>false,holdControls:noop,coachPing:noop,startHandMix:async()=>null,startDefaultQueue(){this.calls.push('default');return new Promise(()=>{})},getState:()=>({items:[{id:'a'},{id:'b'}],currentId:'b',downloads:[],status:null,dj:{}})}),createQueuePanel:()=>({toggle:noop}),createTransport:el,createUpNext:()=>({element:el()}),location:{hash:'',replace:noop},
+ createQueue:()=>({calls:[],on:noop,next(){this.calls.push('next')},play(id){this.calls.push('play:'+id)},seek(t){this.calls.push('seek:'+t)},getUpNext:()=>null,mixNow:()=>false,holdControls:noop,coachPing:noop,startHandMix:async()=>null,startDefaultQueue(){this.calls.push('default');return new Promise(()=>{})},getState:()=>({items:[{id:'a'},{id:'b'}],currentId:'b',downloads:[],status:null,dj:{}})}),createQueuePanel:()=>({toggle:noop}),createTransport:(q,d,options={})=>{box.transportOptions=options;return el();},createUpNext:()=>({element:el()}),location:{hash:'',replace:noop},
  FilesetResolver:{forVisionTasks:async()=>({})},HandLandmarker:{createFromOptions:async()=>({})}};
  vm.createContext(box);vm.runInContext(code+'\nwindow.test={sides,resetSide,drawFrame,frameTips,assignSides,processHand,setVisual,OneEuro};',box);
  return {box,api:box.window.airdeck,internal:box.window.test,events,run:c=>vm.runInContext(c,box)};
@@ -73,6 +73,12 @@ e=boot(path);start(e);const before=e.internal.sides.left.lastSeen;let bad=pair()
 // Assignment without handedness, reversed result order, and a single moving hand.
 e=boot(path);for(let i=0;i<91;i++){let a=hand(.2+.6*i/90,.62),b=hand(.8-.6*i/90,.68);a.label=b.label=null;feed(e,i%2?[b,a]:[a,b],1000+i*1000/30);assert(Math.abs(e.internal.sides.left.hand.wristX-(1-a.l[0].x))<1e-6)}
 e=boot(path);for(let i=0;i<91;i++)feed(e,[hand(.2+.6*i/90)],1000+i*1000/30);assert(e.internal.sides.left.hand.wristX>.7);assert.equal(e.internal.sides.right.hand,null);
+// Hands that end up on the wrong sides swap back after a moment (not during a quick crossing).
+{const t0=1000+91*1000/30;for(let i=0;i<30;i++)feed(e,[hand(.8),hand(.25,.65,{label:'Right'})],t0+i*1000/30);
+ assert(e.internal.sides.left.hand.wristX>.7,'swapped sides held briefly');
+ for(let i=30;i<60;i++)feed(e,[hand(.8),hand(.25,.65,{label:'Right'})],t0+i*1000/30);
+ assert(e.internal.sides.left.hand.wristX<.3&&e.internal.sides.right.hand.wristX>.7,'swapped sides return to screen order');}
+e=boot(path);for(let i=0;i<91;i++)feed(e,[hand(.2+.6*i/90)],1000+i*1000/30);
 // A newly acquired hand cannot inherit old filters after the hold expires.
 feed(e,[hand(.8)],6000);assert.equal(e.internal.sides.right.hand.pts[0].x,.8*1280);
 // All original keyboard mode entries still work, and D toggles diagnostics.
@@ -131,7 +137,7 @@ console.log('PASS: simple right-hand effect height, full range below lock zone, 
 console.log(JSON.stringify({ ...(baseline ? {before: metrics(baseline)} : {}), after: metrics(path) }, null, 2));
 // A narrow visible shape stays visible through the hysteresis band; hidden shapes
 // need the larger entry area. Debug must retain the renderer's hide reason.
-e=boot(path);start(e);e.internal.drawFrame(1400);
+e=boot(path);start(e);e.run('visualFx="portal"');e.internal.drawFrame(1400);   // visuals start off; pick one
 for (const [area, visible] of [[.00000075,true],[.00000025,false],[.00000075,false],[.000002,true]]) {
   e.run(`shownCorners=null; frame.target=[{x:0,y:0},{x:128,y:0},{x:128,y:${area*7200}},{x:0,y:${area*7200}}];`);
   e.internal.drawFrame(1450);
@@ -171,19 +177,29 @@ const rng=seed();
 for(let i=0;i<1000;i++){const q=Array.from({length:4},()=>({x:rng(),y:rng()}));e.box.geometry=q;verify(e.run('orderByAngle(geometry)'));}
 console.log('PASS: open-palm activation, simultaneous controls, same-height crossing/rotation, concave triangulation in both windings (1000 random layouts)');
 
-// Manual blend reaches both endpoints with palms in the bottom third of the frame.
+// Manual blend reaches both endpoints over a long travel that stays well below the lock zone.
 {
  const e=boot(path);
- e.run(`Object.assign(blend,{active:true,since:0,last:1000,lastInput:1000,p:0,sweep:0,finishing:false,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){}}});
- for(let i=1;i<=40;i++) updateBlend({palmY:.70,pose:'open'}, {palmY:.70,pose:'open'}, 1000+i*34);`);
- assert(e.api.blend.p>=.999,'full blend at palm Y .70, well below the lock zone');
- assert(e.api.blend.sweep>.99,'outgoing fade also reachable at .70');
- e.run(`Object.assign(blend,{p:1,sweep:1,finishing:false,last:3000,since:0});
- for(let i=1;i<=40;i++) updateBlend({palmY:.88,pose:'open'}, {palmY:.88,pose:'open'}, 3000+i*34);`);
+ e.run(`Object.assign(blend,{active:true,since:0,last:1000,lastInput:1000,p:0,sweep:0,finishing:false,fullSince:null,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){}}});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.55,pose:'open'}, {palmY:.55,pose:'open'}, 1000+i*34);`);
+ assert(e.api.blend.p>=.999,'full blend at palm Y .55, well below the lock zone');
+ assert(e.api.blend.sweep>.99,'outgoing fade also reachable at .55');
+ e.run(`Object.assign(blend,{p:.5,sweep:1,finishing:false,fullSince:null,last:3000,since:0});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.70,pose:'open'}, {palmY:.70,pose:'open'}, 3000+i*34);`);
+ assert(e.api.blend.p>.3 && e.api.blend.p<.8,'palm Y .70 is mid-blend, not the end');
+ e.run(`Object.assign(blend,{p:1,sweep:1,finishing:false,fullSince:null,last:5000,since:0});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.90,pose:'open'}, {palmY:.90,pose:'open'}, 5000+i*34);`);
  assert(e.api.blend.p<.001,'low palm returns to outgoing song');
  assert(e.api.blend.sweep<.001,'low palm restores outgoing level');
+ // overshooting to the top briefly does not finish the blend; holding there does
+ e.run(`Object.assign(blend,{p:.9,finishing:false,fullSince:null,last:7000,since:0,lastInput:7000});
+ for(let i=1;i<=12;i++) updateBlend({palmY:.50,pose:'open'}, null, 7000+i*34);
+ for(let i=13;i<=40;i++) updateBlend({palmY:.75,pose:'open'}, null, 7000+i*34);`);
+ assert(!e.api.blend.finishing,'a brief overshoot can be pulled back');
+ e.run(`for(let i=1;i<=40;i++) updateBlend({palmY:.50,pose:'open'}, null, 9000+i*34);`);
+ assert(e.api.blend.finishing,'holding at the top finishes the blend');
 }
-console.log('PASS: comfortable bottom-third hand blend endpoints');
+console.log('PASS: long hand blend travel, overshoot forgiveness, hold-to-finish');
 
 // Full volume requires only 42% of frame width, clear of the side gesture zones.
 {
@@ -196,3 +212,29 @@ console.log('PASS: comfortable bottom-third hand blend endpoints');
  assert(low.api.controls.volume<.02,'hands close together still reach minimum volume');
 }
 console.log('PASS: full volume range within the central gesture-safe area');
+
+// The visible transport uses the same Next path as the gesture, including wraparound.
+{
+ const e=boot(path);
+ e.run('queue.getState=()=>({items:[],currentId:null});');
+ e.box.transportOptions.onNext();
+ assert.deepEqual(e.run('queue.calls'),['default'],'transport starts the default queue when empty');
+}
+{
+ const e=boot(path);e.api.deck.playing=true;
+ e.run(`queue.getState=()=>({items:[{id:'a'},{id:'b'}],currentId:'b'});queue.getUpNext=()=>null;queue.startHandMix=()=>{queue.calls.push('handmix');return new Promise(()=>{})};`);
+ e.box.transportOptions.onNext();
+ assert.deepEqual(e.run('queue.calls'),['handmix'],'transport blends from last song back to first');
+}
+console.log('PASS: Next transport starts defaults and opens wraparound hand blends');
+
+// The normal camera-off page must still advance a transport-started blend.
+{
+ const e=boot(path);
+ e.run(`let finishedWithoutCamera=0; Object.assign(blend,{active:true,finishing:false,lastInput:0,last:0,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){finishedWithoutCamera++}}});`);
+ e.run('idleLoop(6000)');
+ assert.equal(e.run('finishedWithoutCamera'),1,'no-camera blend reaches idle completion');
+ e.run('blend.controls.done=true;idleLoop(6100)');
+ assert.equal(e.api.blend.active,false,'no-camera blend releases controls when done');
+}
+console.log('PASS: transport blends finish and release controls without a camera');

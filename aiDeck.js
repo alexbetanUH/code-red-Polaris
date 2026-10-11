@@ -58,7 +58,7 @@ export class Deck {
   // Current position in the track, accounting for speed changes.
   position() {
     if (!this.playing) return this.offset;
-    return this.offset + (this.ctx.currentTime - this.anchorTime) * this.rate;
+    return this.offset + Math.max(0, this.ctx.currentTime - this.anchorTime) * this.rate;
   }
 
   play() {
@@ -96,7 +96,7 @@ export class Deck {
 
   // Playback speed (also shifts pitch, like a turntable). 1 = normal.
   setSpeed(rate) {
-    if (this.playing) {
+    if (this.playing && this.ctx.currentTime >= this.anchorTime) {
       this.offset = this.position();
       this.anchorTime = this.ctx.currentTime;
     }

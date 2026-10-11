@@ -847,6 +847,7 @@ function resumeSet() {
   });
 }
 async function stopSet() {
+  screens.cancel(); // invalidate resume/countdown callbacks before the async fade
   inSet = false;
   djGame.setEnabled(false);
   djGame.reset();

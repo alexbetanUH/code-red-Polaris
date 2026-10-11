@@ -618,7 +618,7 @@ export class Deck {
   // Current position in the track, accounting for speed changes.
   position() {
     if (!this.playing) return this.offset;
-    return (this.offset + (this.ctx.currentTime - this.anchorTime) * this.rate) % this.buffer.duration;
+    return (this.offset + Math.max(0, this.ctx.currentTime - this.anchorTime) * this.rate) % this.buffer.duration;
   }
 
   play() {
@@ -658,7 +658,7 @@ export class Deck {
   setSpeed(rate) {
     if (!Number.isFinite(rate)) return;
     rate = Math.max(0.05, rate);
-    if (this.playing) {
+    if (this.playing && this.ctx.currentTime >= this.anchorTime) {
       this.offset = this.position();
       this.anchorTime = this.ctx.currentTime;
     }

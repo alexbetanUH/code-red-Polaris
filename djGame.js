@@ -100,6 +100,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   const songShares = new Map(); // song id → how far through it the bar has got (never goes back)
 
   let enabled = startEnabled;
+  let generation = 0; // pending set endings belong to the game that created them
   let wasActive = false;
   let lastFrame = 0;
   let lastHands = 0; // when a hand was last in frame
@@ -556,7 +557,10 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       best: score.best,
       accuracy: score.judged ? score.points / score.judged : 0,
     };
-    queue.endSet().then(() => onSetEnd(results));
+    const mine = generation;
+    queue.endSet().then((ended) => {
+      if (mine === generation && ended !== false) onSetEnd(results);
+    });
   }
 
   // ---- every camera frame ---------------------------------------------------------
@@ -928,8 +932,10 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     // Picks up where it paused: the mix's moments (real time) move on by the pause.
     async resume() {
       if (pausedAt === null) return;
+      const mine = generation, started = pausedAt;
       await deck.ctx.resume();
-      const paused = performance.now() - pausedAt;
+      if (mine !== generation || pausedAt !== started) return;
+      const paused = performance.now() - started;
       if (mix) {
         for (const key of ["comesIn", "swapAt", "endAt"]) if (typeof mix[key] === "number") mix[key] += paused;
         for (const head of mix.heads ?? []) head.real += paused;
@@ -942,6 +948,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     },
     // A fresh start for a new set (or the same one again): score, chart and mix cleared.
     reset() {
+      generation += 1;
       songStarts.clear();
       songShares.clear();
       if (pausedAt !== null) deck?.ctx?.resume();
