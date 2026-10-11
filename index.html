@@ -177,7 +177,7 @@
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./audio.js?v=7";
-import { FrameFx } from "./frame.js?v=6";
+import { FrameFx } from "./frame.js?v=8";
 import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
@@ -845,10 +845,10 @@ const FX_NAMES = ["reverb", "echo", "bitcrush", "flanger"];
 const FX_LABELS = { reverb: "Reverb", echo: "Echo", bitcrush: "Bitcrush", flanger: "Flanger" };
 // Visual effects for the finger-point shape (right fist in the bottom-right corner, then 1-5 fingers)
 const VIS_COLOR = "#a78bfa";
-const VIS_NAMES = ["portal", "color", "kaleido", "pixel8", "off"];   // 1-4 = effects, 5 = all off
-const VIS_LABELS = { portal: "Portal", color: "Color filter", kaleido: "Kaleidoscope", pixel8: "8-bit", off: "All off" };
+const VIS_NAMES = ["portal", "color", "kaleido", "bubbles", "off"];   // 1-4 = effects, 5 = all off
+const VIS_LABELS = { portal: "Portal", color: "Color filter", kaleido: "Kaleidoscope", bubbles: "Bubble Aero", off: "All off" };
 let visualFx = "portal";
-try { const v = localStorage.getItem("airdeck-visual"); if (VIS_NAMES.includes(v)) visualFx = v; } catch {}
+try { const saved = localStorage.getItem("airdeck-visual"); const v = saved === "pixel8" ? "bubbles" : saved; if (VIS_NAMES.includes(v)) visualFx = v; } catch {}
 function setVisual(name) {
   visualFx = name;
   try { localStorage.setItem("airdeck-visual", name); } catch {}
@@ -942,8 +942,10 @@ const songChoice = (n) => Math.min(n, SONG_CHOICES.length);   // 4 or 5 fingers 
 function previousSong() {
   const { items, currentId } = queue.getState();
   const i = items.findIndex((item) => item.id === currentId);
-  if (i > 0) queue.play(items[i - 1].id);
-  else queue.seek(0);
+  if (!items.length) return;
+  // Loading the selected song also starts it, even if the deck was idle/paused.
+  // At the beginning of the queue (or before any song is loaded), play the first.
+  queue.play(items[Math.max(0, i - 1)].id);
 }
 
 // Choose song action / visual / effect number n (1–5) in the current mode.
@@ -1015,7 +1017,13 @@ async function nextSong() {
   if (blend.active || blend.starting) return;
   const { items, currentId } = queue.getState();
   const next = queue.getUpNext()?.item;
-  if (!blendOn || !deck.playing || !next) {
+  if (!deck.playing) {
+    // No outgoing audio to blend: start the queued song immediately.
+    queue.next();
+    flash("⏭ Playing next song");
+    return;
+  }
+  if (!blendOn || !next) {
     if (!queue.mixNow()) queue.next();
     flash("⏭ Next song");
     return;

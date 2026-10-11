@@ -82,6 +82,22 @@ console.log('PASS: false pinch, pose-independent activation, loss/reacquisition,
 function counted(x,y,n,label){const h=hand(x,y,{pinch:null,label});h.w[4]={...h.w[5]};for(let j=0;j<4;j++){const m=5+j*4,b=j<n?0:150;h.w[m+2]={x:h.w[m].x+.024*Math.sin(b*Math.PI/180),y:-.078-.024*Math.cos(b*Math.PI/180),z:0};h.w[m+3]={x:h.w[m+2].x,y:h.w[m+2].y-.018,z:0};}if(n===5)h.w[4]={x:-.08,y:-.028,z:0};return h;}
 for(const mode of ['song','fx','vis']){const e=boot(path),picks=[];e.api.deck.pickSlot=(n)=>picks.push(n);e.api.deck.toggleEffect=(name)=>{picks.push(name);return false};for(let i=0;i<40;i++){const hs=mode==='fx'?[counted(.06,.6,0,'Left'),counted(.6,.6,2,'Right')]:[counted(.3,.6,3,'Left'),counted(.9,mode==='vis'?.94:.6,0,'Right')];feed(e,hs,1000+i*1000/30)}assert.equal(e.api.modes.current,mode);assert.equal(e.api.modes.pending,mode==='fx'?2:3);for(let i=0;i<20;i++)feed(e,[counted(.3,.6,3,'Left'),counted(.6,.6,2,'Right')],2400+i*1000/30);assert.equal(e.api.modes.current,'normal');if(mode==='song')assert.deepEqual(e.run('queue.calls'),[],'3 fingers in the song zone = nothing');if(mode==='fx')assert.equal(picks[0],'echo');if(mode==='vis')assert.equal(e.run('visualFx'),'kaleido');}
 {const e=boot(path),key=(k)=>{for(const f of e.events.keydown)f({key:k,target:{tagName:'BODY'},preventDefault(){}})};key('s');key('1');key('2');assert.deepEqual(e.run('queue.calls'),['next','play:a'],'song keys: 1 = next, 2 = previous')}
+// Song gestures start playback from idle; Previous on the first song must play,
+// rather than seek (which preserves the paused state). Playing decks keep hand mixes.
+{
+ const e=boot(path);
+ e.api.deck.playing=false;
+ e.run(`queue.getState=()=>({items:[{id:'a'},{id:'b'}],currentId:null});queue.getUpNext=()=>({item:{id:'a'}});queue.mixNow=()=>{throw new Error('idle next must play directly')};`);
+ e.run('enterMode("song",true);pick(1);pick(2);');
+ assert.deepEqual(e.run('queue.calls'),['next','play:a'],'idle next and previous start queued playback');
+ e.run(`queue.calls.length=0;queue.getState=()=>({items:[{id:'a'},{id:'b'}],currentId:'a'});pick(2);`);
+ assert.deepEqual(e.run('queue.calls'),['play:a'],'previous on a paused first song starts it');
+ e.run(`queue.calls.length=0;queue.getState=()=>({items:[],currentId:null});pick(1);pick(2);`);
+ assert.deepEqual(e.run('queue.calls'),[],'an actually empty queue has no song to play');
+ e.api.deck.playing=true;
+ e.run(`queue.getState=()=>({items:[{id:'a'},{id:'b'}],currentId:'a'});queue.getUpNext=()=>({item:{id:'b'}});queue.startHandMix=()=>{queue.calls.push('handmix');return new Promise(()=>{})};pick(1);`);
+ assert.deepEqual(e.run('queue.calls'),['handmix'],'next while playing retains the hand blend');
+}
 e=boot(path);for(let i=0;i<51;i++)feed(e,[counted(.4,.3,5,'Left')],1000+i*1000/30);assert(e.api.lock.locked,'top hold locks');
 for(let i=0;i<20;i++)feed(e,[counted(.4,.7,5,'Left')],2800+i*1000/30);
 for(let i=0;i<66;i++)feed(e,[counted(.4,.3,5,'Left')],3600+i*1000/30);assert(!e.api.lock.locked,'second top hold unlocks');

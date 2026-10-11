@@ -31,7 +31,7 @@ uniform vec2 u_center; // quad center in pixels
 uniform float u_radius; // average distance from the center to the corners, in pixels
 uniform float u_time;  // seconds
 uniform float u_bass;  // 0..1
-uniform int u_fx;      // 0 pixel8, 1 glitch, 2 wave, 3 kaleido, 4 portal, 5 color filter
+uniform int u_fx;      // 0 bubble Aero, 1 glitch, 2 wave, 3 kaleido, 4 portal, 5 color filter
 varying vec2 v_px;
 varying vec2 v_local;
 
@@ -48,12 +48,41 @@ void main() {
   vec3 col;
 
   if (u_fx == 0) {
-    // 8-bit: blocky pixels, few colors, scanlines
-    float block = 6.0 + 4.0 * u_bass;
-    vec2 q = (floor(p / block) + 0.5) * block;
-    col = cam(q);
-    col = floor(col * 2.5 + 0.5) / 2.5;
-    if (mod(p.y, 4.0) < 1.5) col *= 0.75;
+    // Aero glass: a cool, luminous camera view with floating refractive bubbles.
+    float rad = max(u_radius, 1.0);
+    vec2 uv = (p - u_center) / rad;
+    vec3 sky = mix(vec3(0.42, 0.82, 0.96), vec3(0.88, 0.98, 1.0),
+                   clamp(0.5 + uv.y * 0.35, 0.0, 1.0));
+    col = mix(cam(p), sky, 0.22);
+    col += vec3(0.025, 0.045, 0.05);
+    for (int i = 0; i < 18; i++) {
+      float fi = float(i);
+      float seed = hash(fi + 4.0);
+      float speed = 0.055 + 0.065 * hash(fi + 18.0);
+      float y = 1.3 - mod(fi * (2.6 / 18.0) + u_time * speed, 2.6);
+      float x = (seed - 0.5) * 1.75 + sin(u_time * 0.45 + fi * 2.4) * 0.10;
+      float radius = (0.16 + 0.19 * hash(fi + 9.0)) * (1.0 + 0.10 * u_bass);
+      vec2 b = (uv - vec2(x, y)) / radius;
+      float r2 = dot(b, b);
+      if (r2 < 1.0) {
+        float r = sqrt(r2);
+        float dome = sqrt(max(0.0, 1.0 - r2));
+        // The camera bends through each glass sphere, with a slight rainbow rim.
+        vec2 lens = p - b * radius * rad * dome * 0.24;
+        vec2 split = b * (0.8 + 1.5 * u_bass) * r;
+        vec3 glass = vec3(cam(lens + split).r, cam(lens).g, cam(lens - split).b);
+        vec3 tint = mix(vec3(0.55, 0.9, 1.0), vec3(0.77, 1.0, 0.79), seed);
+        glass = mix(glass, tint, 0.17 + 0.12 * (1.0 - dome));
+        float rim = smoothstep(0.68, 0.96, r);
+        float light = clamp(dot(b, vec2(-0.65, -0.76)), 0.0, 1.0);
+        glass += mix(vec3(0.12, 0.38, 0.52), vec3(0.85, 0.98, 1.0), light) * rim * 0.55;
+        float gleam = exp(-dot(b - vec2(-0.30, -0.40), b - vec2(-0.30, -0.40)) * 55.0);
+        glass = mix(glass, vec3(1.0), gleam * 0.88);
+        float crescent = exp(-pow((r - 0.82) * 23.0, 2.0)) * light * light;
+        glass += vec3(0.68, 0.86, 0.95) * crescent * 0.55;
+        col = mix(col, glass, 1.0 - smoothstep(0.94, 1.0, r));
+      }
+    }
   } else if (u_fx == 1) {
     // glitch: horizontal slice offsets, RGB split, noise
     float t = floor(u_time * 14.0);
@@ -135,7 +164,7 @@ precision mediump float;
 uniform vec4 u_color;
 void main() { gl_FragColor = u_color; }`;
 
-const EFFECTS = { pixel8: 0, glitch: 1, wave: 2, kaleido: 3, portal: 4, color: 5 };
+const EFFECTS = { bubbles: 0, pixel8: 0, glitch: 1, wave: 2, kaleido: 3, portal: 4, color: 5 };
 
 export class FrameFx {
   constructor() {
