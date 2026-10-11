@@ -3,86 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AirDeck Mix</title>
+<title>AirDeck · DJ Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="aero.css">
 <style>
+  /* DJ Deck: the shared Aero look (aero.css) in the underwater world. */
   :root {
-    --bg: #07080c;
-    --panel: #11141c;
-    --border: #232838;
-    --text: #e8ecf3;
-    --muted: #8a93a6;
-    --a: #38bdf8;
-    --b: #f472b6;
-    --gold: #facc15;
+    --a: #1e95e3;
+    --b: #5cb82c;
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  header, .loaders {
+  .loaders {
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 10px 14px;
-    padding: 10px 16px;
+    gap: 12px;
+    padding: 12px 18px 0;
   }
-  header { border-bottom: 1px solid var(--border); }
-  h1 { font-size: 18px; margin: 0 8px 0 0; font-weight: 700; letter-spacing: 0.02em; }
-  h1 span { color: var(--gold); }
-  #calibMsg { color: var(--gold); font-weight: 600; }
-  #status { color: var(--muted); font-size: 13px; margin-left: auto; }
-  a { color: var(--muted); font-size: 13px; }
-  button {
-    background: var(--text);
-    color: var(--bg);
-    border: 0;
-    border-radius: 8px;
-    padding: 7px 14px;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
-  button:disabled { opacity: 0.4; cursor: default; }
   .loader {
     flex: 1 1 420px;
     display: flex;
     align-items: center;
     gap: 8px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 22px;
     padding: 8px 10px;
     min-width: 0;
   }
-  .loader .tag { font-weight: 800; width: 22px; text-align: center; }
-  .loader.a .tag { color: var(--a); }
-  .loader.b .tag { color: var(--b); }
-  .loader input[type="url"] {
-    flex: 1 1 140px;
-    min-width: 0;
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 8px;
-    font: inherit;
-    font-size: 13px;
-  }
+  .loader .tag { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; }
+  .loader.a .tag { color: #fff; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #9be0ff 16%, #1e95e3 62%, #0b62b0 100%); }
+  .loader.b .tag { color: #123d0c; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #dcfbbd 16%, #86d44e 62%, #4f9f24 100%); }
+  .loader input[type="url"] { flex: 1 1 140px; }
   .loader input[type="file"] { display: none; }
-  .loader button { padding: 5px 10px; font-size: 13px; }
-  .loader .st { flex: 1 1 140px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .loader button { min-height: 36px; padding: 0 14px; font-size: 14px; }
+  .loader .st { flex: 1 1 140px; font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .stage {
     position: relative;
-    margin: 0 auto;
-    width: min(100% - 32px, (100vh - 190px) * 16 / 9);
+    margin: 14px auto 0;
+    width: min(100% - 36px, (100vh - 220px) * 16 / 9);
     aspect-ratio: 16 / 9;
-    background: #000;
-    border-radius: 14px;
+    border-radius: 26px;
     overflow: hidden;
+    border: 2px solid rgba(255,255,255,.95);
+    box-shadow: 0 14px 38px rgba(4,60,110,.35), inset 0 0 0 1px rgba(120,180,225,.35);
   }
   video { display: none; }
   canvas { width: 100%; height: 100%; display: block; }
@@ -91,29 +52,22 @@
     justify-content: center;
     flex-wrap: wrap;
     gap: 8px;
-    padding: 10px 16px 14px;
+    padding: 12px 16px 16px;
   }
-  .legend div {
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 5px 12px;
-    color: var(--muted);
-    font-size: 13px;
-    transition: all 0.15s;
-  }
-  .legend div.on { color: var(--bg); background: var(--gold); border-color: var(--gold); font-weight: 600; }
+  .legend div { transition: all 0.15s; }
+  .legend div.on { color: #3d1800; background: linear-gradient(180deg, #ffe7a8, #ffc94a); border-color: #e0a21a; }
 </style>
 </head>
-<body>
-<header>
-  <h1>AirDeck <span>Mix</span></h1>
+<body class="world-water">
+<header class="topbar glass">
+  <a class="brand" href="landing.html" title="Back to the home page"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>AirDeck</a>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="mix.html" aria-current="page">DJ Deck</a><a class="arcade" href="arcade.html">Arcade · 2P</a><a class="ai" href="index.html#ai-dj">AI DJ</a></nav>
   <button id="start" disabled>Loading model…</button>
   <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
   <button id="demo" class="secondary">Load demo tracks</button>
   <button id="playAll" class="secondary" disabled>Play</button>
-  <span id="calibMsg"></span>
-  <span id="status"></span>
-  <a href="index.html">single-deck tracker</a>
+  <span class="note" id="calibMsg"></span>
+  <span class="status spacer" id="status"></span>
 </header>
 
 <section class="loaders" id="loaders"></section>
@@ -124,9 +78,9 @@
 </div>
 
 <footer class="legend">
-  <div id="lgHover">👆 Move your fingertips onto a fader or knob</div>
-  <div id="lgGrab">🤏 Pinch to grab · fader: up/down · knob: circle around it</div>
-  <div id="lgPause">✋✋ Hold both open hands low → pause tracking</div>
+  <div class="chip" id="lgHover">1 · Move your fingertips onto a fader or knob</div>
+  <div class="chip" id="lgGrab">2 · Pinch to grab: fader up / down, knob in a circle</div>
+  <div class="chip" id="lgPause">Both open hands low for 1 s · pause tracking</div>
 </footer>
 
 <script type="module">
@@ -169,7 +123,8 @@ const CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
   [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17],
 ];
-const DECK_COLORS = ["#38bdf8", "#f472b6"];
+const DECK_COLORS = ["#1e95e3", "#5cb82c"];
+const DECK_TEXT = ["#9be6ff", "#cdf7a4"];   // lighter tints, readable on the water
 const GOLD = "#facc15";
 const SIDES = ["left", "right"];                    // tracked hands; either hand can use any control
 
@@ -189,10 +144,10 @@ try {
 
 // ---- Deck loaders ------------------------------------------------------------------
 $("loaders").innerHTML = ["a", "b"].map((id) => `
-  <div class="loader ${id}">
+  <div class="loader glass ${id}">
     <span class="tag">${id.toUpperCase()}</span>
     <input type="url" id="${id}Url" placeholder="YouTube link for deck ${id.toUpperCase()}">
-    <button id="${id}Yt">Load</button>
+    <button id="${id}Yt" class="${id === "b" ? "lime" : ""}">Load</button>
     <button id="${id}FileBtn" class="secondary">File</button>
     <input type="file" id="${id}File" accept="audio/*">
     <span class="st" id="${id}St">empty</span>
@@ -526,8 +481,10 @@ function render() {
   const pulse = playing ? Math.pow(1 - (((beat % 1) + 1) % 1), 3) : 0;
   const hands = liveHands();
 
-  // Camera, dimmed so the controls read on top
-  ctx.fillStyle = "#05060a";
+  // Camera over deep water, dimmed so the controls read on top
+  const water = ctx.createLinearGradient(0, 0, 0, H);
+  water.addColorStop(0, "#1c8fc9"); water.addColorStop(1, "#06456e");
+  ctx.fillStyle = water;
   ctx.fillRect(0, 0, W, H);
   if (cameraOn) {
     ctx.save();
@@ -541,7 +498,7 @@ function render() {
   // Bass glow from the edges: you can see the kick even with the sound off
   const glow = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.95);
   glow.addColorStop(0, "rgba(0,0,0,0)");
-  glow.addColorStop(1, `rgba(124,92,255,${0.08 + 0.55 * bass * bass + 0.12 * pulse})`);
+  glow.addColorStop(1, `rgba(99,205,252,${0.08 + 0.55 * bass * bass + 0.12 * pulse})`);
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
   drawBassBars(W, H, u, bass);
@@ -566,8 +523,8 @@ function render() {
 function drawBassBars(W, H, u, bass) {
   const h = bass * bass * H * 0.6;
   const g = ctx.createLinearGradient(0, H, 0, H - h);
-  g.addColorStop(0, "rgba(124,92,255,0.65)");
-  g.addColorStop(1, "rgba(124,92,255,0)");
+  g.addColorStop(0, "rgba(143,224,255,0.75)");
+  g.addColorStop(1, "rgba(143,224,255,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, H - h, 10 * u, h);
   ctx.fillRect(W - 10 * u, H - h, 10 * u, h);
@@ -591,11 +548,11 @@ function drawDeck(k, u, level, stateOf) {
   // Title + tempo
   ctx.save();
   ctx.textAlign = k === 0 ? "left" : "right";
-  ctx.fillStyle = color;
-  ctx.font = `800 ${20 * u}px system-ui, sans-serif`;
+  ctx.fillStyle = DECK_TEXT[k];
+  ctx.font = `900 ${20 * u}px Nunito, system-ui, sans-serif`;
   ctx.fillText(`${k === 0 ? "A" : "B"}  ${d.loaded ? truncate(d.name, 30) : "empty"}`, L.title.x, L.title.y);
   ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = `600 ${14 * u}px system-ui, sans-serif`;
+  ctx.font = `700 ${14 * u}px Nunito, system-ui, sans-serif`;
   if (d.loaded) {
     const rate = mixer.masterBpm / d.bpm;
     ctx.fillText(`${d.playing ? "▶" : "❚❚"}  ${d.bpm.toFixed(1)} BPM → ${(d.bpm * rate).toFixed(1)} (${((rate - 1) * 100).toFixed(1)}%)`, L.title.x, L.title.y + 22 * u);
@@ -617,7 +574,7 @@ function drawDeck(k, u, level, stateOf) {
     ctx.shadowColor = fs === "held" ? color : GOLD;
     ctx.shadowBlur = 25 * u;
   }
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillStyle = "rgba(6,40,70,0.62)";
   ctx.strokeStyle = fs === "held" ? color : fs === "hover" ? GOLD : "rgba(255,255,255,0.15)";
   ctx.lineWidth = 2 * u;
   ctx.beginPath(); ctx.roundRect(f.x - f.w / 2, f.top, f.w, f.bottom - f.top, f.w / 2); ctx.fill(); ctx.stroke();
@@ -654,7 +611,7 @@ function drawVinyl(cx, cy, r, d, color, level) {
   ctx.shadowColor = color;
   ctx.shadowBlur = 10 + 50 * level;
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = "#0d0f14";
+  ctx.fillStyle = "#0e3555";
   ctx.fill();
   ctx.shadowBlur = 0;
   ctx.strokeStyle = "rgba(255,255,255,0.07)";
@@ -670,7 +627,7 @@ function drawVinyl(cx, cy, r, d, color, level) {
   ctx.lineTo(cx + Math.cos(angle) * r * 0.95, cy + Math.sin(angle) * r * 0.95);
   ctx.stroke();
   ctx.beginPath(); ctx.arc(cx, cy, r * 0.05, 0, Math.PI * 2);
-  ctx.fillStyle = "#05060a";
+  ctx.fillStyle = "#06263f";
   ctx.fill();
   ctx.restore();
 }
@@ -680,7 +637,7 @@ function drawKnob(x, y, r, v, color) {
   const deg = Math.PI / 180, start = -225 * deg, end = 45 * deg, at = (-90 + v * KNOB_SWEEP) * deg;
   ctx.save();
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillStyle = "rgba(6,40,70,0.62)";
   ctx.fill();
   ctx.lineCap = "round";
   ctx.lineWidth = Math.max(3, r * 0.16);
@@ -736,7 +693,7 @@ function drawHand(s, hand, u) {
 // Paused overlay, and a progress ring on each palm while the pause gesture is held
 function drawPause(W, H, u, hands) {
   if (fx.paused) {
-    ctx.fillStyle = "rgba(5,6,10,0.55)";
+    ctx.fillStyle = "rgba(4,40,70,0.55)";
     ctx.fillRect(0, 0, W, H);
     drawCenterText(W, H, u, "⏸  TRACKING PAUSED", "music keeps playing · hold both open hands low for 1 s to resume");
   }
@@ -763,12 +720,12 @@ function drawCenterText(W, H, u, title, sub) {
 
 function label(x, y, text, color, size, box = true) {
   ctx.save();
-  ctx.font = `700 ${size}px system-ui, sans-serif`;
+  ctx.font = `800 ${size}px Nunito, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   if (box) {
     const w = ctx.measureText(text).width + size, h = size * 1.6;
-    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillStyle = "rgba(4,40,70,0.72)";
     ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, size * 0.35); ctx.fill();
   }
   ctx.fillStyle = color;
