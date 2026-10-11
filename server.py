@@ -457,7 +457,18 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def home_is_landing(self):
+        # The landing page is the home page (index.html is the AI DJ page).
+        parts = urlparse(self.path)
+        if parts.path == "/":
+            self.path = "/landing.html" + (f"?{parts.query}" if parts.query else "")
+
+    def do_HEAD(self):
+        self.home_is_landing()
+        super().do_HEAD()
+
     def do_GET(self):
+        self.home_is_landing()
         if self.path.startswith("/api/progress"):
             job = parse_qs(urlparse(self.path).query).get("job", [""])[0]
             with progress_lock:
@@ -547,7 +558,7 @@ if __name__ == "__main__":
     except OSError:
         sys.exit(f"Port {PORT} is already in use (another server.py still running?)\n"
                  f"Stop it, or pick another port:  python server.py {PORT + 1}")
-    print(f"AirDeck running at http://localhost:{PORT}/landing.html (yt-dlp: {' '.join(YTDLP + JS_RUNTIME)})")
+    print(f"AirDeck running at http://localhost:{PORT} (yt-dlp: {' '.join(YTDLP + JS_RUNTIME)})")
     gemini = f"on ({GEMINI_MODEL})" if os.environ.get("GEMINI_API_KEY") else "off (set GEMINI_API_KEY)"
     voice = "ElevenLabs" if os.environ.get("ELEVENLABS_API_KEY") else "browser voice (set ELEVENLABS_API_KEY for ElevenLabs)"
     print(f"AI DJ: {gemini}, voice: {voice}")

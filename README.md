@@ -23,7 +23,7 @@ python3 server.py
 
 If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
 
-Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
+Open http://localhost:8000 in Chrome (the landing page) and pick **AI DJ**, or go straight to http://localhost:8000/index.html. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
 songs from the **Library** (▶ plays one now, + adds it, **Add all** queues them all), or let the AI DJ choose. Drag
 songs to reorder them. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to
 jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
