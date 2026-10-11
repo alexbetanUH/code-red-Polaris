@@ -182,7 +182,9 @@ export function createTransitions(deck) {
   let glide = null;
   let tail = null; // { source, nodes, incoming, nudge, timer, watch } while the outgoing song fades
 
+  let speedHeld = false; // while the hands perform a mix, their pinch must not change the speed
   deck.setSpeed = (speed) => {
+    if (speedHeld) return;
     handSpeed = speed;
     // A song scheduled to start on a downbeat hasn't started yet: the next frame applies it.
     if (deck.ctx && deck.anchorTime > deck.ctx.currentTime) return;
@@ -291,6 +293,11 @@ export function createTransitions(deck) {
         .blend
         ? "blend"
         : "echo";
+    },
+
+    // Holds the speed where it is (while the hands perform a mix), or lets go.
+    holdSpeed(on) {
+      speedHeld = Boolean(on);
     },
 
     // Manual song changes: no tail, no nudge.

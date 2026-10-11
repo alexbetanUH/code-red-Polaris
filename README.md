@@ -75,7 +75,7 @@ belongs, and a move track above the strip shows what your hands do, timed to the
 
 Moves within a beat of the cue are PERFECT, within two GOOD. Miss one by a bar, or stall, and the AI does that part
 for you, so the music never stops. Pinching never counts as a move, so the pinch controls keep working, and the
-master volume holds still while you mix. Without the camera the DJ does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+master volume and speed hold still while you mix. Without the camera the DJ does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your

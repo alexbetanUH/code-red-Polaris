@@ -138,7 +138,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // The DJ talks over a transition with the music turned down. The hand controls
   // set the volume every frame, so the duck level multiplies whatever they set.
   // While the hands perform a mix, moving them must not change the master volume
-  // (it follows the distance between them), so it's held.
+  // (it follows the distance between them) or the speed (the left pinch), so both are held.
   const setDeckVolume = deck.setVolume.bind(deck);
   let handVolume = 0.8; // audio.js's starting volume
   let duckLevel = 1;
@@ -671,9 +671,10 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       });
     },
 
-    // Holds the master volume where it is (while the hands perform a mix), or lets go.
-    holdVolume(on) {
+    // Holds the master volume and speed where they are (while the hands perform a mix), or lets go.
+    holdControls(on) {
       volumeHeld = Boolean(on);
+      transitions.holdSpeed(on);
     },
 
     // What happens next, for an on-screen preview, or null when nothing's queued:

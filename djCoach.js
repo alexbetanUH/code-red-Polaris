@@ -17,7 +17,8 @@
 // The page calls update() every camera frame with its hands (index.html's hand objects:
 // height 0 at the bottom to 1 at the top, open 0 fist to 1 flat, pinched, wristX 0–1
 // across the mirrored frame). Pinching hands never trigger moves, so the pinch controls
-// (speed, filter) keep working. While the hands perform a mix the master volume holds still.
+// (filter, and speed between mixes) keep working. While the hands perform a mix the master
+// volume and the speed hold still (lowering an open left hand would otherwise speed it up).
 
 const raiseAt = 0.6; // hand height that counts as "up"
 const lowerAt = 0.4; // ...and "down"
@@ -126,7 +127,7 @@ export function createDjCoach(queue, upNext) {
       }
       controls = started;
       levels = { in: 0, out: 1 };
-      queue.holdVolume(true);
+      queue.holdControls(true);
       const comesIn = performance.now() + started.startsIn * 1000;
       plan = { ...plan, cue2: comesIn + gap, barMs, beatMs };
       phase = "bringIn";
@@ -180,7 +181,7 @@ export function createDjCoach(queue, upNext) {
       phase = "idle";
       controls = null;
       plan = null;
-      queue.holdVolume(false);
+      queue.holdControls(false);
       return;
     }
     if (phase === "closing") return;
