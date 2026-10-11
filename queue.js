@@ -1,19 +1,42 @@
 // Song queue for the Deck in audio.js: add songs from YouTube (a link or a song
 // name, downloaded by server.py) or from files, reorder, remove, play one, or
-// skip to the next. Plus a floating panel to do all of that.
+// skip to the next. An AI DJ can fill it for you: Gemini picks songs that fit a
+// vibe and what's playing, and a voice (ElevenLabs, or the browser's) introduces
+// each one. Plus a floating panel to do all of that.
 //
 //   const queue = createQueue(deck);
-//   const panel = createQueuePanel(queue);
+//   const panel = createQueuePanel(queue, deck);
 //   queueButton.onclick = () => { deck.ensureContext(); panel.toggle(); };
 //
 // Call deck.ensureContext() inside clicks before queue actions: browsers only
 // allow sound after one. The panel already does this for its own buttons.
 
-export function createQueue(deck, { endpoint = "/api/youtube" } = {}) {
-  let items = []; // { id, title, detail, url } for YouTube downloads, { id, title, detail, file } for files
+const djSongsAhead = 2; // the DJ keeps this many songs queued after the current one
+const djPicksPerRequest = 3;
+const songEndMargin = 0.3; // seconds before the end at which the DJ moves on
+const voiceTimeoutMs = 15000; // never let a stuck voice line stall the set
+
+// Python's dev server sometimes resets the first request on a connection that sat
+// idle ("Failed to fetch"). A network error (not an HTTP error) gets one retry.
+async function retryOnNetworkError(request) {
+  try {
+    return await request();
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return request();
+  }
+}
+
+export function createQueue(deck, { apiBase = "/api" } = {}) {
+  // Items: { id, title, detail, url } for YouTube, { id, title, detail, file } for files.
+  // DJ picks also carry dj: { intro, voiceUrl }.
+  let items = [];
   let currentId = null;
   let status = null; // { message, isError } while adding or loading
   let nextId = 1;
+  let played = []; // titles in the order they played, for the DJ to avoid repeats
+  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0 };
   const listeners = new Set();
 
   const changed = () => listeners.forEach((listener) => listener());
@@ -21,16 +44,197 @@ export function createQueue(deck, { endpoint = "/api/youtube" } = {}) {
     status = message ? { message, isError } : null;
     changed();
   }
-
-  // The first song added plays right away, like loading one did before.
-  function add(item) {
-    items = [...items, { id: nextId++, ...item }];
+  function setDjStatus(message, isError = false) {
+    dj.status = message ? { message, isError } : null;
     changed();
-    if (currentId === null) queue.play(items[items.length - 1].id);
   }
 
+  async function postJson(path, body) {
+    const response = await retryOnNetworkError(() =>
+      fetch(`${apiBase}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    if (response.status === 501) throw new Error("start the app with `python server.py` to use this");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `request failed (${response.status})`);
+    return data;
+  }
+
+  // The first song added plays right away, like loading one did before.
+  function add(item, { autoplay = true } = {}) {
+    const entry = { id: nextId++, ...item };
+    items = [...items, entry];
+    changed();
+    if (autoplay && currentId === null) queue.play(entry.id);
+    return entry;
+  }
+
+  const upcoming = () => items.slice(items.findIndex((item) => item.id === currentId) + 1);
+
+  // Song loads run one at a time and only the newest request plays: the Deck can't
+  // cancel a load, so a slow older one finishing late would replace a newer song.
+  let playRequest = 0;
+  let playChain = Promise.resolve();
+
+  // While the DJ is introducing a song or switching to it: the flag, and which song.
+  let transitioning = false;
+  let transitionId = null;
+
+  // ---- AI DJ ----------------------------------------------------------------------
+
+  // The ElevenLabs clip for a DJ line, or null to fall back to the browser's voice.
+  async function prepareVoice(text) {
+    if (!text) return null;
+    try {
+      return (await postJson("/dj/voice", { text })).file;
+    } catch (error) {
+      console.warn("DJ voice unavailable, using the browser voice:", error.message);
+      return null;
+    }
+  }
+
+  // Plays a DJ line and resolves when it's done (or after a timeout).
+  function speak(item) {
+    const intro = item.dj?.intro;
+    if (!intro) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, voiceTimeoutMs);
+      function done() {
+        clearTimeout(timer);
+        resolve();
+      }
+      if (item.dj.voiceUrl) {
+        const audio = new Audio(item.dj.voiceUrl);
+        audio.onended = done;
+        audio.onerror = done;
+        audio.play().catch(done);
+      } else if ("speechSynthesis" in window) {
+        const line = new SpeechSynthesisUtterance(intro);
+        line.onend = done;
+        line.onerror = done;
+        speechSynthesis.speak(line);
+      } else {
+        done();
+      }
+    });
+  }
+
+  // Pauses, lets the DJ introduce the song, then plays it. One at a time.
+  async function transitionTo(item) {
+    transitioning = true;
+    transitionId = item.id;
+    try {
+      dj.talking = Boolean(item.dj?.intro);
+      changed();
+      if (deck.playing) deck.pause();
+      await speak(item);
+      dj.talking = false;
+      await queue.play(item.id);
+    } finally {
+      dj.talking = false;
+      transitioning = false;
+      transitionId = null;
+    }
+  }
+
+  // Asks the DJ for more songs whenever fewer than djSongsAhead are queued.
+  async function topUpDj() {
+    if (!dj.on || dj.busy || upcoming().length >= djSongsAhead) return;
+    const generation = dj.generation;
+    const stillValid = () => dj.on && dj.generation === generation;
+    dj.busy = true;
+    setDjStatus("Picking songs…");
+    let added = 0;
+    try {
+      const current = items.find((item) => item.id === currentId);
+      const { picks } = await postJson("/dj/pick", {
+        vibe: dj.vibe,
+        nowPlaying: current?.title ?? "",
+        queued: items.map((item) => item.title),
+        played,
+        count: djPicksPerRequest,
+      });
+      for (const pick of picks) {
+        if (!stillValid()) break;
+        const label = `${pick.artist} - ${pick.title}`;
+        setDjStatus(`Downloading ${label}…`);
+        try {
+          const song = await postJson("/youtube", { url: label });
+          const voiceUrl = await prepareVoice(pick.intro);
+          if (!stillValid()) break;
+          const entry = add(
+            { title: label, detail: `AI DJ · ${pick.reason}`, url: song.file, dj: { intro: pick.intro, voiceUrl } },
+            { autoplay: false },
+          );
+          added += 1;
+          if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
+        } catch (error) {
+          console.warn(`DJ skipped ${label}:`, error.message);
+        }
+      }
+      if (stillValid() && !added) throw new Error("none of the picks could be downloaded");
+      setDjStatus(null);
+    } catch (error) {
+      if (dj.generation === generation) dj.busy = false;
+      setDjStatus(`AI DJ: ${error.message}`, true);
+      return; // don't retry in a loop; the next song change tries again
+    }
+    // A newer request (after a vibe change) owns the busy flag now.
+    if (dj.generation !== generation) return;
+    dj.busy = false;
+    changed();
+    topUpDj(); // still short because some picks failed? ask again
+  }
+
+  // When a song is about to end (or just looped) with the DJ on, move to the next one.
+  let lastPhase = 0;
+  let lastBuffer = null;
+  setInterval(() => {
+    if (!dj.on || transitioning || !deck.playing || !deck.buffer) {
+      lastPhase = 0;
+      return;
+    }
+    if (deck.buffer !== lastBuffer) {
+      lastBuffer = deck.buffer; // a different song started: start watching it fresh
+      lastPhase = 0;
+    }
+    const duration = deck.buffer.duration;
+    const phase = deck.position() % duration;
+    const ending = phase >= duration - songEndMargin || phase < lastPhase;
+    lastPhase = phase;
+    const next = upcoming()[0];
+    if (!ending || !next) return; // no next song yet: let this one loop
+    transitionTo(next);
+  }, 200);
+
+  async function loadAndPlay(id) {
+    const item = items.find((entry) => entry.id === id);
+    if (!item) return;
+    setStatus(`Loading ${item.title}…`);
+    try {
+      await retryOnNetworkError(() => (item.url ? deck.loadUrl(item.url) : deck.loadFile(item.file)));
+      deck.play();
+      currentId = id;
+      if (played.at(-1) !== item.title) played = [...played, item.title].slice(-50);
+      setStatus(null);
+      topUpDj();
+    } catch (error) {
+      setStatus(`Error: ${error.message}`, true);
+    }
+  }
+
+  // ---- public API -----------------------------------------------------------------
+
   const queue = {
-    getState: () => ({ items, currentId, status }),
+    getState: () => ({
+      items,
+      currentId,
+      status,
+      dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status },
+    }),
 
     on(listener) {
       listeners.add(listener);
@@ -43,14 +247,7 @@ export function createQueue(deck, { endpoint = "/api/youtube" } = {}) {
       if (!text) return;
       setStatus(/^https?:\/\//i.test(text) ? "Downloading from YouTube…" : `Searching YouTube for "${text}"…`);
       try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: text }),
-        });
-        if (response.status === 501) throw new Error("start the app with `python server.py` to enable YouTube");
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error);
+        const body = await postJson("/youtube", { url: text });
         setStatus(null);
         add({ title: body.title, detail: "YouTube", url: body.file });
       } catch (error) {
@@ -78,21 +275,13 @@ export function createQueue(deck, { endpoint = "/api/youtube" } = {}) {
       items = items.filter((entry) => entry.id !== id);
       if (currentId === id) currentId = null;
       changed();
+      topUpDj();
     },
 
-    async play(id) {
-      const item = items.find((entry) => entry.id === id);
-      if (!item) return;
-      setStatus(`Loading ${item.title}…`);
-      try {
-        if (item.url) await deck.loadUrl(item.url);
-        else await deck.loadFile(item.file);
-        deck.play();
-        currentId = id;
-        setStatus(null);
-      } catch (error) {
-        setStatus(`Error: ${error.message}`, true);
-      }
+    play(id) {
+      const request = ++playRequest;
+      playChain = playChain.then(() => (request === playRequest ? loadAndPlay(id) : undefined));
+      return playChain;
     },
 
     // Plays the song after the current one, wrapping to the top.
@@ -100,6 +289,34 @@ export function createQueue(deck, { endpoint = "/api/youtube" } = {}) {
       if (!items.length) return;
       const position = items.findIndex((entry) => entry.id === currentId);
       queue.play(items[(position + 1) % items.length].id);
+    },
+
+    // Turns the AI DJ on: it fills the queue to match the vibe and moves on at the end of each song.
+    startDj(vibe = "") {
+      dj.on = true;
+      dj.vibe = vibe.trim();
+      dj.generation += 1;
+      setDjStatus(null);
+      topUpDj();
+    },
+
+    stopDj() {
+      dj.on = false;
+      dj.generation += 1;
+      dj.busy = false;
+      setDjStatus(null);
+    },
+
+    // New vibe: drops the DJ's not-yet-played picks and picks again.
+    changeVibe(vibe) {
+      dj.vibe = vibe.trim();
+      dj.generation += 1;
+      dj.busy = false;
+      // Keeps the song the DJ is already introducing.
+      const next = new Set(upcoming().filter((item) => item.dj && item.id !== transitionId).map((item) => item.id));
+      items = items.filter((item) => !next.has(item.id));
+      changed();
+      topUpDj();
     },
   };
   return queue;
@@ -119,8 +336,11 @@ const styles = `
 .queuePanel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .queuePanel-header h2 { margin: 0; font-size: 16px; }
 .queuePanel-header p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
-.queuePanel-add { display: flex; gap: 6px; }
-.queuePanel-add input[type="text"] {
+.queuePanel-add, .queuePanel-dj { display: flex; gap: 6px; }
+.queuePanel-dj { padding: 8px; border-radius: 10px; border: 1px dashed var(--between); }
+.queuePanel-dj.on { border-style: solid; }
+.queuePanel-djLabel { align-self: center; font-size: 12px; font-weight: 700; color: var(--between); white-space: nowrap; }
+.queuePanel-add input[type="text"], .queuePanel-dj input[type="text"] {
   flex: 1; min-width: 0; padding: 7px 10px; font: inherit; font-size: 13px;
   color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
 }
@@ -142,6 +362,7 @@ const styles = `
 .queuePanel-track strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queuePanel-track small { font-size: 11px; color: var(--muted); }
 .queuePanel-row.current small { color: var(--between); font-weight: 600; }
+.queuePanel-row.fromDj small::before { content: "✦ "; color: var(--between); }
 .queuePanel-actions { display: flex; gap: 4px; }
 .queuePanel-empty { margin: 0; font-size: 13px; text-align: center; color: var(--muted); }
 `;
@@ -170,6 +391,14 @@ export function createQueuePanel(queue, deck) {
   const input = element("input", { type: "text", placeholder: "YouTube link or song name" });
   const fileInput = element("input", { type: "file", accept: "audio/*,video/mp4" });
   const status = element("p", { className: "queuePanel-status", hidden: "" });
+  const vibeInput = element("input", { type: "text", placeholder: "DJ vibe, e.g. chill house into hype EDM" });
+  const djButtons = element("span", { className: "queuePanel-actions" });
+  const djRow = element("div", { className: "queuePanel-dj" }, [
+    element("span", { className: "queuePanel-djLabel", text: "AI DJ" }),
+    vibeInput,
+    djButtons,
+  ]);
+  const djStatus = element("p", { className: "queuePanel-status", hidden: "" });
   const list = element("ol", { className: "queuePanel-list" });
   const empty = element("p", { className: "queuePanel-empty", text: "The queue is empty. Add a YouTube link, song name or file." });
 
@@ -179,6 +408,16 @@ export function createQueuePanel(queue, deck) {
     input.value = "";
   }
   input.addEventListener("keydown", (event) => event.key === "Enter" && addFromInput());
+
+  // Start (or, with the DJ on, change the vibe). Inside the click so the DJ's first song can play.
+  function startOrChangeVibe() {
+    deck.ensureContext();
+    if (queue.getState().dj.on) queue.changeVibe(vibeInput.value);
+    else queue.startDj(vibeInput.value);
+  }
+  vibeInput.addEventListener("keydown", (event) => event.key === "Enter" && startOrChangeVibe());
+  const startButton = element("button", { type: "button", text: "Start", onClick: startOrChangeVibe });
+  const stopButton = element("button", { type: "button", className: "secondary", text: "Stop", onClick: () => queue.stopDj() });
   fileInput.addEventListener("change", () => {
     queue.addFile(fileInput.files[0]);
     fileInput.value = "";
@@ -191,7 +430,7 @@ export function createQueuePanel(queue, deck) {
     element("header", { className: "queuePanel-header" }, [
       element("div", {}, [
         element("h2", { text: "Queue" }),
-        element("p", { text: "Drag to reorder. ▶ plays a song, Next goes down the list." }),
+        element("p", { text: "Drag to reorder. ▶ plays a song, Next goes down the list. The AI DJ picks songs for you." }),
       ]),
       element("button", { type: "button", className: "secondary", "aria-label": "Close queue", text: "✕", onClick: () => controls.close() }),
     ]),
@@ -210,6 +449,8 @@ export function createQueuePanel(queue, deck) {
       fileInput,
     ]),
     status,
+    djRow,
+    djStatus,
     list,
     empty,
   ]);
@@ -238,7 +479,8 @@ export function createQueuePanel(queue, deck) {
 
   function row(item, index, state) {
     const isCurrent = item.id === state.currentId;
-    const entry = element("li", { className: `queuePanel-row ${isCurrent ? "current" : ""}`, draggable: "true" }, [
+    const classes = ["queuePanel-row", isCurrent && "current", item.dj && "fromDj"].filter(Boolean).join(" ");
+    const entry = element("li", { className: classes, draggable: "true" }, [
       element("span", { className: "queuePanel-handle", "aria-hidden": "true", text: "⋮⋮" }),
       element("span", { className: "queuePanel-number", text: String(index + 1) }),
       element("div", { className: "queuePanel-track" }, [
@@ -301,6 +543,15 @@ export function createQueuePanel(queue, deck) {
     status.hidden = !state.status;
     status.textContent = state.status?.message ?? "";
     status.classList.toggle("error", Boolean(state.status?.isError));
+
+    const { dj } = state;
+    djRow.classList.toggle("on", dj.on);
+    startButton.textContent = dj.on ? "Change vibe" : "Start";
+    djButtons.replaceChildren(...(dj.on ? [startButton, stopButton] : [startButton]));
+    const djMessage = dj.talking ? "🎙 The DJ is on the mic…" : dj.status?.message ?? (dj.on ? "DJ on: it moves to the next song when one ends." : "");
+    djStatus.hidden = !djMessage;
+    djStatus.textContent = djMessage;
+    djStatus.classList.toggle("error", Boolean(dj.status?.isError));
   }
 
   queue.on(render);
