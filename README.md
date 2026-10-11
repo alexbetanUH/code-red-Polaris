@@ -30,3 +30,21 @@ Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate p
 - `server.py`: local server; serves the site and downloads YouTube audio via yt-dlp into `downloads/`
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
+
+## AirDeck Mix (two decks): `mix.html`
+
+Open http://localhost:8000/mix.html. Left hand = deck A, right hand = deck B. Both decks are beat-synced to deck A's tempo (detected automatically).
+
+| Gesture | Does |
+|---|---|
+| Pinch + move hand up/down | Grab that deck's channel fader (volume) |
+| Pinch + twist wrist | Filter knob: twist left = low-pass, right = high-pass, centre = off |
+| Fist + slide left/right | Scratch (hand on the record; still fist = record stopped). Slip mode: on release the track jumps back in sync |
+| Both open hands up high | Build-up: high-pass sweep, noise riser, accelerating snare roll |
+| …then two fists | Drop on the next bar line |
+
+No camera? Keys: Space play/pause, 1/2 toggle deck, B build, D drop, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
+
+- `mix-worklet.js`: audio-thread engine (variable-rate/reverse playback, master beat clock, phase lock, slip mode, bar-aligned loops)
+- `mix-audio.js`: graph, filters, faders, build/drop FX, tempo detection, demo loops
+- `mix.html`: hand tracking, gestures, stage visuals. Tuning values are at the top of its script.
