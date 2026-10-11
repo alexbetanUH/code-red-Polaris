@@ -36,6 +36,10 @@ const goodMs = 320;
 const dotSize = 0.05; // a target dot's radius, as a share of the stage height
 const reach = 0.1; // your pinch point within this share of the stage height of a target's center counts
 const pinchTolerance = 0.3; // and your right pinch this close to the target's (0 closed – 1 open, as calibrated)
+// The mercy rule: with one hand on its dots, the other counts if it's close (about touching
+// its pair) with a looser pinch. Such a shape is a Good at best, never a Perfect.
+const mercyReach = 0.2;
+const mercyPinchTolerance = 0.5;
 const followReach = 0.18; // fingertips within this of a slider's dots are following it
 const gapBars = { short: 2, full: 4 }; // the new song's slide
 const outBars = 2; // the old song's slide
@@ -91,6 +95,9 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   stage.append(canvas);
   const context = canvas.getContext("2d");
   const card = buildCard(queue, rail);
+  const progress = buildProgress(stage);
+  const songStarts = new Map(); // song id → where in it (seconds) it became the one playing
+  const songShares = new Map(); // song id → how far through it the bar has got (never goes back)
 
   let enabled = startEnabled;
   let wasActive = false;
@@ -230,9 +237,10 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     effects.push({ text: verdict === "perfect" ? "Perfect" : verdict === "good" ? "Good" : "Miss", at: at ?? [0.5, 0.42], born: performance.now(), verdict });
   }
 
-  // Which hands are on their targets: the pinch point (between thumb and index) in the
-  // circle, and for the right hand, the pinch about as open as asked (that's the filter;
-  // the left pinch is the speed, held at 1.00×, so any will do).
+  // Where each hand is on its target: "on" (the pinch point, between thumb and index, on
+  // its dots, and for the right hand the pinch about as open as asked: that's the filter;
+  // the left pinch is the speed, held at 1.00×, so any will do), "near" (close enough for
+  // the mercy rule), or false.
   function onTarget(pins) {
     const hit = {};
     for (const side of ["left", "right"]) {
@@ -242,9 +250,11 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
         hit[side] = false;
         continue;
       }
-      const placed = distance(middle(hand), point(pin.at)) <= size().height * reach;
-      const shaped = side === "left" || hand.pinch === undefined || Math.abs(hand.pinch - Math.min(1, pin.pinch)) <= pinchTolerance;
-      hit[side] = placed && shaped;
+      const away = distance(middle(hand), point(pin.at)) / size().height;
+      const pinchOff = side === "left" || hand.pinch === undefined ? 0 : Math.abs(hand.pinch - Math.min(1, pin.pinch));
+      if (away <= reach && pinchOff <= pinchTolerance) hit[side] = "on";
+      else if (away <= mercyReach && pinchOff <= mercyPinchTolerance) hit[side] = "near";
+      else hit[side] = false;
     }
     return hit;
   }
@@ -255,8 +265,10 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     const offset = now - when;
     if (Math.abs(offset) <= goodMs) {
       const hit = onTarget(target.pins);
+      target.near ??= {};
       for (const side of ["left", "right"]) {
-        if (target.pins[side] && hit[side]) target.best[side] = Math.min(target.best[side] ?? Infinity, Math.abs(offset));
+        if (target.pins[side] && hit[side] === "on") target.best[side] = Math.min(target.best[side] ?? Infinity, Math.abs(offset));
+        if (target.pins[side] && hit[side]) target.near[side] = true; // on or near: enough for the mercy rule
       }
       const sides = ["left", "right"].filter((side) => target.pins[side]);
       if (sides.every((side) => target.best[side] <= perfectMs) && offset >= -perfectMs) judge(target, "perfect", when, target.center);
@@ -266,6 +278,8 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       const landed = sides.filter((side) => target.best[side] !== undefined);
       // Both hands on it, pinch included (half a shape is a wrong filter or a wrong volume).
       if (landed.length === sides.length) judge(target, landed.every((side) => target.best[side] <= perfectMs) ? "perfect" : "good", when, target.center);
+      // The mercy rule: one hand on it and the other close by is a Good.
+      else if (landed.length && sides.every((side) => target.near?.[side])) judge(target, "good", when, target.center);
       else judge(target, present ? "miss" : "skip", when, target.center);
     }
   }
@@ -594,6 +608,30 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
   // ---- drawing --------------------------------------------------------------------
 
+  // The progress bar: each song of the set, how far through it the set is (from where it
+  // came in to where it gets mixed out), and which songs are downloaded.
+  function renderProgress() {
+    const { items, currentId, dj } = queue.getState();
+    if (!enabled || !dj.on || !items.length) return progress.render(null);
+    const playback = queue.getPlayback();
+    const playing = items.findIndex((item) => item.id === currentId);
+    if (playing !== -1 && playback.loaded && !songStarts.has(currentId)) songStarts.set(currentId, playback.position);
+    let share = 0;
+    if (playing !== -1 && playback.loaded) {
+      const start = songStarts.get(currentId);
+      const end = mix && mix.song === currentId && typeof mix.cue === "number" ? mix.cue : Math.max(queue.mixOutAt() ?? 0, playback.position + 1);
+      share = Math.max(songShares.get(currentId) ?? 0, clamp01((playback.position - start) / Math.max(1, end - start)));
+      songShares.set(currentId, share);
+    }
+    progress.render(
+      items.map((item, index) => ({
+        done: index < playing ? 1 : index === playing ? share : 0,
+        loaded: index <= playing || queue.isReady(item.id),
+      })),
+      { song: playing + 1, songs: items.length },
+    );
+  }
+
   // One hand's two dots: where its thumb (hollow) and index fingertip (filled) go, the
   // gap between them set by your pinch calibration and hand size (how open the pinch is).
   // A closed pinch shows them touching, never stacked. Each dot shows the shape's number.
@@ -798,6 +836,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.clearRect(0, 0, width, height);
     card.render(score, enabled);
+    renderProgress();
     if ((pausedAt === null && now - lastFrame > 1000) || !enabled || !queue.getState().dj.on) return; // camera off, or not playing
 
     const playback = queue.getPlayback();
@@ -903,6 +942,8 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     },
     // A fresh start for a new set (or the same one again): score, chart and mix cleared.
     reset() {
+      songStarts.clear();
+      songShares.clear();
       if (pausedAt !== null) deck?.ctx?.resume();
       pausedAt = null;
       Object.assign(score, freshScore());
@@ -969,6 +1010,43 @@ function buildCard(queue, rail) {
   };
 }
 
+// The set's progress bar, along the top edge of the camera view, after YouTube's old
+// player: a dark track, a lighter "loaded" layer (songs that are downloaded), and the red
+// progress, one segment per song with a notch between them. Not seekable: it's a game.
+function buildProgress(stage) {
+  const bar = document.createElement("div");
+  bar.className = "djProgress";
+  bar.setAttribute("role", "progressbar");
+  bar.setAttribute("aria-label", "Set progress");
+  bar.hidden = true;
+  stage.append(bar);
+  let segments = [];
+  return {
+    render(songs, { song = 0, songs: count = 0 } = {}) {
+      bar.hidden = !songs;
+      if (!songs) return;
+      if (segments.length !== songs.length) {
+        bar.replaceChildren();
+        segments = songs.map(() => {
+          const segment = document.createElement("span");
+          const loaded = document.createElement("i");
+          const done = document.createElement("b");
+          segment.append(loaded, done);
+          bar.append(segment);
+          return { loaded, done };
+        });
+      }
+      songs.forEach((state, index) => {
+        segments[index].loaded.style.width = state.loaded ? "100%" : "0";
+        segments[index].done.style.width = `${(state.done * 100).toFixed(2)}%`;
+      });
+      const total = songs.reduce((sum, state) => sum + state.done, 0) / songs.length;
+      bar.setAttribute("aria-valuenow", String(Math.round(total * 100)));
+      bar.setAttribute("aria-valuetext", `Song ${song} of ${count}`);
+    },
+  };
+}
+
 // The sounds your hits make, on top of the music: a clap, and a slide's tick.
 function createSounds(context) {
   const out = context.createGain();
@@ -1025,6 +1103,15 @@ function addStyles() {
   style.id = "djGame-styles";
   style.textContent = `
 .djGame { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+.djProgress {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: 5px; display: flex; gap: 2px;
+  background: rgba(16, 16, 16, 0.5); pointer-events: none;
+}
+.djProgress[hidden] { display: none; }
+.djProgress span { position: relative; flex: 1; overflow: hidden; }
+.djProgress i, .djProgress b { position: absolute; top: 0; bottom: 0; left: 0; width: 0; }
+.djProgress i { background: rgba(255, 255, 255, 0.3); }
+.djProgress b { background: linear-gradient(#ff5a4f, #e62117 45%, #b8150f); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .djSet .djSet-list { margin: 0; padding: 0 0 0 20px; font-size: 13px; line-height: 1.5; }
 .djSet .djSet-list li.done { color: var(--muted); text-decoration: line-through; }
 .djSet .djSet-list li.now { font-weight: bold; color: #2b6fb8; }
