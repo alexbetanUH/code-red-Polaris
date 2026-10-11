@@ -1,8 +1,10 @@
-// Song queue for the Deck in audio.js: add songs from YouTube (a link or a song
-// name, downloaded by server.py) or from files, reorder, remove, play, seek, and
-// skip back and forth. An AI DJ can fill it for you: Gemini picks songs that fit
-// a vibe and what's playing, and a voice (ElevenLabs, or the browser's)
-// introduces each one. Plus a floating panel and a player bar for all of that.
+// Song queue for the Deck in audio.js. The main source is the song library
+// (library.json, played from music/<id>.m4a, instant); YouTube links or song
+// names (downloaded by server.py, slow) and files are a beta alternative.
+// Reorder, remove, play, seek, and skip back and forth. An AI DJ can fill it for
+// you: Gemini picks library songs that fit a vibe and what's playing, and a voice
+// (ElevenLabs, or the browser's) introduces each one. Plus a floating panel and a
+// player bar for all of that.
 //
 //   const queue = createQueue(deck);
 //   const panel = createQueuePanel(queue, deck);
@@ -35,7 +37,7 @@ async function retryOnNetworkError(request) {
   }
 }
 
-export function createQueue(deck, { apiBase = "/api" } = {}) {
+export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json" } = {}) {
   // Items: { id, title, detail, url } for YouTube, { id, title, detail, file } for files.
   // DJ picks also carry dj: { intro, voiceUrl, voiceSeconds }.
   let items = [];
@@ -45,6 +47,8 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
   let played = []; // titles in the order they played, for the DJ to avoid repeats
   // YouTube downloads in progress: { key, title, detail, fromDj, stage, percent, error }.
   let downloads = [];
+  // The song library: { id, artist, title, file: "music/<id>.m4a", available }.
+  let library = [];
   const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0 };
   const listeners = new Set();
 
@@ -193,6 +197,43 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
   let transitioning = false;
   let transitionId = null;
 
+  // ---- library ---------------------------------------------------------------------
+
+  async function loadLibrary() {
+    try {
+      const response = await fetch(libraryUrl);
+      if (!response.ok) return;
+      const { songs = [] } = await response.json();
+      library = songs.map((song) => ({ ...song, file: `music/${song.id}.m4a`, available: null }));
+      changed();
+      // Which songs are actually in music/ (prefetch.py fills it).
+      await Promise.all(
+        library.map(async (song) => {
+          try {
+            song.available = (await fetch(song.file, { method: "HEAD" })).ok;
+          } catch {
+            song.available = false;
+          }
+        }),
+      );
+      changed();
+    } catch (error) {
+      console.warn("No song library:", error.message);
+    }
+  }
+
+  // A queue item for a library song: straight from music/, or downloaded first
+  // if it isn't there yet (run prefetch.py so that never happens on stage).
+  async function libraryEntry(song, detail) {
+    const title = `${song.artist} - ${song.title}`;
+    if (song.available !== false) return { title, detail, url: song.file, libraryId: song.id };
+    const download = await downloadYouTube(`https://www.youtube.com/watch?v=${song.id}`, {
+      title,
+      detail: "Not in music/ yet (run prefetch.py), downloading",
+    });
+    return { title, detail, url: download.file, libraryId: song.id };
+  }
+
   // ---- AI DJ ----------------------------------------------------------------------
 
   // The ElevenLabs clip for a DJ line and its length, or null to fall back to the browser's voice.
@@ -280,26 +321,34 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     let added = 0;
     try {
       const current = items.find((item) => item.id === currentId);
+      // With a library, the DJ only picks from it (instant, nothing to download).
+      // Without one it can pick any song, downloaded from YouTube (the slow beta path).
+      const useLibrary = library.length > 0;
       const { picks } = await postJson("/dj/pick", {
         vibe: dj.vibe,
         nowPlaying: current?.title ?? "",
         queued: items.map((item) => item.title),
         played,
         count: djPicksPerRequest,
+        ...(useLibrary && { library: library.map(({ id, artist, title }) => ({ id, artist, title })) }),
       });
-      // All picks download (and get their voice line) at the same time, each shown in
-      // the downloads list with its progress; they join the queue in pick order.
+      // Every pick gets ready (and gets its voice line) at the same time; they join
+      // the queue in pick order.
       setDjStatus(`Getting ${picks.length} songs ready…`);
       const jobs = picks.map((pick) => {
         const label = `${pick.artist} - ${pick.title}`;
-        const song = downloadYouTube(label, { title: label, detail: `AI DJ · ${pick.reason}`, fromDj: true });
+        const detail = `AI DJ · ${pick.reason}`;
+        const librarySong = useLibrary && library.find((song) => song.id === pick.id);
+        const song = librarySong
+          ? libraryEntry(librarySong, detail)
+          : downloadYouTube(label, { title: label, detail, fromDj: true }).then((download) => ({ title: label, detail, url: download.file }));
         return Promise.all([song, prepareVoice(pick.intro)]).then(
-          ([download, voice]) => ({ pick, label, download, voice }),
+          ([entryData, voice]) => ({ pick, label, entryData, voice }),
           (error) => ({ label, error }),
         );
       });
       for (const job of jobs) {
-        const { pick, label, download, voice, error } = await job;
+        const { pick, label, entryData, voice, error } = await job;
         if (!stillValid()) break;
         if (error) {
           console.warn(`DJ skipped ${label}:`, error.message);
@@ -307,9 +356,7 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
         }
         const entry = add(
           {
-            title: label,
-            detail: `AI DJ · ${pick.reason}`,
-            url: download.file,
+            ...entryData,
             dj: { intro: pick.intro, voiceUrl: voice?.url ?? null, voiceSeconds: voice?.seconds ?? null },
           },
           { autoplay: false },
@@ -317,7 +364,7 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
         added += 1;
         if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
       }
-      if (stillValid() && !added) throw new Error("none of the picks could be downloaded");
+      if (stillValid() && !added) throw new Error("none of the picks could be loaded");
       setDjStatus(null);
     } catch (error) {
       if (dj.generation === generation) dj.busy = false;
@@ -395,6 +442,7 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       currentId,
       loadingId,
       downloads,
+      library,
       status,
       dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status },
     }),
@@ -429,22 +477,21 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       add({ title: file.name.replace(/\.[^.]+$/, ""), detail: "File", file });
     },
 
-    // Adds every song in a set list file (one song name or link per line, # for
-    // comments) in order. Songs prefetch.py already downloaded arrive instantly.
-    async addSetList(url = "setlist.txt") {
-      let songs;
+    // Adds a library song (by its id), instantly from music/. playNow plays it right away.
+    async addFromLibrary(id, { playNow = false } = {}) {
+      const song = library.find((entry) => entry.id === id);
+      if (!song) return;
       try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`couldn't load ${url} (${response.status})`);
-        songs = (await response.text())
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter((line) => line && !line.startsWith("#"));
+        const entry = add(await libraryEntry(song, "Library"), { autoplay: !playNow });
+        if (playNow) queue.play(entry.id);
       } catch (error) {
         setStatus(`Error: ${error.message}`, true);
-        return;
       }
-      for (const song of songs) await queue.addYouTube(song);
+    },
+
+    // Adds the whole library in order.
+    async addAllFromLibrary() {
+      for (const song of library) await queue.addFromLibrary(song.id);
     },
 
     // Moves an item to a new position (0 = top).
@@ -539,6 +586,7 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       topUpDj();
     },
   };
+  loadLibrary();
   return queue;
 }
 
@@ -599,6 +647,20 @@ const styles = `
 .queuePanel-actions { display: flex; gap: 4px; }
 .queuePanel-row .queuePanel-actions button { width: 30px; height: 30px; padding: 0; }
 .queuePanel-empty { margin: 0; padding: 10px 0; font-size: 13px; text-align: center; color: var(--muted); }
+.queuePanel-library { border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; }
+.queuePanel-library summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none;
+}
+.queuePanel-library summary::-webkit-details-marker { display: none; }
+.queuePanel-library summary::before { content: "▸"; color: var(--muted); }
+.queuePanel-library[open] summary::before { content: "▾"; }
+.queuePanel-library summary span { flex: 1; }
+.queuePanel-library .queuePanel-list { margin-top: 6px; }
+.queuePanel-row.librarySong { cursor: default; }
+.queuePanel-row.missing small { color: var(--between); }
+.queuePanel-beta { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.queuePanel-betaLabel { font-size: 12px; font-weight: 600; color: var(--muted); }
+.queuePanel-betaLabel b { color: var(--between); }
 
 /* Progress bars: downloads, loading, and the player's song position. */
 .queuePanel-bar { position: relative; height: 5px; border-radius: 3px; overflow: hidden; background: var(--border); }
@@ -758,6 +820,9 @@ export function createQueuePanel(queue, deck) {
   let hoverTimer = null;
 
   const input = element("input", { type: "text", placeholder: "YouTube link or song name" });
+  const libraryList = element("ol", { className: "queuePanel-list", "aria-label": "Song library" });
+  const libraryCount = element("span", { text: "Library" });
+  let libraryKey = "";
   const fileInput = element("input", { type: "file", accept: "audio/*,video/mp4" });
   const status = element("p", { className: "queuePanel-status", hidden: "" });
   const vibeInput = element("input", { type: "text", placeholder: "DJ vibe, e.g. chill house into hype EDM" });
@@ -770,7 +835,7 @@ export function createQueuePanel(queue, deck) {
   const djStatus = element("p", { className: "queuePanel-status", hidden: "" });
   const downloadsList = element("ol", { className: "queuePanel-downloads", "aria-label": "Downloading" });
   const list = element("ol", { className: "queuePanel-list" });
-  const empty = element("p", { className: "queuePanel-empty", text: "The queue is empty. Add a YouTube link, song name or file." });
+  const empty = element("p", { className: "queuePanel-empty", text: "The queue is empty. Add songs from the library, or start the AI DJ." });
 
   function addFromInput() {
     deck.ensureContext(); // inside the click, so the browser allows sound
@@ -805,7 +870,7 @@ export function createQueuePanel(queue, deck) {
     element("div", { className: "queuePanel-header" }, [
       element("div", {}, [
         element("h2", { text: "Queue" }),
-        element("p", { text: "Drag to reorder. ▶ plays a song. The AI DJ picks songs for you." }),
+        element("p", { text: "Pick songs from the library or let the AI DJ choose. Drag to reorder." }),
       ]),
       element("button", {
         type: "button",
@@ -816,37 +881,50 @@ export function createQueuePanel(queue, deck) {
       }),
     ]),
     createTransport(queue, deck),
-    element("div", { className: "queuePanel-add" }, [
-      input,
-      element("button", { type: "button", text: "Add", onClick: addFromInput }),
-      element("button", {
-        type: "button",
-        className: "secondary",
-        text: "File",
-        onClick: () => {
-          deck.ensureContext();
-          fileInput.click();
-        },
-      }),
-      element("button", {
-        type: "button",
-        className: "secondary",
-        text: "Set list",
-        title: "Add every song from setlist.txt",
-        onClick: () => {
-          deck.ensureContext();
-          queue.addSetList();
-        },
-      }),
-      fileInput,
-    ]),
-    status,
     djRow,
     djStatus,
+    element("details", { className: "queuePanel-library", open: "" }, [
+      element("summary", {}, [
+        libraryCount,
+        element("button", {
+          type: "button",
+          className: "secondary",
+          text: "Add all",
+          onClick: (event) => {
+            event.preventDefault(); // don't fold the section
+            deck.ensureContext();
+            queue.addAllFromLibrary();
+          },
+        }),
+      ]),
+      libraryList,
+    ]),
     list,
     empty,
+    status,
+    // The beta alternative: any song from YouTube (slow), or a file.
+    element("div", { className: "queuePanel-beta" }, [
+      element("span", { className: "queuePanel-betaLabel" }),
+      element("div", { className: "queuePanel-add" }, [
+        input,
+        element("button", { type: "button", text: "Add", onClick: addFromInput }),
+        element("button", {
+          type: "button",
+          className: "secondary",
+          text: "File",
+          onClick: () => {
+            deck.ensureContext();
+            fileInput.click();
+          },
+        }),
+        fileInput,
+      ]),
+    ]),
     downloadsList,
   ]);
+  // "Beta" label with its warning (built here because it mixes bold and plain text).
+  const betaLabel = panel.querySelector(".queuePanel-betaLabel");
+  betaLabel.append(element("b", { text: "Beta: " }), "any song from YouTube. Downloads can take 10–30 seconds.");
   document.body.append(panel);
 
   function setDropIndex(index) {
@@ -936,6 +1014,40 @@ export function createQueuePanel(queue, deck) {
     return entry;
   }
 
+  // A library song: name and artist, ▶ to play it now, + to add it to the queue.
+  function libraryRow(song) {
+    const missing = song.available === false;
+    return element("li", { className: `queuePanel-row librarySong ${missing ? "missing" : ""}` }, [
+      element("div", { className: "queuePanel-track" }, [
+        element("strong", { text: song.title }),
+        element("small", { text: missing ? `${song.artist} · not in music/ yet (run prefetch.py)` : song.artist }),
+      ]),
+      element("div", { className: "queuePanel-actions" }, [
+        element("button", {
+          type: "button",
+          title: "Play now",
+          "aria-label": `Play ${song.title} now`,
+          text: "▶",
+          onClick: () => {
+            deck.ensureContext();
+            queue.addFromLibrary(song.id, { playNow: true });
+          },
+        }),
+        element("button", {
+          type: "button",
+          className: "secondary",
+          title: "Add to the queue",
+          "aria-label": `Add ${song.title} to the queue`,
+          text: "+",
+          onClick: () => {
+            deck.ensureContext();
+            queue.addFromLibrary(song.id);
+          },
+        }),
+      ]),
+    ]);
+  }
+
   // A song on its way: name, where it's at, and a progress bar.
   function downloadRow(download) {
     const stageText =
@@ -966,6 +1078,12 @@ export function createQueuePanel(queue, deck) {
       list.replaceChildren(...state.items.map((item, index) => row(item, index, state)));
     }
     empty.hidden = state.items.length > 0 || state.downloads.length > 0;
+    const newLibraryKey = JSON.stringify(state.library.map((song) => [song.id, song.available]));
+    if (newLibraryKey !== libraryKey) {
+      libraryKey = newLibraryKey;
+      libraryList.replaceChildren(...state.library.map(libraryRow));
+      libraryCount.textContent = `Library · ${state.library.length} songs`;
+    }
     downloadsList.replaceChildren(...state.downloads.map(downloadRow));
     status.hidden = !state.status;
     status.textContent = state.status?.message ?? "";

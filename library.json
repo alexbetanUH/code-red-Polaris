@@ -1,0 +1,18 @@
+{
+  "about": "The AI DJ's song library: the main way to play music. Each song plays from music/<id>.m4a (run `python prefetch.py` to fill music/; it's gitignored). id is the YouTube video id. Placeholder list until the final 20 are chosen.",
+  "songs": [
+    { "id": "93ASUImTedo", "artist": "Disclosure", "title": "Latch (ft. Sam Smith)" },
+    { "id": "IxxstCcJlsc", "artist": "Zedd", "title": "Clarity (ft. Foxes)" },
+    { "id": "02KzxLGcNJg", "artist": "KAYTRANADA", "title": "10% (ft. Kali Uchis)" },
+    { "id": "hC8CH0Z3L54", "artist": "FKJ & Masego", "title": "Tadow" },
+    { "id": "uQFVqltOXRg", "artist": "Daniel Caesar", "title": "Get You (ft. Kali Uchis)" },
+    { "id": "-OqrcUvrbRY", "artist": "Anderson .Paak", "title": "Come Down" },
+    { "id": "nhNqbe6QENY", "artist": "GoldLink", "title": "Crew (ft. Brent Faiyaz, Shy Glizzy)" },
+    { "id": "_L2vJEb6lVE", "artist": "SchoolBoy Q", "title": "Collard Greens (ft. Kendrick Lamar)" },
+    { "id": "tvTRZJ-4EyI", "artist": "Kendrick Lamar", "title": "HUMBLE." },
+    { "id": "NLZRYQMLDW4", "artist": "Kendrick Lamar", "title": "DNA." },
+    { "id": "v6HBZC9pZHQ", "artist": "Baby Keem & Kendrick Lamar", "title": "family ties" },
+    { "id": "IkuBYRUwWdg", "artist": "Baby Keem & Kendrick Lamar", "title": "range brothers" },
+    { "id": "6ONRf7h3Mdk", "artist": "Travis Scott", "title": "SICKO MODE (ft. Drake)" }
+  ]
+}

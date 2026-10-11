@@ -21,14 +21,33 @@ Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew instal
 python3 server.py
 ```
 
-Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Click **Queue** to add songs: paste a YouTube link, type a song name (downloads the top result), or pick a file. Downloads show a live progress bar. Drag songs to reorder them and ▶ plays one. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead, so skipping back and forth is instant.
+Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
+songs from the **Library** (▶ plays one now, + adds it, **Add all** queues them all), or let the AI DJ choose. Drag
+songs to reorder them. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to
+jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
+so skipping back and forth is instant.
+
+### Song library
+
+`library.json` is the list of songs (YouTube video id, artist, title). They play from `music/<id>.m4a`, the same
+folder the landing page uses. `music/` is gitignored, so fill it once on each machine:
+
+```bash
+python prefetch.py
+```
+
+To change the songs, edit `library.json` and run `prefetch.py` again.
+
+**Beta:** at the bottom of the queue panel you can add any song from YouTube (a link or a song name) or a file.
+YouTube downloads can take 10–30 seconds, with a progress bar.
 
 ### AI DJ
 
-In the Queue panel, type a vibe (e.g. "chill house into hype EDM") and press **Start**. Gemini picks songs that fit
-the vibe and what's already playing, they download into the queue, and before each one a DJ voice introduces it.
-With the DJ on, songs move on when they end (it keeps two queued ahead); **Change vibe** swaps the upcoming picks,
-**Stop** goes back to normal looping. You can still drag, remove or ▶ anything.
+In the Queue panel, type a vibe (e.g. "chill into hype") and press **Start**. Gemini picks songs from the library that
+fit the vibe and what's already playing (no repeats until every song has played), and before each one a DJ voice
+introduces it over the end of the previous song. With the DJ on, songs move on when they end (it keeps two queued
+ahead); **Change vibe** swaps the upcoming picks, **Stop** goes back to normal looping. You can still drag, remove or
+▶ anything.
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
 machine and never reach the browser):
@@ -42,23 +61,12 @@ The server prints whether the DJ is on. Without an ElevenLabs key the browser's 
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
 The landing page's **Talk to the AI DJ** opens `index.html#ai-dj`, which shows the queue with the DJ ready.
 
-### Demo set list
-
-`setlist.txt` lists songs (one name or YouTube link per line). Before a demo, download them all once:
-
-```bash
-python prefetch.py
-```
-
-Then **Set list** in the queue panel adds them all in order, and they start instantly. It's also the backup if
-the AI DJ or the internet misbehaves on stage.
-
 ### Files
 
 - `index.html`: hand tracking, gesture smoothing, hand → audio mapping, drawing
 - `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform)
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
-- `setlist.txt`, `prefetch.py`: the demo set list and a script that downloads it ahead of time
+- `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.

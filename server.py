@@ -269,43 +269,114 @@ def clean(text, limit):
     return " ".join(str(text).split())[:limit]
 
 
-def dj_pick(request):
-    """Ask Gemini for the next songs. Returns a list of {artist, title, reason, intro}."""
+LIBRARY_PICK_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "picks": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "id": {"type": "STRING"},
+                    "reason": {"type": "STRING"},
+                    "intro": {"type": "STRING"},
+                },
+                "required": ["id", "reason", "intro"],
+            },
+        }
+    },
+    "required": ["picks"],
+}
+
+
+def ask_gemini_for_picks(prompt, schema):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise DjError("set GEMINI_API_KEY before starting server.py to use the AI DJ")
-    count = max(1, min(int(request.get("count") or 3), 5))
-    listing = lambda name: "\n".join(f"- {clean(t, 120)}" for t in request.get(name, [])[-25:]) or "(none)"
-    prompt = (
-        f"Vibe: {clean(request.get('vibe') or 'keep the current energy going', 200)}\n"
-        f"Now playing: {clean(request.get('nowPlaying') or 'nothing yet', 120)}\n"
-        f"Already queued:\n{listing('queued')}\n"
-        f"Already played:\n{listing('played')}\n"
-        f"Pick {count} songs."
-    )
     body = {
         "systemInstruction": {"parts": [{"text": DJ_INSTRUCTIONS}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "responseSchema": PICK_SCHEMA},
+        "generationConfig": {"responseMimeType": "application/json", "responseSchema": schema},
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     data = json.loads(post_json(url, body, {"x-goog-api-key": key}))
     try:
         parts = data["candidates"][0]["content"]["parts"]
-        text = "".join(part.get("text", "") for part in parts)
-        picks = json.loads(text)["picks"]
+        return json.loads("".join(part.get("text", "") for part in parts))["picks"]
     except (KeyError, IndexError, ValueError, TypeError):
         raise DjError("Gemini returned an unexpected answer") from None
-    cleaned = []
-    for pick in picks[:count]:
-        artist, title = clean(pick.get("artist", ""), 80), clean(pick.get("title", ""), 120)
-        if artist and title:
-            cleaned.append({
-                "artist": artist,
-                "title": title,
-                "reason": clean(pick.get("reason", ""), 160),
-                "intro": clean(pick.get("intro", ""), 300),
-            })
+
+
+def dj_pick(request):
+    """Ask Gemini for the next songs. Returns a list of {artist, title, reason, intro}.
+
+    With a "library" ([{id, artist, title}]) in the request, Gemini may only pick
+    from it and each pick also has its "id"; otherwise it can pick any song (beta).
+    """
+    count = max(1, min(int(request.get("count") or 3), 5))
+    listing = lambda name: "\n".join(f"- {clean(t, 120)}" for t in request.get(name, [])[-25:]) or "(none)"
+    situation = (
+        f"Vibe: {clean(request.get('vibe') or 'keep the current energy going', 200)}\n"
+        f"Now playing: {clean(request.get('nowPlaying') or 'nothing yet', 120)}\n"
+        f"Already queued:\n{listing('queued')}\n"
+        f"Already played:\n{listing('played')}\n"
+    )
+
+    library = {
+        clean(song.get("id", ""), 20): song
+        for song in request.get("library") or []
+        if isinstance(song, dict) and song.get("id")
+    }
+    if library:
+        menu = "\n".join(f"- {song_id}: {clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}" for song_id, s in library.items())
+        prompt = (
+            f"{situation}"
+            f"You may only pick from this library (id: artist - title):\n{menu}\n"
+            "Answer with library ids. Prefer songs that haven't been played or queued; only repeat a song "
+            "once every song has played, starting with the one played longest ago.\n"
+            f"Pick {count} songs."
+        )
+        # Songs already queued or played, by the "artist - title" label the page uses.
+        label = lambda s: f"{clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}".lower()
+        used = {clean(t, 200).lower() for t in [*request.get("queued", []), *request.get("played", [])]}
+        unused = [s for s in library.values() if label(s) not in used]
+
+        def entry(song, reason, intro):
+            return {
+                "id": song["id"],
+                "artist": clean(song.get("artist", ""), 80),
+                "title": clean(song.get("title", ""), 120),
+                "reason": clean(reason, 160),
+                "intro": clean(intro, 300),
+            }
+
+        cleaned = []
+        for pick in ask_gemini_for_picks(prompt, LIBRARY_PICK_SCHEMA):
+            song = library.get(clean(pick.get("id", ""), 20))
+            if not song or any(p["id"] == song["id"] for p in cleaned):
+                continue  # made-up or repeated id
+            if label(song) in used and unused:
+                continue  # Gemini picked a repeat while fresh songs remain
+            cleaned.append(entry(song, pick.get("reason", ""), pick.get("intro", "")))
+            if len(cleaned) == count:
+                break
+        # Gemini came up short (repeats, bad ids): fill in with unused songs.
+        for song in unused:
+            if len(cleaned) == count:
+                break
+            if all(p["id"] != song["id"] for p in cleaned):
+                cleaned.append(entry(song, "keeps the set going", f"Up next, {song.get('title', '')} by {song.get('artist', '')}."))
+    else:
+        cleaned = []
+        for pick in ask_gemini_for_picks(f"{situation}Pick {count} songs.", PICK_SCHEMA)[:count]:
+            artist, title = clean(pick.get("artist", ""), 80), clean(pick.get("title", ""), 120)
+            if artist and title:
+                cleaned.append({
+                    "artist": artist,
+                    "title": title,
+                    "reason": clean(pick.get("reason", ""), 160),
+                    "intro": clean(pick.get("intro", ""), 300),
+                })
     if not cleaned:
         raise DjError("Gemini didn't pick any songs")
     return cleaned
