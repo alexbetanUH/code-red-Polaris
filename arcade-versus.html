@@ -42,6 +42,15 @@ body { margin: 0; height: 100vh; overflow: hidden; font-family: 'Nunito', sans-s
   header .logo:hover { filter: brightness(1.08); }
   header .pill { min-height: 40px; padding: 0 20px; font-size: 15px; }
   header .spacer { flex: 1; }
+  /* The mode switch, as in aero.css (this page has its own styles): DJ Deck | Arcade, and
+     AirMix, the Arcade's one-player game, as a small sub-button. */
+  .modes { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.55); }
+  .modes a { position: relative; overflow: hidden; display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid transparent; color: #0b2f52; font-weight: 800; font-size: 15px; text-decoration: none; }
+  .modes a:hover { background: rgba(255,255,255,.75); }
+  .modes a[aria-current="page"]::before { content: ""; position: absolute; left: 7%; right: 7%; top: 2px; height: 46%; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.12)); }
+  .modes a.arcade[aria-current="page"] { color: #123d0c; border-color: #4a9a22; background: linear-gradient(180deg, #d4f8ad 0%, #8fda55 49%, #62b92e 50%, #86d44e 100%); }
+  .modes a.sub { min-height: 28px; padding: 0 11px; font-size: 13px; color: #8a4510; border-color: #f5b36f; background: linear-gradient(180deg, #fff7ee, #ffe4c8); }
+  .modes a.sub:hover { color: #3d1800; background: linear-gradient(180deg, #ffe2c2, #ffc58c); }
   #status { font-size: 13px; color: #2b5a82; }
   .title { display: flex; align-items: center; gap: 8px; }
   .title .arrow { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #fff; background: linear-gradient(180deg, #fff, #e3f1fb); color: #0a62ad; font-size: 18px; font-weight: 900; box-shadow: 0 3px 8px rgba(18,92,160,.15); }
@@ -128,6 +137,7 @@ body { margin: 0; height: 100vh; overflow: hidden; font-family: 'Nunito', sans-s
 <body>
 <header class="glass">
   <a class="logo" href="landing.html" title="Back to the home page"><svg width="32" height="32" viewBox="0 0 36 36"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#fff"/><stop offset=".2" stop-color="#9be0ff"/><stop offset=".75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity=".75" transform="rotate(-25 13 10)"/></svg>AirDeck <small>ARCADE</small></a>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="index.html">DJ Deck</a><a class="arcade" href="arcade-versus.html" aria-current="page">Arcade</a><a class="sub" href="ai-dj.html" title="AirMix: play a DJ set as a rhythm game (1 player)">♪ AirMix</a></nav>
   <button class="pill aqua" id="camBtn" disabled>Loading model…</button>
   <span id="status"></span>
   <span class="spacer"></span>
@@ -784,38 +794,7 @@ function handPhoto(p) {
   return c;
 }
 
-// AirMix: the one-player game, on its own page (ai-dj.html: its own tracking, song
-// library and screens). Here it's a stop on the carousel, with a preview and a link.
-const airmix = {
-  id: "airmix", icon: "music", orb: "sunny", name: "AirMix", unit: "SOLO", rule: "1 player · play a DJ set on the beat",
-  help: "Pick your songs, then <b>put your thumbs and index fingers on the dots</b> as they land on the beat. Slide to mix into the next song. <b>1 player</b>, both hands.",
-  link: "ai-dj.html",
-  init() { this.t = 0; },
-  update(dt) { this.t += dt; },
-  draw() {
-    openBoard();
-    // A shape like the game's: two hands' fingertip dots, numbered, rings closing in.
-    const t = (this.t ?? 0) + performance.now() / 1000, beat = 0.5;
-    const close = 1 - ((t / beat) % 2) / 2;
-    for (const [x, col] of [[W * .36, "#1e95e3"], [W * .64, "#6fcf3a"]]) {
-      const y = H * .5, r = H * .055;
-      g.strokeStyle = col; g.lineWidth = 6; g.setLineDash([14, 10]);
-      g.beginPath(); g.arc(x, y, r * 2.2 * (1 + 1.2 * close), 0, 6.28); g.stroke(); g.setLineDash([]);
-      g.lineWidth = r * .3; g.beginPath(); g.moveTo(x, y + r * 1.1); g.lineTo(x, y - r * 1.1); g.stroke();
-      for (const [dy, filled] of [[r * 1.1, false], [-r * 1.1, true]]) {
-        g.fillStyle = filled ? col : "#fff"; g.beginPath(); g.arc(x, y + dy, r, 0, 6.28); g.fill();
-        g.strokeStyle = col; g.lineWidth = r * .28; g.stroke();
-        g.fillStyle = filled ? "#fff" : col; g.font = `900 italic ${r * 1.1}px Nunito`; g.textAlign = "center"; g.fillText("1", x, y + dy + r * .38);
-      }
-    }
-    g.strokeStyle = "rgba(11,47,82,.35)"; g.lineWidth = 3; g.setLineDash([10, 10]);
-    g.beginPath(); g.moveTo(W * .36 + H * .07, H * .5); g.lineTo(W * .64 - H * .07, H * .5); g.stroke(); g.setLineDash([]);
-  },
-  foot(p) { return p === 1 ? [["Players", 1], ["Songs", "2–5"]] : [["Players", 1], ["Hands", 2]]; },
-  widget: "solo",
-};
-
-const GAMES = [snake, trails, pong, pop, duel, airmix];
+const GAMES = [snake, trails, pong, pop, duel];
 
 // ---- Match flow: idle → countdown → playing → (round over) → match over ----------------
 let clock = 0, paused = false;
@@ -856,7 +835,6 @@ function endMatch() {
   state.phase = "matchover"; beep(990, 0.5); showOverlay();
 }
 function overlayAction() {
-  if (state.game.link) { location.href = state.game.link; return; }
   if (state.phase === "idle" || state.phase === "roundover") startRound();
   else if (state.phase === "matchover") { resetMatch(); startRound(); }
 }
@@ -864,10 +842,7 @@ function overlayAction() {
 function showOverlay() {
   const o = $("overlay"), gm = state.game;
   o.hidden = state.phase === "playing";
-  if (gm.link) o.innerHTML = `<div>${orb(gm, 76)}<h2>${gm.name}</h2><p>${gm.help}</p>
-    <a class="pill lime" id="go" href="${gm.link}" style="text-decoration:none">${ic("play", 18, 2.6)} Play AirMix</a>
-    <div class="keys">Its own page: pick your songs, check the camera, then 3, 2, 1. Space = go.</div></div>`;
-  else if (state.phase === "idle") o.innerHTML = `<div>${orb(gm, 76)}<h2>${gm.name}</h2><p>${gm.help}</p>
+  if (state.phase === "idle") o.innerHTML = `<div>${orb(gm, 76)}<h2>${gm.name}</h2><p>${gm.help}</p>
     <button class="pill lime" id="go">${ic("play", 18, 2.6)} Start</button>
     <div class="keys">No camera? P1 uses <b>W A S D</b> (and 1 2 3), P2 uses the <b>arrows</b> (and 8 9 0). Space = start.</div></div>`;
   else if (state.phase === "countdown") o.innerHTML = `<div><div class="count">${state.count}</div><p>P1 on the left · P2 on the right</p></div>`;
@@ -881,7 +856,7 @@ function showOverlay() {
 }
 function updateTitle() {
   const gm = state.game, i = GAMES.indexOf(gm);
-  const sub = gm.link ? "1 player" : gm.rounds ? `Round ${state.round} of ${gm.rounds}` : `First to ${gm.target}`;
+  const sub = gm.rounds ? `Round ${state.round} of ${gm.rounds}` : `First to ${gm.target}`;
   $("title").innerHTML = `${orb(gm, 30)}<b>${gm.name}</b> <i>· ${sub}</i>`;
   $("dots").innerHTML = GAMES.map((_, k) => `<span class="${k === i ? "on" : ""}"></span>`).join("");
   $("win").textContent = gm.rule;
@@ -902,9 +877,6 @@ const lastHTML = {};
 function setHTML(id, html) { if (lastHTML[id] !== html) { lastHTML[id] = html; $(id).innerHTML = html; } }
 function widgetHTML(p) {
   const inp = input[p], gm = state.game;
-  if (gm.widget === "solo") {
-    return `<div><p class="center-note">${p === 1 ? "AirMix is <b>one player</b>, with <b>both hands</b>" : "Your <b>right hand</b> plays the filter: <b>how open your pinch</b> is"}</p></div>`;
-  }
   if (gm.widget === "pointer") {
     const t = inp.tip, keys = clock - inp.keyAt < KEY_HOLD;
     return `<div><div class="mini">${t && !keys ? `<span class="dot" style="left:${6 + t.x * 88}%;top:${8 + t.y * 84}%"></span>` : ""}</div>
@@ -930,7 +902,7 @@ function widgetHTML(p) {
 }
 function updateSides() {
   for (const p of [1, 2]) {
-    setHTML("score" + p, state.game.link ? "–" : String(state.score[p]));
+    setHTML("score" + p, String(state.score[p]));
     setHTML("widget" + p, widgetHTML(p));
     setHTML("foot" + p, state.game.foot(p).map(([l, v]) => `<span>${l} <b>${v}</b></span>`).join(""));
     setHTML("hand" + p, camOn ? (input[p].present ? `<span class="found">${ic("check", 14, 3)}Hand found</span>` : `Raise your hand on the ${p === 1 ? "left" : "right"}`) : `${p === 1 ? "Left" : "Right"} half of the camera`);

@@ -189,3 +189,8 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 
 .modes a[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+/* A sub-mode: AirMix sits under the Arcade. Small next to Arcade in the Arcade's header;
+   on AirMix's own page it's a full pill after "Arcade ›". */
+.modes a.sub { align-self: center; min-height: 30px; padding: 0 12px; font-size: 13px; color: #8a4510; border-color: #f5b36f; background: linear-gradient(180deg, #fff7ee, #ffe4c8); }
+.modes a.sub:hover { color: #3d1800; background: linear-gradient(180deg, #ffe2c2, #ffc58c); }
+.modes .crumb { align-self: center; margin: 0 -2px; font-weight: 900; color: rgba(11, 47, 82, .45); }

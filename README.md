@@ -29,7 +29,7 @@ Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` fi
 
 ### Arcade · 2P
 
-`arcade-versus.html`: two players, one camera. P1 plays with the left half of the frame, P2 with the right half; each side panel shows that player's half of the camera with their hand drawn on it. Pick a game with the arrows in the top bar; the last stop is AirMix, the one-player game (it opens its own page). Background music is a short chiptune made with Web Audio (no audio files).
+`arcade-versus.html`: two players, one camera. P1 plays with the left half of the frame, P2 with the right half; each side panel shows that player's half of the camera with their hand drawn on it. Pick a game with the arrows in the top bar. The top bar's switch goes to the DJ Deck, and its **♪ AirMix** button (next to Arcade) to the one-player game. Background music is a short chiptune made with Web Audio (no audio files).
 
 | Game | How you play | How you win |
 |---|---|---|
@@ -93,7 +93,7 @@ how (blend or echo out).
 
 ### AirMix
 
-AirMix (`ai-dj.html`, part of the Arcade: the last game on its carousel, and on the home page's Arcade card) is a single-player rhythm game in the style of
+AirMix (`ai-dj.html`, part of the Arcade: the **♪ AirMix** button in the Arcade's top bar) is a single-player rhythm game in the style of
 osu!: you play a DJ set with your hands. It opens on **Pick your set**: tick 2–5 songs from the library in the
 order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Then, the
 first time, how to play in three pictures, the camera and a check that it sees both hands; the set loads while
