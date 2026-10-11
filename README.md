@@ -42,8 +42,9 @@ Open http://localhost:8000/mix.html. Left hand = deck A, right hand = deck B. Bo
 | Fist + slide left/right | Scratch (hand on the record; still fist = record stopped). Slip mode: on release the track jumps back in sync |
 | Both open hands up high | Build-up: high-pass sweep, noise riser, accelerating snare roll |
 | …then two fists | Drop on the next bar line |
+| Both open hands held low (~1 s) | Pause / resume hand tracking (music keeps playing) |
 
-No camera? Keys: Space play/pause, 1/2 toggle deck, B build, D drop, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
+No camera? Keys: Space play/pause, 1/2 toggle deck, B build, D drop, P pause tracking, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
 
 - `mix-worklet.js`: audio-thread engine (variable-rate/reverse playback, master beat clock, phase lock, slip mode, bar-aligned loops)
 - `mix-audio.js`: graph, filters, faders, build/drop FX, tempo detection, demo loops

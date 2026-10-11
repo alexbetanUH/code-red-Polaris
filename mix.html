@@ -125,6 +125,7 @@
   <div id="lgTwist">🤏 Pinch + twist → filter</div>
   <div id="lgScratch">✊ Fist + slide → scratch</div>
   <div id="lgBuild">🙌 Both hands up → build · ✊✊ → drop</div>
+  <div id="lgPause">✋✋ Hold both open hands low → pause tracking</div>
 </footer>
 
 <script type="module">
@@ -160,6 +161,9 @@ const SCRATCH_MAX = 8;
 // Build-up: both open hands above this height for BUILD_HOLD_MS
 const BUILD_HEIGHT = 0.72, BUILD_HOLD_MS = 350;
 const BUILD_CANCEL_HEIGHT = 0.35;                   // both open hands lowered below this = cancel
+// Pause: both open hands held below this height for PAUSE_HOLD_MS toggles tracking on/off
+// (kept under BUILD_HEIGHT so raising your hands for a build doesn't pause)
+const PAUSE_MAX_HEIGHT = 0.6, PAUSE_HOLD_MS = 1000;
 // -------------------------------------------------------------------------
 
 const WRIST = 0, THUMB_TIP = 4, INDEX_MCP = 5, INDEX_TIP = 8, MIDDLE_MCP = 9, PINKY_MCP = 17;
@@ -180,7 +184,8 @@ const statusEl = $("status");
 const mixer = new Mixer();
 let landmarker, cameraOn = false, lastVideoTime = -1, debug = false;
 let frames = 0, fpsTime = performance.now(), fps = 0, statusNote = "";
-const fx = { armSince: null, building: false };     // two-hand build/drop gesture state
+const fx = { armSince: null, building: false,       // two-hand build/drop gesture state
+             paused: false, pauseSince: null, pauseLatch: false };  // two-hand pause toggle
 
 try {
   const saved = JSON.parse(localStorage.getItem("airdeck-pinch-v2") || "null");
@@ -344,6 +349,17 @@ function processHand(side, det, now) {
 function updateGestures(hands, now) {
   const [left, right] = hands;
 
+  // Pause toggle (two open hands held low). After toggling, the hands must change
+  // pose before it can toggle again, so holding them there doesn't flip-flop.
+  const pausePose = !fx.building && left && right && left.open && right.open &&
+    left.height < PAUSE_MAX_HEIGHT && right.height < PAUSE_MAX_HEIGHT;
+  if (!pausePose) { fx.pauseSince = null; fx.pauseLatch = false; }
+  else if (!fx.pauseLatch) {
+    fx.pauseSince ??= now;
+    if (now - fx.pauseSince > PAUSE_HOLD_MS) setPaused(!fx.paused);
+  }
+  if (fx.paused) return;
+
   // Build-up / drop (two hands)
   if (!fx.building) {
     const armed = left && right && left.open && right.open && left.height > BUILD_HEIGHT && right.height > BUILD_HEIGHT;
@@ -412,6 +428,15 @@ function setMode(s, k, mode, hand, now) {
     s.scratch = { x: hand.palm.x / canvas.width, t: now, vel: 0, rate: 0 };
     mixer.scratch(k, true, 0);
   }
+}
+
+function setPaused(paused) {
+  fx.paused = paused;
+  fx.pauseSince = null;
+  fx.pauseLatch = true;
+  fx.armSince = null;
+  // Let go of everything; controls keep their values and the music keeps playing
+  SIDES.forEach((side, k) => setMode(sides[side], k, "idle"));
 }
 
 function startBuild() {
@@ -513,7 +538,9 @@ function render() {
   drawBeatCounter(W, u, beat, playing, build);
   [0, 1].forEach((k) => drawDeck(k, W, H, u, levels[k], bass));
   SIDES.forEach((side, k) => hands[k] && drawHand(sides[side], hands[k], k, u));
-  if (!cameraOn) drawCenterText(W, H, u, "Click “Start camera” and show both hands", "Keys: Space play · 1/2 deck · B build · D drop · H debug");
+  drawPause(W, H, u, hands);
+  if (fx.paused) { /* drawPause shows its own message */ }
+  else if (!cameraOn) drawCenterText(W, H, u, "Click “Start camera” and show both hands", "Keys: Space play · 1/2 deck · B build · D drop · P pause · H debug");
   else if (!mixer.decks[0].loaded && !mixer.decks[1].loaded) drawCenterText(W, H, u, "Load a track on each deck", "or click “Load demo tracks”");
 
   // Drop: white flash + shockwaves
@@ -713,6 +740,29 @@ function drawHand(s, hand, k, u) {
   }
 }
 
+// Paused overlay, and a progress ring on each palm while the pause gesture is held
+function drawPause(W, H, u, hands) {
+  if (fx.paused) {
+    ctx.fillStyle = "rgba(5,6,10,0.55)";
+    ctx.fillRect(0, 0, W, H);
+    drawCenterText(W, H, u, "⏸  TRACKING PAUSED", "music keeps playing · hold both open hands low for 1 s to resume");
+  }
+  if (fx.pauseSince === null) return;
+  const p = clamp01((performance.now() - fx.pauseSince) / PAUSE_HOLD_MS);
+  hands.forEach((hand) => {
+    if (!hand) return;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineWidth = 8 * u;
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.beginPath(); ctx.arc(hand.palm.x, hand.palm.y, 70 * u, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = "#fff";
+    ctx.beginPath(); ctx.arc(hand.palm.x, hand.palm.y, 70 * u, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    label(hand.palm.x, hand.palm.y - 95 * u, fx.paused ? "RESUME" : "PAUSE", "#fff", 16 * u);
+  });
+}
+
 function drawCenterText(W, H, u, title, sub) {
   label(W / 2, H / 2 - 16 * u, title, "#fff", 28 * u);
   label(W / 2, H / 2 + 26 * u, sub, "rgba(255,255,255,0.6)", 15 * u, false);
@@ -744,10 +794,12 @@ function filterText(v) {
 let legendState = "";
 function updateLegend() {
   const modes = SIDES.map((s) => sides[s].mode);
-  const state = [modes.includes("grab"), modes.includes("scratch"), fx.building || fx.armSince !== null].join();
+  const state = [modes.includes("grab"), modes.includes("scratch"), fx.building || fx.armSince !== null,
+    fx.paused || fx.pauseSince !== null].join();
   if (state === legendState) return;
   legendState = state;
-  const [grab, scratch, build] = state.split(",").map((v) => v === "true");
+  const [grab, scratch, build, pause] = state.split(",").map((v) => v === "true");
+  $("lgPause").classList.toggle("on", pause);
   $("lgGrab").classList.toggle("on", grab);
   $("lgTwist").classList.toggle("on", grab);
   $("lgScratch").classList.toggle("on", scratch);
@@ -839,9 +891,10 @@ window.addEventListener("keydown", (e) => {
   else if (key === "b") { if (mixer.build) mixer.cancelBuild(); else startBuild(); }
   else if (key === "d") { mixer.drop(); fx.building = !!mixer.build; }
   else if (key === "h") debug = !debug;
+  else if (key === "p") setPaused(!fx.paused);
 });
 
-window.airdeck = { mixer, sides, updateGestures }; // for poking at it from the console
+window.airdeck = { mixer, sides, fx, updateGestures }; // for poking at it from the console
 render();
 
 loadModel()
