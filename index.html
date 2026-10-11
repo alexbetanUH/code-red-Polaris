@@ -948,7 +948,7 @@ const FX_NAMES = ["reverb", "echo", "bitcrush", "flanger"];
 const FX_LABELS = { reverb: "Reverb", echo: "Echo", bitcrush: "Bitcrush", flanger: "Flanger" };
 // Visual effects for the finger-point shape (right fist in the bottom-right corner, then 1-5 fingers)
 const VIS_COLOR = "#a78bfa";
-const VIS_NAMES = ["portal", "color", "kaleido", "bubbles", "off"];   // 1-4 = effects, 5 = all off
+const VIS_NAMES = ["color", "portal", "kaleido", "bubbles", "off"];   // 1-4 = effects, 5 = all off
 const VIS_LABELS = { portal: "Portal", color: "Color filter", kaleido: "Kaleidoscope", bubbles: "Bubble Aero", off: "All off" };
 let visualFx = "off";   // no visual until one is picked (a saved pick is restored)
 try { const saved = localStorage.getItem("airdeck-visual"); const v = saved === "pixel8" ? "bubbles" : saved; if (VIS_NAMES.includes(v)) visualFx = v; } catch {}

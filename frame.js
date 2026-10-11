@@ -41,6 +41,12 @@ vec3 cam(vec2 p) {
   return texture2D(u_tex, clamp(uv, 0.0, 1.0)).rgb;
 }
 float hash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
+// Rotate a color's hue by angle a (radians) around the gray axis, keeping its brightness.
+vec3 hueRotate(vec3 c, float a) {
+  const vec3 k = vec3(0.57735);
+  float ca = cos(a);
+  return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca);
+}
 
 void main() {
   float s = 0.35 + 0.65 * u_bass; // effect strength
@@ -128,7 +134,8 @@ void main() {
     float rim = smoothstep(0.65, 1.05, r);
     col += vec3(0.35, 0.15, 0.85) * rim * (0.55 + 0.6 * s); // purple glow at the edge
   } else {
-    // color filter: map brightness to a neon palette (deep violet → hot pink → cyan → white) that drifts with time
+    // color filter: map brightness to a neon palette (deep violet → hot pink → cyan → white) whose hues
+    // cycle over time (one full turn about every 10 s)
     vec3 c = cam(p);
     float l = dot(c, vec3(0.299, 0.587, 0.114));
     l = clamp(l * (1.0 + 0.5 * s) + 0.08 * sin(u_time * 1.5), 0.0, 1.0);
@@ -137,6 +144,7 @@ void main() {
     vec3 c2 = vec3(0.1, 0.9, 1.0);
     vec3 c3 = vec3(1.0, 0.98, 0.9);
     vec3 m = l < 0.4 ? mix(c0, c1, l / 0.4) : (l < 0.75 ? mix(c1, c2, (l - 0.4) / 0.35) : mix(c2, c3, (l - 0.75) / 0.25));
+    m = clamp(hueRotate(m, u_time * 0.6), 0.0, 1.0);
     col = mix(c, m, 0.92);
   }
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0); // opaque, so premultiplied is the same
