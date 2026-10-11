@@ -63,19 +63,24 @@ quiet intro) and mix it out after about 20 s, in whole phrases, with shorter ble
 transitions. The camera view shows what's up next, when the DJ mixes into it and
 how (blend or echo out).
 
-**You do the mixes** (with the camera on), Maestro style: big glossy orbs over the camera view that you reach
-into and grab (pinch) in time with the music. The AI suggests and keeps everything beat-synced; you perform:
+**Play the set** (with the camera on and the DJ started): the set becomes a rhythm game in the style of osu!.
+Circles come in about 2 beats before their beat, with a ring closing onto them: get that hand's palm into the circle
+as the ring closes (blue for your left hand, green for your right). They follow the song's beats all the way through,
+more of them in its loud parts. The mixes are part of the chart:
 
-| Step | Move | Does |
-|---|---|---|
-| 🎵 Choose | Grab one of the orbs on the right (or hold a left fist and show 1–3 fingers on your right hand) | That song is next. Each orb shows the DJ's reason and whether it blends by hand (✋) or gets echoed out (🌊). Don't choose and the DJ's pick (⭐) stands |
-| ✋ Grab the drop | Grab the green orb as its ring closes, then pull it toward the middle | The song comes in on that downbeat; how far you pull it is its volume |
-| 🔌 Pull the plug | Grab the blue orb on its beat, then drag it off to the left | The bass lines swap; dragging it away fades the old song out |
+- **Choosing the next song**: a few bars ahead, the DJ's next songs come in as circles on the right, each with a
+  balloon saying what it is and why. Your right hand in one on its beat picks it; otherwise the DJ's pick plays.
+- **Blends** (tempos close): a green slider brings the new song in; follow its ball with your right hand and how far
+  along you are is the new song's volume. Then a blue slider takes the old song out with your left hand. If you
+  don't follow, the AI moves the music along the sliders for you.
+- **Cuts** (tempos far apart): one circle per hand on the downbeat; the new song slams in and the old one is thrown
+  into an echo.
 
-Grabs within a beat of the cue are PERFECT, within two GOOD (with a combo count). Miss one by a bar, or stall, and
-the AI does that part, so the music never stops. Songs whose tempos clash get echoed out by the AI. While a hand is
-at an orb, and for the whole mix, speed, filter and volume hold still (grabbing pinches). Without the camera the DJ
-does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+Hits within about 140 ms of the beat are Perfect, within 280 ms Good. Your combo and accuracy show in the corner and
+the Set card, and how well you play is the crowd's hype, which the DJ hears about when it picks the next songs. While
+the game runs, speed, filter and volume hold still (your hands are busy); with nobody in frame nothing counts as a
+miss. Untick **Play the set** in the Set card to get the pinch controls back; without the camera the DJ mixes by
+itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
@@ -102,7 +107,7 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
   changes to `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
-- `djCoach.js`: the Maestro-style coach: choosing songs and performing mixes by grabbing orbs
+- `djGame.js`: the set as a rhythm game: the chart, hits, the playable mixes and the Set card
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 

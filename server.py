@@ -330,6 +330,19 @@ def tempo_gap(a, b):
     return min(abs(a - b), abs(a - 2 * b), abs(2 * a - b))
 
 
+def crowd_line(level):
+    """How the player is doing (0-1, from the game on the AI DJ page), as a hint for the DJ."""
+    try:
+        level = float(level)
+    except (TypeError, ValueError):
+        return ""
+    if level >= 0.7:
+        return "The crowd is hyped (the player is nailing the moves): you can push the energy up.\n"
+    if level <= 0.35:
+        return "The crowd is cooling off (the player is missing moves): pick something familiar and easy to groove to.\n"
+    return "The crowd is steady.\n"
+
+
 def dj_pick(request):
     """Ask Gemini for the next songs. Returns (picks, offline): picks is a list of
     {artist, title, reason, intro}; offline is why Gemini couldn't be used, or None.
@@ -347,6 +360,7 @@ def dj_pick(request):
         f"Now playing: {clean(request.get('nowPlaying') or 'nothing yet', 120)}\n"
         f"Already queued:\n{listing('queued')}\n"
         f"Already played:\n{listing('played')}\n"
+        f"{crowd_line(request.get('crowd'))}"
     )
 
     library = {

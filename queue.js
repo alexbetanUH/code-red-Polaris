@@ -55,7 +55,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let library = [];
   // short: short mixes (each song plays about 20 s from where it gets going), so a
   // one-minute demo hears several transitions.
-  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true };
+  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true, crowd: null };
   const listeners = new Set();
 
   const changed = () => {
@@ -342,7 +342,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // The DJ mixes into the next song (transitions.js) and introduces it over the mix,
   // with the music turned down. With nothing playing, it introduces the song first.
   // One at a time.
-  async function transitionTo(item, { mixOutAt, hands = false } = {}) {
+  async function transitionTo(item, { mixOutAt, startAt = null, hands = false } = {}) {
     transitioning = true;
     transitionId = item.id;
     try {
@@ -350,7 +350,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       const talks = djSpeaksBefore(item, mixing ? items.find((entry) => entry.id === currentId) : null);
       // Mix in from the playing song, or (nothing playing) just start, at the song's
       // entry with short mixes. Either way the DJ talks over the music, not before it.
-      await playItem(item.id, mixing ? { mix: { mixOutAt, hands } } : { entry: dj.short });
+      await playItem(item.id, mixing ? { mix: { mixOutAt, startAt, hands } } : { entry: dj.short });
       if (currentId !== item.id) return; // skipped or paused meanwhile
       if (talks) {
         dj.talking = true;
@@ -386,6 +386,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         vibe: dj.vibe,
         nowPlaying: current?.title ?? "",
         queued: items.map((item) => item.title),
+        crowd: dj.crowd,
         played,
         count: djPicksPerRequest,
         ...(useLibrary && { library: library.map(({ id, artist, title, bpm, genre }) => ({ id, artist, title, bpm, genre })) }),
@@ -440,7 +441,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // With the DJ on, the mix into the next song starts as the current one nears its end.
   // No next song yet: the current one loops (and gets mixed out next time around).
-  // While a coach (djCoach.js) is running, it decides when to mix instead.
+  // While a game (djGame.js) is running, it decides when to mix instead.
   let coachSeen = 0;
   const coached = () => performance.now() - coachSeen < 1000;
   setInterval(() => {
@@ -468,6 +469,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const from = items.find((entry) => entry.id === currentId);
         const mixed = await transitions.mixInto(buffer, {
           mixOutAt: mix.mixOutAt,
+          startAt: mix.startAt ?? null,
           hands: mix.hands,
           short: dj.short,
           fromBpm: from?.bpm,
@@ -523,7 +525,22 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       duration: deck.buffer?.duration ?? 0,
       playing: Boolean(deck.playing),
       loaded: Boolean(deck.buffer),
+      rate: deck.rate || 1, // song seconds per real second
+      songId: currentId,
     }),
+
+    // The playing song's beat grid ({ bpm, first downbeat }, song seconds) around a point
+    // in it, and how loud it is there (1 = its typical level). For djGame.js's charts.
+    beatGridAt: (seconds) => (deck.buffer ? transitions.beatGridAt(deck.buffer, seconds) : null),
+    energyAt: (seconds) => (deck.buffer ? transitions.energyAt(deck.buffer, seconds) : 1),
+
+    // Where (song seconds) the DJ mixes the playing song out by, or null with the DJ off.
+    mixOutAt: () => (dj.on && deck.buffer ? transitions.mixOutPoint(deck.buffer, dj.short) : null),
+
+    // How the crowd (the player) is doing, 0–1: the DJ hears about it with its next picks.
+    setCrowd(level) {
+      dj.crowd = Math.round(Math.max(0, Math.min(1, level)) * 100) / 100;
+    },
 
     on(listener) {
       listeners.add(listener);
@@ -670,7 +687,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // Starts a mix the hands perform: the next song comes in on the next downbeat, and
     // this resolves with its live controls (see transitions.mixInto's hands option), or
     // with null when there's nothing to mix (or it can't be beat-matched: use mixNow).
-    startHandMix() {
+    // startAt: the downbeat (song seconds) it starts on; the next one by default.
+    startHandMix({ startAt = null } = {}) {
       const next = upcoming()[0];
       if (transitioning || !next || !deck.playing || !deck.buffer) return Promise.resolve(null);
       return new Promise((resolve) => {
@@ -679,7 +697,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
           handMix = controls ?? null;
           resolve(controls ?? null);
         };
-        transitionTo(next, { mixOutAt: 0, hands: true }).finally(() => handMixStarted?.(null));
+        transitionTo(next, { mixOutAt: 0, startAt, hands: true }).finally(() => handMixStarted?.(null));
       });
     },
 
@@ -1027,10 +1045,10 @@ export function createUpNext(queue) {
     element("div", { className: "upNext-line" }, [element("span", { className: "upNext-label", text: "Up next" }), title, genre]),
     element("div", { className: "upNext-line" }, [when]),
   ]);
-  const slot = element("div", { className: "upNext-slot" }); // for extras, like djCoach.js's move track
+  const slot = element("div", { className: "upNext-slot" }); // for extras above the strip
   const root = element("div", { className: "upNext" }, [toast, slot, strip]);
   let toastTimer = null;
-  let statusOverride = null; // setStatus(): someone else (djCoach.js) says what's happening
+  let statusOverride = null; // setStatus(): something else says what's happening
 
   function update() {
     const next = queue.getUpNext();
