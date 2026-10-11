@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirDeck · DJ Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="aero.css">
+<style>
+  /* DJ Deck: the shared Aero look (aero.css) in the underwater world. */
+  :root {
+    --a: #1e95e3;
+    --b: #5cb82c;
+  }
+  .loaders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 18px 0;
+  }
+  .loader {
+    flex: 1 1 420px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 22px;
+    padding: 8px 10px;
+    min-width: 0;
+  }
+  .loader .tag { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; }
+  .loader.a .tag { color: #fff; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #9be0ff 16%, #1e95e3 62%, #0b62b0 100%); }
+  .loader.b .tag { color: #123d0c; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #dcfbbd 16%, #86d44e 62%, #4f9f24 100%); }
+  .loader input[type="url"] { flex: 1 1 140px; }
+  .loader input[type="file"] { display: none; }
+  .loader button { min-height: 36px; padding: 0 14px; font-size: 14px; }
+  .loader .st { flex: 1 1 140px; font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .stage {
+    position: relative;
+    margin: 14px auto 0;
+    width: min(100% - 36px, (100vh - 220px) * 16 / 9);
+    aspect-ratio: 16 / 9;
+    border-radius: 26px;
+    overflow: hidden;
+    border: 2px solid rgba(255,255,255,.95);
+    box-shadow: 0 14px 38px rgba(4,60,110,.35), inset 0 0 0 1px rgba(120,180,225,.35);
+  }
+  video { display: none; }
+  canvas { width: 100%; height: 100%; display: block; }
+  .legend {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px 16px;
+  }
+  .legend div { transition: all 0.15s; }
+  .legend div.on { color: #3d1800; background: linear-gradient(180deg, #ffe7a8, #ffc94a); border-color: #e0a21a; }
+</style>
+</head>
+<body class="world-water">
+<header class="topbar glass">
+  <a class="brand" href="landing.html" title="Back to the home page"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>AirDeck</a>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="mix.html" aria-current="page">DJ Deck</a><a class="arcade" href="arcade.html">Arcade · 2P</a><a class="ai" href="index.html#ai-dj">AI DJ</a></nav>
+  <button id="start" disabled>Loading model…</button>
+  <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
+  <button id="demo" class="secondary">Load demo tracks</button>
+  <button id="playAll" class="secondary" disabled>Play</button>
+  <span class="note" id="calibMsg"></span>
+  <span class="status spacer" id="status"></span>
+</header>
+
+<section class="loaders" id="loaders"></section>
+
+<div class="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="canvas" width="1280" height="720"></canvas>
+</div>
+
+<footer class="legend">
+  <div class="chip" id="lgHover">1 · Move your fingertips onto a fader or knob</div>
+  <div class="chip" id="lgGrab">2 · Pinch to grab: fader up / down, knob in a circle</div>
+  <div class="chip" id="lgPause">Both open hands low for 1 s · pause tracking</div>
+</footer>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+import { Mixer, renderDemo } from "./mix-audio.js";
+
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+
+// ---- Tuning knobs -------------------------------------------------------
+// Pinch: same measurement and saved calibration as index.html.
+let PINCH_CLOSED = 0.05, PINCH_OPEN = 0.9;
+const PINCH_ON = 0.15, PINCH_OFF = 0.3;             // hysteresis on the 0–1 pinch value (lenient on purpose)
+const RELEASE_GRACE_MS = 150;                       // pinch must stay open this long to let go (rides out tracking glitches)
+const PINCH_MEDIAN_FRAMES = 3;                      // more frames = steadier but laggier
+const PINCH_FILTER = { minCutoff: 0.6, beta: 3 };
+const POINT_FILTER = { minCutoff: 1.5, beta: 8 };   // landmark smoothing (One Euro)
+const VALUE_FILTER = { minCutoff: 1.0, beta: 4 };
+const HEIGHT_BOTTOM = 0.85, HEIGHT_TOP = 0.15;      // palm y range that maps to height 0–1
+const FINGER_STRAIGHT_DEG = 70;                     // finger counts as extended below this total bend
+const HOLD_MS = 250;                                // keep a lost hand this long before dropping it
+// Camera size fed to the hand model. It shrinks frames to ~224 px internally, so a big
+// camera frame only adds cost: 640×360 detects ~4× faster than 1280×720 on a laptop GPU.
+const CAMERA_W = 640, CAMERA_H = 360;
+const STAGE_H = 720;                                // canvas height the stage is drawn at (stays sharp)
+// On-screen controls (sizes relative to stage height H)
+const KNOB_HIT = 1.6;                               // grab radius, × knob radius
+const FADER_HIT = 2.5;                              // grab half-width, × fader width
+const KNOB_DETENT = 0.06;                           // knob values this close to centre snap to "off"
+const KNOB_SWEEP = 135;                             // degrees from centre to fully left/right
+// Pause: both open hands held below this height for PAUSE_HOLD_MS toggles tracking on/off
+const PAUSE_MAX_HEIGHT = 0.6, PAUSE_HOLD_MS = 1000;
+// -------------------------------------------------------------------------
+
+const WRIST = 0, THUMB_TIP = 4, INDEX_TIP = 8, MIDDLE_MCP = 9;
+const PALM = [0, 5, 9, 13, 17];
+const FINGERS = { index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
+const FINGER_NAMES = ["index", "middle", "ring", "pinky"];
+const CONNECTIONS = [
+  [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
+  [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17],
+];
+const DECK_COLORS = ["#1e95e3", "#5cb82c"];
+const DECK_TEXT = ["#9be6ff", "#cdf7a4"];   // lighter tints, readable on the water
+const GOLD = "#facc15";
+const SIDES = ["left", "right"];                    // tracked hands; either hand can use any control
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
+const statusEl = $("status"), calibMsg = $("calibMsg");
+const mixer = new Mixer();
+let landmarker, cameraOn = false, lastVideoTime = -1, debug = false, calib = null;
+let frames = 0, fpsTime = performance.now(), fps = 0, statusNote = "";
+let delegate = "", detectMs = 0;                    // shown in the status line, for diagnosing lag
+const fx = { paused: false, pauseSince: null, pauseLatch: false }; // two-hand pause toggle
+
+try {
+  const saved = JSON.parse(localStorage.getItem("airdeck-pinch-v2") || "null");
+  if (saved && saved.closed < saved.open) ({ closed: PINCH_CLOSED, open: PINCH_OPEN } = saved);
+} catch {}
+
+// ---- Deck loaders ------------------------------------------------------------------
+$("loaders").innerHTML = ["a", "b"].map((id) => `
+  <div class="loader glass ${id}">
+    <span class="tag">${id.toUpperCase()}</span>
+    <input type="url" id="${id}Url" placeholder="YouTube link for deck ${id.toUpperCase()}">
+    <button id="${id}Yt" class="${id === "b" ? "lime" : ""}">Load</button>
+    <button id="${id}FileBtn" class="secondary">File</button>
+    <input type="file" id="${id}File" accept="audio/*">
+    <span class="st" id="${id}St">empty</span>
+  </div>`).join("");
+
+// ---- One Euro filter (https://gery.casiez.net/1euro/) ---------------------------------
+class OneEuro {
+  constructor({ minCutoff, beta, dCutoff = 1 }) { Object.assign(this, { minCutoff, beta, dCutoff }); this.reset(); }
+  reset() { this.x = null; this.dx = 0; this.t = null; }
+  alpha(cutoff, dt) { return 1 / (1 + 1 / (2 * Math.PI * cutoff * dt)); }
+  filter(x, t) {
+    if (this.x === null) { this.x = x; this.t = t; return x; }
+    const dt = Math.max((t - this.t) / 1000, 1e-3);
+    const ad = this.alpha(this.dCutoff, dt);
+    this.dx = ad * ((x - this.x) / dt) + (1 - ad) * this.dx;
+    const a = this.alpha(this.minCutoff + this.beta * Math.abs(this.dx), dt);
+    this.x = a * x + (1 - a) * this.x;
+    this.t = t;
+    return this.x;
+  }
+}
+
+// ---- Math -------------------------------------------------------------------------------
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const clamp01 = (v) => clamp(v, 0, 1);
+const remap = (v, lo, hi) => clamp01((v - lo) / (hi - lo));
+const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+const dot3 = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+const sub3 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+function angleDeg(u, v) {
+  const len = Math.hypot(u.x, u.y, u.z) * Math.hypot(v.x, v.y, v.z) || 1;
+  return (Math.acos(clamp(dot3(u, v) / len, -1, 1)) * 180) / Math.PI;
+}
+
+// Shortest distance between 3D segments p1–q1 and p2–q2 (Ericson, Real-Time Collision Detection)
+function segmentDistance(p1, q1, p2, q2) {
+  const d1 = sub3(q1, p1), d2 = sub3(q2, p2), r = sub3(p1, p2);
+  const a = dot3(d1, d1), e = dot3(d2, d2), f = dot3(d2, r);
+  let s, t;
+  if (a < 1e-9 && e < 1e-9) return dist3(p1, p2);
+  if (a < 1e-9) { s = 0; t = clamp01(f / e); }
+  else {
+    const c = dot3(d1, r);
+    if (e < 1e-9) { t = 0; s = clamp01(-c / a); }
+    else {
+      const b = dot3(d1, d2), denom = a * e - b * b;
+      s = denom > 1e-9 ? clamp01((b * f - c * e) / denom) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = clamp01(-c / a); }
+      else if (t > 1) { t = 1; s = clamp01((b - c) / a); }
+    }
+  }
+  return dist3({ x: p1.x + d1.x * s, y: p1.y + d1.y * s, z: p1.z + d1.z * s },
+               { x: p2.x + d2.x * t, y: p2.y + d2.y * t, z: p2.z + d2.z * t });
+}
+
+// Thumb–index pinch: closest gap between the last finger bones, / palm size
+function measurePinch(p) {
+  const gap = Math.min(segmentDistance(p[3], p[4], p[6], p[7]), segmentDistance(p[3], p[4], p[7], p[8]));
+  const palm = (dist3(p[0], p[5]) + dist3(p[0], p[9]) + dist3(p[0], p[17]) + dist3(p[5], p[17])) / 4;
+  return gap / palm;
+}
+
+function fingerExtended(w, [mcp, pip, dip, tip]) {
+  const bend = angleDeg(sub3(w[pip], w[mcp]), sub3(w[dip], w[pip])) + angleDeg(sub3(w[tip], w[dip]), sub3(w[dip], w[pip]));
+  return bend < FINGER_STRAIGHT_DEG;
+}
+
+// ---- Hand tracking -------------------------------------------------------------------------
+function makeSide() {
+  return {
+    points: Array.from({ length: 21 }, () => ({ x: new OneEuro(POINT_FILTER), y: new OneEuro(POINT_FILTER) })),
+    pinch: new OneEuro(PINCH_FILTER), pinchRecent: [], height: new OneEuro(VALUE_FILTER),
+    pinched: false,
+    held: null,              // control this hand is holding: { k, type, value, lastX, lastY, lastAngle }
+    hover: null,             // control under the cursor: { k, type }
+    pinchLostAt: null,
+    lastSeen: -Infinity, hand: null,
+  };
+}
+const sides = { left: makeSide(), right: makeSide() };
+
+function resetSide(s) {
+  s.points.forEach((p) => { p.x.reset(); p.y.reset(); });
+  s.pinch.reset(); s.height.reset();
+  s.pinchRecent = [];
+  s.pinched = false;
+  s.held = s.hover = s.pinchLostAt = null;
+  s.hand = null;
+}
+
+// Keep each physical hand in the same slot between frames, so its filters and
+// grabbed control follow it. Two hands: sort by x. One hand: nearest previous slot.
+function assignSides(result, now) {
+  const dets = result.landmarks.map((lms, i) => ({ lms, world: result.worldLandmarks[i], x: 1 - lms[WRIST].x }));
+  dets.sort((a, b) => a.x - b.x);
+  if (dets.length >= 2) return { left: dets[0], right: dets[dets.length - 1] };
+  if (dets.length === 0) return {};
+  const d = dets[0];
+  const recent = (s) => s.hand && now - s.lastSeen < HOLD_MS;
+  const gap = (s) => Math.abs(s.hand.wristX - d.x);
+  if (recent(sides.left) && recent(sides.right)) return gap(sides.left) <= gap(sides.right) ? { left: d } : { right: d };
+  if (recent(sides.left)) return { left: d };
+  if (recent(sides.right)) return { right: d };
+  return d.x < 0.5 ? { left: d } : { right: d };
+}
+
+function processHand(side, det, now) {
+  const s = sides[side];
+  if (now - s.lastSeen > HOLD_MS) resetSide(s);
+  const w = det.world;
+  const pts = det.lms.map((p, i) => ({
+    x: s.points[i].x.filter(1 - p.x, now) * canvas.width,
+    y: s.points[i].y.filter(p.y, now) * canvas.height,
+  }));
+
+  const px = det.lms.map((q) => ({ x: q.x * canvas.width, y: q.y * canvas.height, z: q.z * canvas.width }));
+  const pinchRaw = measurePinch(px);
+  if (calib) calib.samples.push(pinchRaw);
+  s.pinchRecent.push(pinchRaw);
+  if (s.pinchRecent.length > PINCH_MEDIAN_FRAMES) s.pinchRecent.shift();
+  const pinch = clamp01(s.pinch.filter(remap(median(s.pinchRecent), PINCH_CLOSED, PINCH_OPEN), now));
+  if (!s.pinched && pinch < PINCH_ON) s.pinched = true;
+  else if (s.pinched && pinch > PINCH_OFF) s.pinched = false;
+
+  const palmY = PALM.reduce((sum, i) => sum + det.lms[i].y, 0) / PALM.length;
+  const height = clamp01(s.height.filter(remap(palmY, HEIGHT_BOTTOM, HEIGHT_TOP), now));
+  const open = FINGER_NAMES.every((f) => fingerExtended(w, FINGERS[f]));
+
+  s.lastSeen = now;
+  s.hand = {
+    pts,
+    palm: { x: PALM.reduce((a, i) => a + pts[i].x, 0) / 5, y: PALM.reduce((a, i) => a + pts[i].y, 0) / 5 },
+    cursor: mid(pts[THUMB_TIP], pts[INDEX_TIP]),   // the point between thumb and index tips
+    wristX: det.x,
+    pinch, pinchRaw, pinched: s.pinched, height, open,
+  };
+}
+
+// ---- On-screen controls ----------------------------------------------------------------------
+// Deck A on the left edge, deck B mirrored on the right; the middle stays clear for you.
+function layout(k) {
+  const W = canvas.width, H = canvas.height, dir = k === 0 ? 1 : -1, edge = k === 0 ? 0 : W;
+  const col1 = edge + dir * W * 0.11, col2 = edge + dir * W * 0.235;
+  return {
+    vinyl: { x: col1, y: H * 0.29, r: H * 0.1 },
+    knob: { x: col1, y: H * 0.68, r: H * 0.085 },
+    fader: { x: col2, top: H * 0.24, bottom: H * 0.88, w: H * 0.045 },
+    title: { x: k === 0 ? W * 0.025 : W * 0.975, y: H * 0.07 },
+  };
+}
+
+// Control under point p (nearest one if hit areas overlap), or null
+function controlAt(p) {
+  let best = null, bestD = Infinity;
+  for (const k of [0, 1]) {
+    const L = layout(k);
+    const dk = Math.hypot(p.x - L.knob.x, p.y - L.knob.y);
+    if (dk < L.knob.r * KNOB_HIT && dk < bestD) { best = { k, type: "knob" }; bestD = dk; }
+    const f = L.fader, dx = Math.abs(p.x - f.x);
+    if (dx < f.w * FADER_HIT && p.y > f.top - f.w * 2 && p.y < f.bottom + f.w * 2 && dx < bestD) { best = { k, type: "fader" }; bestD = dx; }
+  }
+  return best;
+}
+
+const sameControl = (a, b) => a && b && a.k === b.k && a.type === b.type;
+
+// ---- Gestures → mixer ----------------------------------------------------------------------
+function updateGestures(hands, now) {
+  const [left, right] = hands;
+
+  // Pause toggle (two open hands held low). After toggling, the hands must change
+  // pose before it can toggle again, so holding them there doesn't flip-flop.
+  const pausePose = left && right && left.open && right.open && !left.pinched && !right.pinched &&
+    left.height < PAUSE_MAX_HEIGHT && right.height < PAUSE_MAX_HEIGHT && !sides.left.held && !sides.right.held;
+  if (!pausePose) { fx.pauseSince = null; fx.pauseLatch = false; }
+  else if (!fx.pauseLatch) {
+    fx.pauseSince ??= now;
+    if (now - fx.pauseSince > PAUSE_HOLD_MS) setPaused(!fx.paused);
+  }
+  if (fx.paused) return;
+
+  // Each hand: hover a control, pinch to grab it, move to change it, open to let go.
+  SIDES.forEach((side, i) => {
+    const s = sides[side], hand = hands[i], other = sides[SIDES[1 - i]];
+    if (!hand) { s.held = s.hover = null; return; }
+    const p = hand.cursor;
+    s.hover = controlAt(p);
+
+    if (s.held) {
+      if (hand.pinched) { s.pinchLostAt = null; drag(s.held, p); }
+      else {
+        s.pinchLostAt ??= now;
+        if (now - s.pinchLostAt > RELEASE_GRACE_MS) s.held = null;
+      }
+    } else if (hand.pinched && s.hover && !sameControl(s.hover, other.held)) {
+      grab(s, s.hover, p);
+    }
+  });
+}
+
+function grab(s, c, p) {
+  const d = mixer.decks[c.k], L = layout(c.k);
+  s.held = { ...c, value: c.type === "fader" ? d.fader : d.filter, lastX: p.x, lastY: p.y, lastAngle: null };
+  s.pinchLostAt = null;
+  if (c.type === "knob" && Math.hypot(p.x - L.knob.x, p.y - L.knob.y) > L.knob.r * 0.5) s.held.lastAngle = Math.atan2(p.y - L.knob.y, p.x - L.knob.x);
+}
+
+// Relative drags, so grabbing never makes the value jump.
+function drag(g, p) {
+  const L = layout(g.k);
+  if (g.type === "fader") {
+    g.value = clamp01(g.value + (g.lastY - p.y) / (L.fader.bottom - L.fader.top));
+    mixer.setFader(g.k, g.value);
+  } else {
+    // Circle around the knob to turn it (clockwise = right). Near its centre the
+    // angle gets jumpy, so there we fall back to dragging up/down.
+    const dx = p.x - L.knob.x, dy = p.y - L.knob.y;
+    const far = Math.hypot(dx, dy) > L.knob.r * 0.5, angle = Math.atan2(dy, dx);
+    if (far && g.lastAngle !== null) g.value += (wrapAngle(angle - g.lastAngle) * 180) / Math.PI / KNOB_SWEEP;
+    else g.value += (g.lastY - p.y) / (L.knob.r * 3);
+    g.lastAngle = far ? angle : null;
+    g.value = clamp(g.value, -1, 1);
+    mixer.setFilter(g.k, Math.abs(g.value) < KNOB_DETENT ? 0 : g.value);
+  }
+  g.lastX = p.x;
+  g.lastY = p.y;
+}
+
+function setPaused(paused) {
+  fx.paused = paused;
+  fx.pauseSince = null;
+  fx.pauseLatch = true;
+  SIDES.forEach((side) => { sides[side].held = sides[side].hover = null; });
+}
+
+// ---- Camera + detection loop -----------------------------------------------------------------
+async function loadModel() {
+  const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
+  const options = (delegate) => ({
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: "VIDEO", numHands: 2,
+    minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.6, minTrackingConfidence: 0.6,
+  });
+  try { landmarker = await HandLandmarker.createFromOptions(fileset, options("GPU")); delegate = "GPU"; }
+  catch { landmarker = await HandLandmarker.createFromOptions(fileset, options("CPU")); delegate = "CPU"; }
+}
+
+async function startCamera() {
+  $("start").disabled = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: CAMERA_W }, height: { ideal: CAMERA_H }, frameRate: { ideal: 30 }, facingMode: "user" },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+    // Draw at a fixed height whatever the camera size, keeping the camera's aspect ratio
+    canvas.height = STAGE_H;
+    canvas.width = Math.round((STAGE_H * video.videoWidth) / video.videoHeight);
+    cameraOn = true;
+    $("start").textContent = "Camera on";
+    $("calibrate").disabled = false;
+    scheduleDetect();
+  } catch (err) {
+    statusNote = "Camera error: " + err.message;
+    $("start").disabled = false;
+  }
+}
+
+function scheduleDetect() {
+  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(detect);
+  else requestAnimationFrame(detect);
+}
+
+function detect() {
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const now = performance.now();
+    const result = landmarker.detectForVideo(video, now);
+    detectMs = detectMs * 0.9 + (performance.now() - now) * 0.1;
+    const assigned = assignSides(result, now);
+    SIDES.forEach((side) => assigned[side] && processHand(side, assigned[side], now));
+    updateGestures(liveHands(now), now);
+    frames++;
+    if (now - fpsTime >= 1000) { fps = frames; frames = 0; fpsTime = now; }
+  }
+  scheduleDetect();
+}
+
+const liveHands = (now = performance.now()) => SIDES.map((side) => (now - sides[side].lastSeen < HOLD_MS ? sides[side].hand : null));
+
+// ---- Pinch calibration (same as index.html, shares its saved values) ---------------------------
+async function calibrate() {
+  $("calibrate").disabled = true;
+  const phase = async (msg) => {
+    for (let n = 3; n > 0; n--) { calibMsg.textContent = `${msg} in ${n}…`; await wait(700); }
+    calibMsg.textContent = `${msg}: hold it…`;
+    calib = { samples: [] };
+    await wait(2000);
+    const samples = calib.samples;
+    calib = null;
+    return samples;
+  };
+  const closed = await phase("Pinch thumb + index on both hands");
+  const open = await phase("Spread thumb + index wide");
+  if (closed.length < 10 || open.length < 10 || median(closed) >= median(open)) {
+    calibMsg.textContent = "Calibration failed (hands not seen). Try again.";
+  } else {
+    PINCH_CLOSED = median(closed) + 0.03;
+    PINCH_OPEN = median(open) * 0.9;
+    try { localStorage.setItem("airdeck-pinch-v2", JSON.stringify({ closed: PINCH_CLOSED, open: PINCH_OPEN })); } catch {}
+    calibMsg.textContent = "Calibrated ✓";
+    setTimeout(() => (calibMsg.textContent = ""), 3000);
+  }
+  $("calibrate").disabled = false;
+}
+
+// ---- Drawing ------------------------------------------------------------------------------------
+function render() {
+  requestAnimationFrame(render);
+  const W = canvas.width, H = canvas.height, u = H / 720; // u = 1 at 720p
+  const bass = mixer.bass();
+  const levels = mixer.levels();
+  const playing = mixer.anyPlaying();
+  const beat = mixer.heardBeat();
+  const pulse = playing ? Math.pow(1 - (((beat % 1) + 1) % 1), 3) : 0;
+  const hands = liveHands();
+
+  // Camera over deep water, dimmed so the controls read on top
+  const water = ctx.createLinearGradient(0, 0, 0, H);
+  water.addColorStop(0, "#1c8fc9"); water.addColorStop(1, "#06456e");
+  ctx.fillStyle = water;
+  ctx.fillRect(0, 0, W, H);
+  if (cameraOn) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.translate(W, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  // Bass glow from the edges: you can see the kick even with the sound off
+  const glow = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.95);
+  glow.addColorStop(0, "rgba(0,0,0,0)");
+  glow.addColorStop(1, `rgba(99,205,252,${0.08 + 0.55 * bass * bass + 0.12 * pulse})`);
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+  drawBassBars(W, H, u, bass);
+  drawBeatCounter(W, u, beat, playing);
+
+  const holders = SIDES.map((s) => sides[s].held).filter(Boolean);
+  const hovers = SIDES.map((s) => (sides[s].held ? null : sides[s].hover)).filter(Boolean);
+  const stateOf = (c) => (holders.some((h) => sameControl(h, c)) ? "held" : hovers.some((h) => sameControl(h, c)) ? "hover" : "");
+  [0, 1].forEach((k) => drawDeck(k, u, levels[k], stateOf));
+
+  SIDES.forEach((side, k) => hands[k] && drawHand(sides[side], hands[k], u));
+  drawPause(W, H, u, hands);
+  if (fx.paused) { /* drawPause shows its own message */ }
+  else if (!cameraOn) drawCenterText(W, H, u, "Click “Start camera” and show your hands", "Keys: Space play · 1/2 deck · P pause · H debug");
+  else if (!mixer.decks[0].loaded && !mixer.decks[1].loaded) drawCenterText(W, H, u, "Load a track on each deck", "or click “Load demo tracks”");
+
+  updateLegend();
+  statusEl.textContent = (cameraOn ? `${fps} fps · detect ${detectMs.toFixed(0)} ms (${delegate}) · camera ${video.videoWidth}×${video.videoHeight}` : statusNote || "camera off") + (mixer.masterBpm ? ` · master ${mixer.masterBpm.toFixed(1)} BPM` : "");
+}
+
+// Bass level as two bars rising from the bottom corners of the stage
+function drawBassBars(W, H, u, bass) {
+  const h = bass * bass * H * 0.6;
+  const g = ctx.createLinearGradient(0, H, 0, H - h);
+  g.addColorStop(0, "rgba(143,224,255,0.75)");
+  g.addColorStop(1, "rgba(143,224,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, H - h, 10 * u, h);
+  ctx.fillRect(W - 10 * u, H - h, 10 * u, h);
+}
+
+function drawBeatCounter(W, u, beat, playing) {
+  const n = ((Math.floor(beat) % 4) + 4) % 4, size = 22 * u, gap = 10 * u;
+  const x0 = W / 2 - (4 * size + 3 * gap) / 2, y = 22 * u;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.roundRect(x0 + i * (size + gap), y, size, size, 5 * u);
+    ctx.fillStyle = playing && i === n ? (i === 0 ? GOLD : "#fff") : "rgba(255,255,255,0.15)";
+    ctx.fill();
+  }
+  if (mixer.masterBpm) label(W / 2, y + size + 22 * u, `${mixer.masterBpm.toFixed(1)} BPM · SYNC`, "rgba(255,255,255,0.7)", 15 * u, false);
+}
+
+function drawDeck(k, u, level, stateOf) {
+  const d = mixer.decks[k], color = DECK_COLORS[k], L = layout(k);
+
+  // Title + tempo
+  ctx.save();
+  ctx.textAlign = k === 0 ? "left" : "right";
+  ctx.fillStyle = DECK_TEXT[k];
+  ctx.font = `900 ${20 * u}px Nunito, system-ui, sans-serif`;
+  ctx.fillText(`${k === 0 ? "A" : "B"}  ${d.loaded ? truncate(d.name, 30) : "empty"}`, L.title.x, L.title.y);
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.font = `700 ${14 * u}px Nunito, system-ui, sans-serif`;
+  if (d.loaded) {
+    const rate = mixer.masterBpm / d.bpm;
+    ctx.fillText(`${d.playing ? "▶" : "❚❚"}  ${d.bpm.toFixed(1)} BPM → ${(d.bpm * rate).toFixed(1)} (${((rate - 1) * 100).toFixed(1)}%)`, L.title.x, L.title.y + 22 * u);
+  }
+  ctx.restore();
+
+  drawVinyl(L.vinyl.x, L.vinyl.y, L.vinyl.r, d, color, level);
+
+  // Filter knob
+  const ks = stateOf({ k, type: "knob" });
+  drawHighlight(L.knob.x, L.knob.y, L.knob.r * 1.25, ks, color, u);
+  drawKnob(L.knob.x, L.knob.y, L.knob.r, d.filter, color);
+  label(L.knob.x, L.knob.y + L.knob.r + 24 * u, filterText(d.filter), ks ? "#fff" : "rgba(255,255,255,0.75)", 14 * u, false);
+
+  // Volume fader
+  const f = L.fader, fs = stateOf({ k, type: "fader" });
+  ctx.save();
+  if (fs) {
+    ctx.shadowColor = fs === "held" ? color : GOLD;
+    ctx.shadowBlur = 25 * u;
+  }
+  ctx.fillStyle = "rgba(6,40,70,0.62)";
+  ctx.strokeStyle = fs === "held" ? color : fs === "hover" ? GOLD : "rgba(255,255,255,0.15)";
+  ctx.lineWidth = 2 * u;
+  ctx.beginPath(); ctx.roundRect(f.x - f.w / 2, f.top, f.w, f.bottom - f.top, f.w / 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  const fy = f.bottom - d.fader * (f.bottom - f.top);
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath(); ctx.roundRect(f.x - f.w / 2, fy, f.w, f.bottom - fy, f.w / 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  // Fader cap
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.roundRect(f.x - f.w * 0.9, fy - 9 * u, f.w * 1.8, 18 * u, 5 * u); ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillRect(f.x - f.w * 0.9, fy - 1.5 * u, f.w * 1.8, 3 * u);
+  label(f.x, f.top - 22 * u, `VOL ${Math.round(d.fader * 100)}%`, fs ? "#fff" : "rgba(255,255,255,0.75)", 14 * u, false);
+}
+
+// Glow ring behind a control: gold = your cursor is on it, deck colour = you're holding it
+function drawHighlight(x, y, r, state, color, u) {
+  if (!state) return;
+  ctx.save();
+  ctx.shadowColor = state === "held" ? color : GOLD;
+  ctx.shadowBlur = 30 * u;
+  ctx.strokeStyle = state === "held" ? color : GOLD;
+  ctx.lineWidth = 4 * u;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+function drawVinyl(cx, cy, r, d, color, level) {
+  const angle = d.pos * (33.333 / 60) * Math.PI * 2;
+  ctx.save();
+  ctx.globalAlpha = d.loaded ? 1 : 0.35;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10 + 50 * level;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#0e3555";
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  ctx.lineWidth = 1;
+  for (let i = 0.45; i < 0.98; i += 0.08) { ctx.beginPath(); ctx.arc(cx, cy, r * i, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.32, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = Math.max(2, r * 0.04);
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(angle) * r * 0.36, cy + Math.sin(angle) * r * 0.36);
+  ctx.lineTo(cx + Math.cos(angle) * r * 0.95, cy + Math.sin(angle) * r * 0.95);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.05, 0, Math.PI * 2);
+  ctx.fillStyle = "#06263f";
+  ctx.fill();
+  ctx.restore();
+}
+
+// Knob: 270° sweep, centre (12 o'clock) = off, left = low-pass, right = high-pass
+function drawKnob(x, y, r, v, color) {
+  const deg = Math.PI / 180, start = -225 * deg, end = 45 * deg, at = (-90 + v * KNOB_SWEEP) * deg;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(6,40,70,0.62)";
+  ctx.fill();
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(3, r * 0.16);
+  ctx.strokeStyle = "rgba(255,255,255,0.15)";
+  ctx.beginPath(); ctx.arc(x, y, r * 0.8, start, end); ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r * 0.8, Math.min(-90 * deg, at), Math.max(-90 * deg, at)); ctx.stroke();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = Math.max(2, r * 0.1);
+  ctx.beginPath();
+  ctx.moveTo(x + Math.cos(at) * r * 0.2, y + Math.sin(at) * r * 0.2);
+  ctx.lineTo(x + Math.cos(at) * r * 0.62, y + Math.sin(at) * r * 0.62);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Faint skeleton plus a cursor between thumb and index. The ring shrinks as you
+// pinch, so you can see how close you are to grabbing.
+function drawHand(s, hand, u) {
+  ctx.save();
+  ctx.lineWidth = 2 * u;
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  for (const [a, b] of CONNECTIONS) {
+    ctx.beginPath(); ctx.moveTo(hand.pts[a].x, hand.pts[a].y); ctx.lineTo(hand.pts[b].x, hand.pts[b].y); ctx.stroke();
+  }
+  ctx.restore();
+
+  const c = hand.cursor;
+  const color = s.held ? DECK_COLORS[s.held.k] : s.hover ? GOLD : "#fff";
+  const r = (8 + 22 * clamp01(hand.pinch * 2)) * u;
+  ctx.save();
+  ctx.lineWidth = 3 * u;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12 * u;
+  ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+  hand.pinched ? ctx.fill() : ctx.stroke();
+  ctx.restore();
+  for (const p of [hand.pts[THUMB_TIP], hand.pts[INDEX_TIP]]) {
+    ctx.beginPath(); ctx.arc(p.x, p.y, 5 * u, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  if (s.hover && !s.held && !hand.pinched && !fx.paused) label(c.x, c.y - 44 * u, "pinch to grab", GOLD, 14 * u);
+
+  if (debug) {
+    label(hand.pts[WRIST].x, hand.pts[WRIST].y + 40 * u,
+      `pinch ${hand.pinch.toFixed(2)} raw ${hand.pinchRaw.toFixed(2)} h ${hand.height.toFixed(2)} ${hand.open ? "OPEN" : ""} ${s.held ? "HOLD " + s.held.type : ""}`, "#fff", 13 * u);
+  }
+}
+
+// Paused overlay, and a progress ring on each palm while the pause gesture is held
+function drawPause(W, H, u, hands) {
+  if (fx.paused) {
+    ctx.fillStyle = "rgba(4,40,70,0.55)";
+    ctx.fillRect(0, 0, W, H);
+    drawCenterText(W, H, u, "⏸  TRACKING PAUSED", "music keeps playing · hold both open hands low for 1 s to resume");
+  }
+  if (fx.pauseSince === null) return;
+  const p = clamp01((performance.now() - fx.pauseSince) / PAUSE_HOLD_MS);
+  hands.forEach((hand) => {
+    if (!hand) return;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineWidth = 8 * u;
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.beginPath(); ctx.arc(hand.palm.x, hand.palm.y, 70 * u, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = "#fff";
+    ctx.beginPath(); ctx.arc(hand.palm.x, hand.palm.y, 70 * u, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    label(hand.palm.x, hand.palm.y - 95 * u, fx.paused ? "RESUME" : "PAUSE", "#fff", 16 * u);
+  });
+}
+
+function drawCenterText(W, H, u, title, sub) {
+  label(W / 2, H / 2 - 16 * u, title, "#fff", 28 * u);
+  label(W / 2, H / 2 + 26 * u, sub, "rgba(255,255,255,0.6)", 15 * u, false);
+}
+
+function label(x, y, text, color, size, box = true) {
+  ctx.save();
+  ctx.font = `800 ${size}px Nunito, system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if (box) {
+    const w = ctx.measureText(text).width + size, h = size * 1.6;
+    ctx.fillStyle = "rgba(4,40,70,0.72)";
+    ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, size * 0.35); ctx.fill();
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y + 1);
+  ctx.restore();
+}
+
+const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+const formatHz = (hz) => (hz >= 1000 ? (hz / 1000).toFixed(1) + " kHz" : Math.round(hz) + " Hz");
+function filterText(v) {
+  if (v < 0) return "LPF " + formatHz(20000 * Math.pow(200 / 20000, -v));
+  if (v > 0) return "HPF " + formatHz(20 * Math.pow(4000 / 20, v));
+  return "FILTER OFF";
+}
+
+let legendState = "";
+function updateLegend() {
+  const hover = SIDES.some((s) => sides[s].hover && !sides[s].held);
+  const held = SIDES.some((s) => sides[s].held);
+  const state = [hover, held, fx.paused || fx.pauseSince !== null].join();
+  if (state === legendState) return;
+  legendState = state;
+  const [h, g, p] = state.split(",").map((v) => v === "true");
+  $("lgHover").classList.toggle("on", h);
+  $("lgGrab").classList.toggle("on", g);
+  $("lgPause").classList.toggle("on", p);
+}
+
+// ---- Loading tracks ---------------------------------------------------------------------------
+function setDeckStatus(k, text) { $((k === 0 ? "a" : "b") + "St").textContent = text; }
+
+async function loadDeck(k, status, getData, name) {
+  setDeckStatus(k, status);
+  try {
+    await mixer.init();
+    const wasPlaying = mixer.anyPlaying();
+    const data = await getData();
+    setDeckStatus(k, "Analyzing tempo…");
+    await wait(30); // let the status paint before the CPU-heavy part
+    const tempo = await mixer.loadArrayBuffer(k, data, typeof name === "function" ? name() : name);
+    setDeckStatus(k, `${mixer.decks[k].name} · ${tempo.bpm.toFixed(1)} BPM`);
+    mixer.setFader(k, mixer.decks[k].fader);
+    if (wasPlaying || k === 0) mixer.play(k);
+    syncPlayButton();
+  } catch (err) {
+    setDeckStatus(k, "Error: " + err.message);
+  }
+}
+
+["a", "b"].forEach((id, k) => {
+  $(id + "Yt").addEventListener("click", () => {
+    const url = $(id + "Url").value.trim();
+    if (!url) return;
+    mixer.init();
+    let title = "";
+    loadDeck(k, "Downloading from YouTube…", async () => {
+      const res = await fetch("/api/youtube", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+      if (res.status === 501) throw new Error("start the app with server.py to enable YouTube");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      title = body.title;
+      setDeckStatus(k, "Decoding…");
+      return (await fetch(body.file)).arrayBuffer();
+    }, () => title);
+  });
+  $(id + "FileBtn").addEventListener("click", () => $(id + "File").click());
+  $(id + "File").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    mixer.init();
+    loadDeck(k, "Decoding…", () => file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ""));
+  });
+});
+
+$("demo").addEventListener("click", async () => {
+  await mixer.init();
+  [0, 1].forEach((k) => setDeckStatus(k, "Rendering demo loop…"));
+  const demos = await Promise.all([0, 1].map((k) => renderDemo(mixer.ctx.sampleRate, k)));
+  for (const k of [0, 1]) {
+    const { buffer, tempo } = demos[k];
+    mixer.loadBuffer(k, buffer, k === 0 ? "Demo · Deep House" : "Demo · Tech House", tempo);
+    mixer.setFader(k, mixer.decks[k].fader);
+    setDeckStatus(k, `${mixer.decks[k].name} · ${tempo.bpm.toFixed(1)} BPM`);
+  }
+  mixer.play(0);
+  mixer.play(1);
+  syncPlayButton();
+});
+
+function syncPlayButton() {
+  const btn = $("playAll");
+  btn.disabled = !mixer.decks.some((d) => d.loaded);
+  btn.textContent = mixer.anyPlaying() ? "Pause" : "Play";
+}
+
+function togglePlayAll() {
+  if (mixer.anyPlaying()) [0, 1].forEach((k) => mixer.pause(k));
+  else [0, 1].forEach((k) => mixer.play(k));
+  syncPlayButton();
+}
+
+$("playAll").addEventListener("click", togglePlayAll);
+$("start").addEventListener("click", startCamera);
+$("calibrate").addEventListener("click", calibrate);
+
+// Keyboard: for testing without a camera
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const key = e.key.toLowerCase();
+  if (key === " ") { e.preventDefault(); if (mixer.ctx) togglePlayAll(); }
+  else if (key === "1" || key === "2") { if (mixer.ctx) { mixer.toggle(+key - 1); syncPlayButton(); } }
+  else if (key === "h") debug = !debug;
+  else if (key === "p") setPaused(!fx.paused);
+});
+
+window.airdeck = { mixer, sides, fx, updateGestures, layout }; // for poking at it from the console
+render();
+
+loadModel()
+  .then(() => { $("start").disabled = false; $("start").textContent = "Start camera"; })
+  .catch((err) => { $("start").textContent = "Model failed"; statusNote = err.message; });
+</script>
+</body>
+</html>
