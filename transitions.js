@@ -333,7 +333,8 @@ export function createTransitions(deck) {
     // (result.hands, see below), for the hands to perform it. Once the new song is on the
     // deck, resolves with what it did ({ style: "blend" | "echo", hands, ... }), or with
     // null if stillWanted() turned false (or the music stopped) while waiting for the right beat.
-    async mixInto(next, { mixOutAt, startAt = null, fromBpm, toBpm, short = false, hands = false, stillWanted = () => true } = {}) {
+    // style: "blend" or "cut" to insist on one (the game decides it ahead, from the library).
+    async mixInto(next, { mixOutAt, startAt = null, style: wanted = null, fromBpm, toBpm, short = false, hands = false, stillWanted = () => true } = {}) {
       finish();
       stopGlide();
       const { ctx } = deck;
@@ -342,8 +343,13 @@ export function createTransitions(deck) {
       const speed = () => handSpeed * nudge;
       const outBy = Math.min(mixOutAt ?? bounds(current).end, bounds(current).end);
       const style = styleFor(current, next, { mixOutAt: Math.max(outBy, now()), fromBpm, toBpm, nudge, short });
-      const { knownOut, beatsOut, beatsIn, ratio } = style;
-      let { blend } = style;
+      const { knownOut, beatsOut, beatsIn } = style;
+      let { blend, ratio } = style;
+      if (wanted === "cut") blend = false;
+      if (wanted === "blend" && !blend) {
+        blend = true; // a plain crossfade: the tempos can't be matched, so no nudge
+        ratio = 1 / nudge;
+      }
 
       // Where in the current song the transition starts, and how long a blend gets.
       let at;

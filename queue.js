@@ -344,7 +344,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // The DJ mixes into the next song (transitions.js) and introduces it over the mix,
   // with the music turned down. With nothing playing, it introduces the song first.
   // One at a time.
-  async function transitionTo(item, { mixOutAt, startAt = null, hands = false } = {}) {
+  async function transitionTo(item, { mixOutAt, startAt = null, style = null, hands = false } = {}) {
     transitioning = true;
     transitionId = item.id;
     try {
@@ -352,7 +352,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       const talks = djSpeaksBefore(item, mixing ? items.find((entry) => entry.id === currentId) : null);
       // Mix in from the playing song, or (nothing playing) just start, at the song's
       // entry with short mixes. Either way the DJ talks over the music, not before it.
-      await playItem(item.id, mixing ? { mix: { mixOutAt, startAt, hands } } : { entry: dj.short });
+      await playItem(item.id, mixing ? { mix: { mixOutAt, startAt, style, hands } } : { entry: dj.short });
       if (currentId !== item.id) return; // skipped or paused meanwhile
       if (talks) {
         dj.talking = true;
@@ -473,6 +473,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const mixed = await transitions.mixInto(buffer, {
           mixOutAt: mix.mixOutAt,
           startAt: mix.startAt ?? null,
+          style: mix.style ?? null,
           hands: mix.hands,
           short: dj.short,
           fromBpm: from?.bpm,
@@ -715,7 +716,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // this resolves with its live controls (see transitions.mixInto's hands option), or
     // with null when there's nothing to mix (or it can't be beat-matched: use mixNow).
     // startAt: the downbeat (song seconds) it starts on; the next one by default.
-    startHandMix({ startAt = null } = {}) {
+    // style: "blend" or "cut" to insist on one.
+    startHandMix({ startAt = null, style = null } = {}) {
       const next = upcoming()[0];
       if (transitioning || !next || !deck.playing || !deck.buffer) return Promise.resolve(null);
       return new Promise((resolve) => {
@@ -724,7 +726,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
           handMix = controls ?? null;
           resolve(controls ?? null);
         };
-        transitionTo(next, { mixOutAt: 0, startAt, hands: true }).finally(() => handMixStarted?.(null));
+        transitionTo(next, { mixOutAt: 0, startAt, style, hands: true }).finally(() => handMixStarted?.(null));
       });
     },
 

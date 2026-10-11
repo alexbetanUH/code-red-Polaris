@@ -1,4 +1,4 @@
-// The AI DJ's start screen, over the camera view: what to do (four small pictures),
+// The AI DJ's start screen, over the camera view: what to do (three small pictures),
 // then the camera and a check that both hands show up, then the first song loads,
 // then 3, 2, 1 and the set starts on "Go".
 //
@@ -34,11 +34,6 @@ const pictures = {
     <circle cx="50" cy="14" r="7" fill="rgba(255,255,255,.7)" stroke="#f5861f" stroke-width="3"/>
     <circle cx="50" cy="33" r="7" fill="rgba(255,255,255,.7)" stroke="#f5861f" stroke-width="3"/>
   </svg>`,
-  pause: `<svg viewBox="0 0 64 48" aria-hidden="true">
-    <rect x="8" y="16" width="18" height="18" rx="6" fill="#1e95e3"/>
-    <rect x="38" y="16" width="18" height="18" rx="6" fill="#5cb82c"/>
-    <path d="M12 22h10m-10 5h10M42 22h10m-10 5h10" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
-  </svg>`,
 };
 
 export function createStartScreen(stage, { startCamera, handSeen, prepare, begin }) {
@@ -61,7 +56,6 @@ export function createStartScreen(stage, { startCamera, handSeen, prepare, begin
           <li>${pictures.hit}<span>Thumbs and index fingers on the dots</span></li>
           <li>${pictures.slide}<span>Slide your fingers along to mix</span></li>
           <li>${pictures.pick}<span>Point at a song to play it next</span></li>
-          <li>${pictures.pause}<span>Both fists for a second: pause</span></li>
         </ol>
         <button class="lime" type="button">Start</button>
       </div>`);
@@ -157,7 +151,7 @@ function addStyles() {
   text-shadow: 0 2px 0 #fff, 0 3px 6px rgba(30, 80, 140, 0.25);
 }
 .djStart p { margin: 0 auto 14px; max-width: 46ch; font-size: 15px; line-height: 1.45; color: var(--text); }
-.djStart-moves { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 18px; padding: 0; list-style: none; }
+.djStart-moves { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0 0 18px; padding: 0; list-style: none; }
 .djStart-moves li { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12.5px; line-height: 1.3; color: var(--muted); }
 .djStart-moves svg { width: 92px; height: 69px; padding: 4px; border-radius: 10px; background: #f3f8fd; border: 1px solid #c9dbee; }
 .djStart button { min-width: 150px; font-size: 17px; }

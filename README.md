@@ -77,7 +77,7 @@ quiet intro) and mix it out after about 20 s, in whole phrases, with shorter ble
 transitions. The camera view shows what's up next, when the DJ mixes into it and
 how (blend or echo out).
 
-**Play the set**: the AI DJ page opens on a start screen (how to play in four pictures, then the camera and a check
+**Play the set**: the AI DJ page opens on a start screen (how to play in three pictures, then the camera and a check
 that it sees both hands, then the DJ picks the first song, then 3, 2, 1). The set is a rhythm game in the style of
 osu!, played with your fingertips. Each target is a shape of four dots: your left thumb and index fingertip (blue)
 and your right ones (green). Shapes fly in about 2 seconds before their beat, shrinking onto their place; have your
@@ -93,7 +93,8 @@ snaps open on the drop), the distance between your hands is the volume (wider on
 - **Cuts** (tempos far apart): one shape on the downbeat; the new song slams in and the old one is thrown into an echo.
 
 Shapes hit within about 160 ms of the beat are Perfect, within 320 ms Good, and you hear them: each hit claps on its
-beat and every 10 in a row sounds the air horn. Both fists held for a second pauses, and again plays. Your combo and accuracy show in the corner and
+beat and every 10 in a row sounds the air horn. Slides have a tick on every beat: each one your fingers are on
+clicks and keeps the combo going, and the slide is graded on how many held. Your combo and accuracy show in the corner and
 the Set card, and how well you play is the crowd's hype, which the DJ hears about when it picks the next songs. Your
 filter and volume stay live (the volume holds still only during a mix's slides); with nobody in frame nothing counts
 as a miss. Untick **Play the set** in the Set card for plain pinch controls; without the camera the DJ mixes by itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
