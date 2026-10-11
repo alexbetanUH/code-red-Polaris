@@ -1,0 +1,189 @@
+/* AirDeck shared look (Frutiger Aero): glass panels, glossy pill buttons, the
+   top bar with the three mode tabs, and one "world" backdrop per mode.
+
+   Each app page links this file plus the Nunito font and sets a world on <body>:
+     <body class="world-water">   DJ Deck (mix.html)        aqua
+     <body class="world-hills">   Arcade · 2P (arcade.html) lime
+     <body class="world-sunset">  AI DJ (index.html)        orange
+   Page-specific layout stays in each page's own <style>. */
+
+:root {
+  --ink: #0d3557;
+  --ink-strong: #0b2f52;
+  --ink-soft: #2b5a82;
+  --aqua: #1e95e3;
+  --lime: #5cb82c;
+  --sun: #f5861f;
+  --gold: #ffad1f;
+  --glass-bg: linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.6));
+  --glass-border: rgba(255,255,255,.95);
+  --glass-shadow: 0 14px 38px rgba(18,92,160,.18), inset 0 1px 0 #fff, inset 0 -1px 0 rgba(120,180,225,.35);
+  --font: 'Nunito', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font: 15px/1.4 var(--font);
+  -webkit-font-smoothing: antialiased;
+  background: #dff2ff;
+}
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+
+/* ---- Worlds: a fixed backdrop behind the page ------------------------------- */
+body[class*="world-"]::before,
+body[class*="world-"]::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+
+/* DJ Deck: underwater. Light rays from the surface, caustics, bubbles. */
+.world-water { background: #0d79b3; }
+.world-water::before {
+  background:
+    radial-gradient(ellipse 60% 18% at 20% 6%, rgba(255,255,255,.35), transparent 70%),
+    radial-gradient(ellipse 40% 12% at 72% 4%, rgba(255,255,255,.3), transparent 70%),
+    repeating-radial-gradient(circle at 30% 20%, rgba(255,255,255,.05) 0 18px, transparent 18px 46px),
+    linear-gradient(180deg, #7fdcf7 0%, #2aa8de 28%, #0d79b3 68%, #075a8c 100%);
+}
+.world-water::after {
+  background:
+    linear-gradient(104deg, transparent 18%, rgba(255,255,255,.16) 21%, transparent 25%),
+    linear-gradient(80deg, transparent 58%, rgba(255,255,255,.12) 60%, transparent 63%),
+    radial-gradient(circle at 4% 70%, rgba(255,255,255,.55) 0 6px, transparent 7px),
+    radial-gradient(circle at 6% 61%, rgba(255,255,255,.45) 0 4px, transparent 5px),
+    radial-gradient(circle at 96% 44%, rgba(255,255,255,.5) 0 7px, transparent 8px),
+    radial-gradient(circle at 93% 36%, rgba(255,255,255,.4) 0 3px, transparent 4px),
+    radial-gradient(circle at 97% 82%, rgba(255,255,255,.45) 0 10px, transparent 11px);
+}
+
+/* Arcade: sky over glossy green hills. */
+.world-hills { background: #8fd0f6; }
+.world-hills::before {
+  background:
+    radial-gradient(circle at 88% 8%, rgba(255,255,240,.95), rgba(255,255,255,0) 26%),
+    radial-gradient(ellipse 14% 4% at 12% 16%, #fff 60%, transparent 62%),
+    radial-gradient(ellipse 8% 5% at 15% 13%, #fff 60%, transparent 62%),
+    radial-gradient(ellipse 16% 4% at 70% 22%, rgba(255,255,255,.95) 60%, transparent 62%),
+    radial-gradient(ellipse 8% 5% at 73% 19%, rgba(255,255,255,.95) 60%, transparent 62%),
+    linear-gradient(180deg, #3f9fe6 0%, #8fd0f6 40%, #dff4ff 70%);
+}
+.world-hills::after {
+  background:
+    radial-gradient(ellipse 70% 40% at 22% 112%, #b8ef80 0%, #6cc23a 55%, #3f9420 72%, transparent 72.5%),
+    radial-gradient(ellipse 75% 42% at 82% 116%, #a6e86a 0%, #5cb52a 55%, #36861a 72%, transparent 72.5%);
+}
+
+/* AI DJ: warm sunset sky. */
+.world-sunset { background: #ffd2a6; }
+.world-sunset::before {
+  background:
+    radial-gradient(circle at 20% 62%, rgba(255,250,225,1) 0 3%, rgba(255,226,170,.75) 9%, rgba(255,200,140,0) 30%),
+    radial-gradient(ellipse 22% 5% at 58% 10%, rgba(255,240,226,.8), transparent 70%),
+    radial-gradient(ellipse 18% 4% at 86% 30%, rgba(255,232,214,.7), transparent 70%),
+    linear-gradient(180deg, #ff9f6e 0%, #ffbf8a 26%, #ffdcb4 52%, #fff0dd 80%, #fff7ec 100%);
+}
+
+/* ---- Glass ---------------------------------------------------------------------- */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+}
+
+/* ---- Buttons: glossy aqua by default; .secondary = white glass; .lime / .sun ---- */
+button, .btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid #0b62a8;
+  background: linear-gradient(180deg, #63cdfc 0%, #1e95e3 49%, #0a6bc0 50%, #1d8fe0 100%);
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0,50,110,.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 6px 14px rgba(10,100,180,.28);
+  font: 800 15px/1 var(--font);
+  text-decoration: none;
+  cursor: pointer;
+}
+button::before, .btn::before {
+  content: "";
+  position: absolute;
+  left: 7%; right: 7%; top: 2px;
+  height: 46%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.12));
+  pointer-events: none;
+}
+button:hover:not(:disabled), .btn:hover { color: #fff; filter: brightness(1.07); }
+button:disabled { opacity: .45; cursor: default; filter: saturate(.6); }
+button.secondary, .btn.secondary {
+  border-color: rgba(255,255,255,.95);
+  background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(220,240,255,.78));
+  color: var(--ink);
+  text-shadow: none;
+  box-shadow: inset 0 1px 0 #fff, 0 6px 14px rgba(20,90,160,.16);
+}
+button.secondary::before, .btn.secondary::before { display: none; }
+button.secondary:hover:not(:disabled), .btn.secondary:hover { color: var(--ink); background: #fff; }
+button.lime, .btn.lime {
+  border-color: #4a9a22;
+  background: linear-gradient(180deg, #d4f8ad 0%, #8fda55 49%, #62b92e 50%, #86d44e 100%);
+  color: #123d0c;
+  text-shadow: 0 1px 0 rgba(255,255,255,.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 6px 14px rgba(70,150,30,.3);
+}
+button.lime:hover:not(:disabled), .btn.lime:hover { color: #123d0c; }
+button.sun, .btn.sun {
+  border-color: #cf6a12;
+  background: linear-gradient(180deg, #ffe2c2 0%, #ffab60 49%, #f5861f 50%, #ffa24f 100%);
+  color: #3d1800;
+  text-shadow: 0 1px 0 rgba(255,255,255,.45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 6px 14px rgba(220,110,20,.3);
+}
+button.sun:hover:not(:disabled), .btn.sun:hover { color: #3d1800; }
+
+/* ---- Top bar: brand, mode tabs, page controls ----------------------------------- */
+.topbar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 14px 18px 0;
+  padding: 7px 10px 7px 16px;
+  border-radius: 30px;
+}
+.brand { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; color: var(--ink-strong); font-size: 22px; font-weight: 900; letter-spacing: -.01em; text-decoration: none; }
+.brand:hover { color: var(--ink-strong); }
+.modes { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.55); }
+.modes a { position: relative; overflow: hidden; display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid transparent; color: var(--ink); font-weight: 800; font-size: 16px; text-decoration: none; }
+.modes a:hover { color: var(--ink); background: rgba(255,255,255,.75); }
+.modes a[aria-current="page"]::before { content: ""; position: absolute; left: 7%; right: 7%; top: 2px; height: 46%; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.12)); }
+.modes a.dj[aria-current="page"] { color: #fff; border-color: #0b62a8; background: linear-gradient(180deg, #63cdfc 0%, #1e95e3 49%, #0a6bc0 50%, #1d8fe0 100%); text-shadow: 0 1px 1px rgba(0,50,110,.55); }
+.modes a.arcade[aria-current="page"] { color: #123d0c; border-color: #4a9a22; background: linear-gradient(180deg, #d4f8ad 0%, #8fda55 49%, #62b92e 50%, #86d44e 100%); }
+.modes a.ai[aria-current="page"] { color: #3d1800; border-color: #cf6a12; background: linear-gradient(180deg, #ffe2c2 0%, #ffab60 49%, #f5861f 50%, #ffa24f 100%); }
+.modes a.fx[aria-current="page"] { color: #fff; border-color: #7a3fc4; background: linear-gradient(180deg, #e3c8ff 0%, #a970f0 49%, #8546d6 50%, #a46ae8 100%); text-shadow: 0 1px 1px rgba(60,20,110,.5); }
+.topbar .status { color: var(--ink-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+.topbar .note { color: #b8590a; font-weight: 800; }
+.spacer { margin-left: auto; }
+
+/* ---- Small pieces ------------------------------------------------------------- */
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; color: var(--ink-strong); background: rgba(255,255,255,.85); border: 1px solid rgba(255,255,255,.95); box-shadow: 0 4px 12px rgba(0,40,80,.14); }
+input[type="text"], input[type="url"], input[type="search"] {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(120,180,225,.7);
+  background: rgba(255,255,255,.92);
+  color: var(--ink);
+  font: 600 14px var(--font);
+}

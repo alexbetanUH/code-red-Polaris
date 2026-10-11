@@ -13,34 +13,134 @@ DJ with your hands in the browser, using your webcam (MediaPipe hand tracking + 
 
 The line between your hands is the live audio waveform.
 
-More gestures (turn the basic controls off with the **Basic controls** button if you only want these):
+More gestures, on the hand tracker page `index.html` (**Hand FX** in the top bar; turn the basic controls off with the **Basic controls** button if you only want these):
 
 | Gesture | Controls |
 |---|---|
-| Right fist in the **right-side zone**, then 1–5 fingers on the left hand | Choose a song slot; it applies when the fist leaves the zone. If a song is already playing, the new one queues on the next beat and you blend with your hands: **left hand height** = crossfade, **right hand height** = filter sweep + echo on the old song |
+| Right fist in the **right-side zone** (above the visuals corner), then fingers on the left hand | Songs from the queue: **1** = next song, **2** = previous song, **3+** = nothing. It applies when the fist leaves the zone. With **Hand blend** on, "next" is beat-matched in on a downbeat and you mix it: **left hand height** = crossfade, **right hand up** = old song out faster; no left hand for 4 s and it finishes by itself. Songs whose tempos can't be matched echo out instead |
 | Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; hand height sets the amount |
 | Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: 1 Portal (swirling lens), 2 Color filter (neon palette), 3 Kaleidoscope, 4 8-bit, 5 all off |
 | **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
 | A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
 
-Keyboard test keys (no camera needed): `S` song mode, `F` effects mode, `V` visuals mode, `1`–`5` pick, `←→` blend, `↑↓` amount / sweep, `L` frame, `K` lock, `Esc` leave a mode.
+Songs come from the same queue and library as the AI DJ page (**Queue** button; the up-next strip on the camera view shows what the AI DJ plays next).
+
+Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` finish blend, `F` effects mode, `V` visuals mode, `1`–`5` pick, `↑↓` effect amount, `L` frame, `K` lock, `Esc` leave a mode.
 
 ### Run it
 
-Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp`), ffmpeg (`brew install ffmpeg`), Chrome.
+Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp` or `pip install -U "yt-dlp[default]"`), Chrome. ffmpeg is optional (one extra download fallback). On Windows, run `python server.py`.
 
 ```bash
 python3 server.py
 ```
 
-Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Load a song by pasting a YouTube link or with **Upload file**.
+If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
+
+Open http://localhost:8000 in Chrome (the landing page) and pick **AI DJ**, or go straight to http://localhost:8000/ai-dj.html. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
+songs from the **Library** (▶ plays one now, + adds it, **Add all** queues them all), or let the AI DJ choose. Drag
+songs to reorder them. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to
+jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
+so skipping back and forth is instant.
+
+### Song library
+
+`library.json` is the list of songs (YouTube video id, artist, title, BPM). They play from `music/<id>.m4a`, the same
+folder the landing page uses. `music/` is gitignored, so fill it once on each machine:
+
+```bash
+python prefetch.py
+```
+
+To change the songs, edit `library.json` and run `prefetch.py` again.
+
+**Beta:** at the bottom of the queue panel you can add any song from YouTube (a link or a song name) or a file.
+YouTube downloads can take 10–30 seconds, with a progress bar.
+
+### AI DJ
+
+In the Queue panel, type a vibe (e.g. "chill into hype") and press **Start**. Gemini picks songs from the library that
+fit the vibe and flow from what's playing: same or neighboring genre, close tempo, no repeats until every song has
+played. With the DJ on, it mixes into the next song before the current one's ending fades out (it keeps two queued
+ahead), and a DJ voice speaks up over the mix when the genre switches (and at the start of the set):
+
+- **Blend** when the tempos are close: the next song comes in beat-matched on a downbeat, the two swap bass lines
+  halfway, and the new song then eases back to its own tempo.
+- **Echo out** when they're far apart (or a song's tempo can't be detected reliably): the current song echoes out and
+  the next one fades in under the echoes.
+
+Tempo and downbeats are detected from the audio (`analyzeTempo` in `mix-audio.js`) and checked against the library's
+BPM. The browser console logs each mix.
+
+**Short mixes** (on by default, a checkbox under the DJ) bring each song in where it first gets going (skipping a
+quiet intro) and mix it out after about 20 s, in whole phrases, with shorter blends: a one-minute demo hears several
+transitions. The camera view shows what's up next, when the DJ mixes into it and
+how (blend or echo out).
+
+**You do the mixes** (with the camera on): the DJ picks the next song, keeps it beat-synced and decides where the mix
+belongs, and a move track above the strip shows what your hands do, timed to the beat like a rhythm game. Your
+**left hand is the song playing now, your right hand is the one coming in**:
+
+| Cue | Move | Does |
+|---|---|---|
+| ✋↑ Right hand up | Raise your right hand on the cue (up to 8 bars early is fine) | The next song comes in on the downbeat; your right hand's height is now its volume |
+| ✋↓ Left hand down | Lower your left hand on the cue | The bass lines swap on the downbeat; your left hand's height is the old song's volume, all the way down ends the mix |
+
+When the tempos don't match, the AI echoes the old song out by itself. Moves within a beat of the cue are PERFECT, within two GOOD. Miss one by a bar, or stall, and the AI does that part
+for you, so the music never stops. Pinching never counts as a move, so the pinch controls keep working, and the
+master volume and speed hold still while you mix. Without the camera the DJ does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+looping. You can still drag, remove or ▶ anything (those switch instantly).
+
+It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
+machine and never reach the browser):
+
+```bash
+export GEMINI_API_KEY="..." ELEVENLABS_API_KEY="..."   # PowerShell: $env:GEMINI_API_KEY="..."; $env:ELEVENLABS_API_KEY="..."
+python3 server.py
+```
+
+If Gemini can't be reached (no key, no internet, rate limit, overload), the DJ keeps going with the closest
+library songs by genre and tempo, and says so. The server prints whether Gemini is on. Without an ElevenLabs key the browser's built-in voice is used. Optional:
+`GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
+The server only answers this computer, so nobody on the venue Wi-Fi can spend your API credits (set
+`AIRDECK_HOST=0.0.0.0` to open it up), and only AirDeck's own pages may call its API.
+The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ**), which opens with the DJ ready.
+`index.html` is the plain hand tracker, with the same queue as its music source.
 
 ### Files
 
-- `index.html`: hand tracking, gesture smoothing, hand → audio mapping, drawing
-- `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform, effects, 5 song slots, beat-synced and hand-driven transitions)
-- `frame.js`: WebGL effect inside the four-fingertip polygon
-- `server.py`: local server (localhost only; set `AIRDECK_HOST=0.0.0.0` to open it to the network); serves the site and downloads YouTube audio via yt-dlp into `downloads/`
+- `index.html`: the hand tracker: hand tracking, gesture smoothing, hand → audio mapping, drawing, and the gesture
+  modes (fist zones for effects and visuals; lock zone; easter eggs)
+- `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform, effects)
+- `frame.js`: WebGL visual inside the shape between both hands' thumb and index tips
+- `ai-dj.html`, `aiDeck.js`: the AI DJ page, with the same hand tracking and a frozen copy of `audio.js`, so
+  changes to `index.html` or `audio.js` can't break it
+- `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
+- `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
+- `djCoach.js`: the move track and the hand moves that perform the AI DJ's mixes
+- `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
+- `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
+- `tests/tracking.cjs`: `node tests/tracking.cjs` runs the hand tracking / gesture mode tests
 - `FEATURES_PLAN.md`: the plan the gesture modes were built from
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
+
+## AirDeck Mix (two decks): `mix.html`
+
+Open http://localhost:8000/mix.html. Each deck has an on-screen **volume fader** and **filter knob** (deck A on the left, deck B on the right). Both decks are beat-synced to deck A's tempo (detected automatically).
+
+The point between your thumb and index finger is your cursor. Either hand can use any control.
+
+| Gesture | Does |
+|---|---|
+| Move your cursor onto a fader or knob | It lights up gold |
+| Pinch, then move up/down | Fader: volume |
+| Pinch, then circle around the knob | Filter: clockwise = high-pass (thin), counter-clockwise = low-pass (muffled), centre = off |
+| Open your fingers | Let go (the control keeps its value) |
+| Both open hands held low (~1 s) | Pause / resume hand tracking (music keeps playing) |
+
+If grabbing feels unreliable, click **Calibrate pinch** once (it's saved). No camera? Keys: Space play/pause, 1/2 toggle deck, P pause tracking, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
+
+- `mix-worklet.js`: audio-thread engine (variable-rate playback, master beat clock, phase lock, bar-aligned loops; also supports scratching, currently unused)
+- `mix-audio.js`: graph, filters, faders, tempo detection, demo loops
+- `mix.html`: hand tracking, on-screen controls, stage visuals. Tuning values are at the top of its script.

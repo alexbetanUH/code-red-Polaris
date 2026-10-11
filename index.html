@@ -3,61 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AirDeck Hand Tracker</title>
+<title>AirDeck · Hand Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="aero.css">
 <style>
+  /* AI DJ page: the shared Aero look (aero.css) in the sunset world.
+     Card styles adapted from Carlos's white-glass version of this page (club.html).
+     queue.js reads --panel, --border, --bg, --text, --muted, --left, --between. */
   :root {
-    --bg: #0b0d12;
-    --panel: #151922;
-    --border: #262c3a;
-    --text: #e8ecf3;
-    --muted: #8a93a6;
-    --left: #38bdf8;
-    --right: #f472b6;
-    --between: #facc15;
+    --text: #3a2412;
+    --muted: #7a4a26;
+    --left: #1e95e3;
+    --right: #5cb82c;
+    --between: #f5861f;
+    --panel: #fffaf3;
+    --border: rgba(232,160,100,.5);
+    --bg: rgba(255,255,255,.92);
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px 16px;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-  }
-  h1 { font-size: 18px; margin: 0; font-weight: 600; }
-  #status { color: var(--muted); font-size: 13px; }
-  #calibMsg { color: var(--between); font-weight: 600; }
-  button {
-    background: var(--text);
-    color: var(--bg);
-    border: 0;
-    border-radius: 8px;
-    padding: 8px 16px;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
-  button:disabled { opacity: 0.4; cursor: default; }
+  body { color: var(--text); }
   main {
     display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 1fr 340px;
+    align-items: start;
     gap: 20px;
-    padding: 20px;
+    padding: 18px;
   }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   .stage {
     position: relative;
-    background: #000;
-    border-radius: 12px;
+    border-radius: 26px;
     overflow: hidden;
     aspect-ratio: 16 / 9;
+    max-height: calc(100vh - 120px);
+    background: rgba(255,255,255,.2);
+    border: 2px solid rgba(255,255,255,.95);
+    box-shadow: 0 14px 38px rgba(150,70,20,.2), inset 0 0 0 1px rgba(232,160,100,.35);
   }
   video { display: none; }
   #fxCanvas, #trackingDebugCanvas { position: absolute; inset: 0; pointer-events: none; }
@@ -70,73 +51,68 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    color: var(--muted);
+    color: #3a2412;
     text-align: center;
     padding: 16px;
+    font-size: 18px;
+    font-weight: 800;
+    text-shadow: 0 1px 0 rgba(255,255,255,.8);
+    background: radial-gradient(ellipse 40% 18% at 50% 50%, rgba(255,255,255,.75), rgba(255,255,255,0));
   }
   .placeholder .title { font-size: 40px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
   .placeholder .hint { font-size: 15px; }
   aside, #cards { display: flex; flex-direction: column; gap: 12px; }
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 16px;
-  }
+  .card { position: relative; border-radius: 22px; padding: 14px 16px; }
   .card h2 {
     display: flex;
     justify-content: space-between;
     margin: 0 0 8px;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
+    letter-spacing: 0.08em;
+    color: #b0550a;
   }
   .pose { color: var(--text); text-transform: none; letter-spacing: 0; }
   .row { display: grid; grid-template-columns: 70px 1fr 44px; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
   .row .label { color: var(--muted); }
   .row .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-  .bar > div { height: 100%; width: 0; border-radius: 3px; }
-  .left .bar > div, .left .dot.on { background: var(--left); }
-  .right .bar > div, .right .dot.on { background: var(--right); }
-  .between .bar > div { background: var(--between); }
+  .bar { height: 8px; background: rgba(232,160,100,.25); border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(150,70,20,.2); }
+  .bar > div { height: 100%; width: 0; border-radius: 4px; }
+  .left .bar > div, .left .dot.on { background: linear-gradient(180deg, #63cdfc, #1e95e3 50%, #0a6bc0 51%, #1d8fe0); }
+  .right .bar > div, .right .dot.on { background: linear-gradient(180deg, #d4f8ad, #8fda55 50%, #62b92e 51%, #86d44e); }
+  .between .bar > div { background: linear-gradient(180deg, #ffe2c2, #ffab60 50%, #f5861f 51%, #ffa24f); }
   .left h2 .side { color: var(--left); }
   .right h2 .side { color: var(--right); }
   .between h2 .side { color: var(--between); }
   .fingers { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--muted); }
-  .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--border); display: grid; place-items: center; color: var(--bg); font-weight: 700; font-size: 11px; }
-  .control { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
-  .left .control { color: var(--left); }
-  .right .control { color: var(--right); }
-  .between .control { color: var(--between); }
-  .song input[type="url"] {
-    width: 100%;
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 10px;
-    font: inherit;
-    font-size: 13px;
+  .dot { width: 22px; height: 22px; border-radius: 50%; background: rgba(232,160,100,.25); display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 11px; }
+  .dot:not(.on) { color: var(--muted); }
+  .control { font: 900 30px/1.1 'Nunito', sans-serif; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+  .left .control { color: #0a6bc0; }
+  .right .control { color: #3f8f17; }
+  .between .control { color: #c35f08; }
+  .song h2 { align-items: center; }
+  .song h2 button { min-height: 34px; padding: 0 14px; font-size: 13px; text-transform: none; letter-spacing: 0; }
+  #queueCount {
+    display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px;
+    background: rgba(255,255,255,.85); color: #3d1800; font-size: 11px; text-align: center; text-shadow: none;
   }
-  .song .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .song .actions button { padding: 6px 12px; font-size: 13px; }
-  .song input[type="file"] { display: none; }
   #songStatus { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+  #songStatus.error { color: #b3261e; }
+  .song .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .song input[type="file"] { display: none; }
   .muted { color: var(--muted); }
-  .help { color: var(--muted); font-size: 13px; margin: 0; }
+  .help { color: var(--muted); font-size: 13px; margin: 0; padding: 12px 14px; border-radius: 18px; }
+  .help b { color: var(--text); }
   /* Gesture modes */
-  .slots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 6px; }
-  .slot, .fxchip { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); }
-  .slot b, .fxchip b { color: var(--text); min-width: 14px; }
-  .slot.on, .fxchip.on { border-color: var(--left); color: var(--text); background: rgba(56,189,248,0.12); }
-  .slot.cur { border-color: var(--right); background: rgba(244,114,182,0.14); }
-  .slot, .fxchip { min-width: 0; }
-  .slot .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .slot button { flex: none; }
-  .slot button { padding: 2px 8px; font-size: 12px; }
+  .chips { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 6px; }
+  /* The AI DJ's up-next strip (queue.js) sits between the fist zones and hides while a fist mode or a hand blend uses the screen */
+  .stage .upNext { width: min(480px, 56%); transition: opacity .2s; }
+  .stage.picking .upNext { opacity: 0; }
+  .fxchip { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); }
+  .fxchip b { color: var(--text); min-width: 14px; }
+  .fxchip.on { border-color: var(--left); color: var(--text); background: rgba(30,149,227,0.12); }
   .fxbar { width: 50px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
   .fxbar > div { height: 100%; background: var(--left); width: 0; }
   .keyhelp { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
@@ -147,16 +123,17 @@
   #cinema img { width: 100%; height: 100%; object-fit: contain; }
 </style>
 </head>
-<body>
-<header>
-  <h1>AirDeck</h1>
+<body class="world-sunset">
+<header class="topbar glass">
+  <a class="brand" href="landing.html" title="Back to the home page"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>AirDeck</a>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="mix.html">DJ Deck</a><a class="arcade" href="arcade.html">Arcade · 2P</a><a class="ai" href="ai-dj.html">AI DJ</a><a class="fx" href="index.html" aria-current="page">Hand FX</a></nav>
   <button id="start" disabled>Loading model…</button>
   <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
   <button id="eggsBtn" class="secondary">Easter eggs: on</button>
-  <button id="basicBtn" class="secondary">Basic controls: on</button>
   <button id="blendBtn" class="secondary">Hand blend: on</button>
-  <span id="calibMsg"></span>
-  <span id="status"></span>
+  <button id="basicBtn" class="secondary">Basic controls: on</button>
+  <span class="note" id="calibMsg"></span>
+  <span class="status" id="status"></span>
 </header>
 
 <main>
@@ -167,36 +144,27 @@
   </div>
 
   <aside>
-    <div class="card song">
-      <h2><span>Song</span></h2>
-      <input type="url" id="ytUrl" placeholder="Paste a YouTube link">
-      <div class="actions">
-        <button id="ytLoad">Load</button>
-        <button id="fileBtn" class="secondary">Upload file</button>
-        <input type="file" id="fileInput" accept="audio/*">
-        <button id="playBtn" class="secondary" disabled>Play</button>
-      </div>
-      <div id="songStatus">No song loaded</div>
+    <div class="card glass song">
+      <h2><span>Song</span><button id="queueBtn" class="sun">Queue <span id="queueCount">0</span></button></h2>
+      <div id="transport"></div>
+      <div id="songStatus">Open the queue to pick songs from the library or start the AI DJ.</div>
     </div>
-    <div class="card">
-      <h2><span>Song slots <span class="muted" id="modeTag"></span></span></h2>
-      <div class="actions" style="display:flex;gap:8px;margin-bottom:6px"><button id="fillSlots" class="secondary" style="padding:6px 12px;font-size:13px">Fill from downloads</button><button id="forgetSlots" class="secondary" style="padding:6px 12px;font-size:13px">Forget slots</button></div>
-      <div class="slots" id="slots"></div>
-      <h2 style="margin-top:14px"><span>Visual effect <span class="muted">(shape between your fingertips)</span></span></h2>
-      <div class="slots" id="visChips"></div>
+    <div class="card glass">
+      <h2><span>Visual effect <span class="muted">(shape between your fingertips)</span> <span class="muted" id="modeTag"></span></span></h2>
+      <div class="chips" id="visChips"></div>
       <h2 style="margin-top:14px"><span>Effects</span></h2>
-      <div class="slots" id="fxChips"></div>
-      <p class="keyhelp">Test keys: <b>V</b> visuals mode · <b>K</b> lock · <b>←→</b> blend · <b>Enter</b> finish blend · <b>S</b> song mode · <b>F</b> effects mode · <b>1–5</b> pick · <b>↑↓</b> amount · <b>L</b> frame · <b>Esc</b> leave mode · <b>D</b> tracking debug.<br>
-      Right fist in the right zone → left hand picks a song (1–5 fingers). Left fist in the left zone → right hand picks an effect (open hand = all off, hand height = amount). The choice applies when the fist leaves its zone. Right fist in the bottom-right corner → left hand picks a visual (1–5); then show both hands in any pose: the shape between your two thumb tips and two index tips shows it.</p>
+      <div class="chips" id="fxChips"></div>
+      <p class="keyhelp">Test keys: <b>S</b> song mode · <b>←→</b> blend · <b>Enter</b> finish blend · <b>V</b> visuals mode · <b>F</b> effects mode · <b>1–5</b> pick · <b>↑↓</b> amount · <b>K</b> lock · <b>L</b> frame · <b>Esc</b> leave mode · <b>D</b> tracking debug.<br>
+      Right fist in the upper-right zone → left hand: 1 finger = next song (mixed in with your hands: left hand height = crossfade, right hand up = old song out faster), 2 = previous, 3+ = nothing. Left fist in the left zone → right hand picks an effect (open hand = all off, hand height = amount). Right fist in the bottom-right corner → left hand picks a visual (1–5). The choice applies when the fist leaves its zone. Then show both hands in any pose: the shape between your two thumb tips and two index tips shows the visual.</p>
     </div>
     <div id="cards"></div>
-    <div class="card between">
+    <div class="card glass between">
       <h2><span><span class="side">●</span> Between hands · volume</span></h2>
       <div class="control" id="volumeControl">80%</div>
       <div class="row"><span class="label">Distance</span><div class="bar"><div id="betweenBar"></div></div><span class="num" id="betweenVal">–</span></div>
       <div class="muted" id="betweenSub" style="font-size:12px">needs both hands</div>
     </div>
-    <p class="help">
+    <p class="help glass">
       <b>Left pinch</b> sets speed (closed = 0.9×, open = 1.1×).
       <b>Right pinch</b> sets the filter (closed = muffled, open = full sound).
       <b>Hands apart</b> = louder. If a hand leaves the frame, its control holds its last value.
@@ -208,8 +176,9 @@
 
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
-import { Deck } from "./audio.js?v=5";
+import { Deck } from "./audio.js?v=7";
 import { FrameFx } from "./frame.js?v=6";
+import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -266,7 +235,7 @@ const PANEL_MS = 100;           // side panel refresh interval (the video/overla
 // Gesture modes (fist on one hand turns the other hand into a selector)
 const MODE_HOLD_MS = 300;       // a fist must be held this long to enter a mode
 const PICK_HOLD_MS = 300;       // a finger count must hold this long to become the choice
-const FIST_ZONE_W = 0.2;        // width of each side zone (share of the frame): right fist = songs, left fist = effects
+const FIST_ZONE_W = 0.2;        // width of each side zone (share of the frame): left fist = effects, right fist = songs (upper) / visuals (low)
 const VIS_ZONE_Y = 0.68;        // the bottom-right corner below this line (inside the right zone) is the visuals zone; above it is songs
 const FIST_EXIT_MS = 350;       // fist must be out of its zone this long before the choice is applied (rides out a tracking flicker)
 const FIST_ENTER_GRACE_MS = 150; // a fist that flickers away for less than this doesn't restart the 'hold to enter' timer
@@ -312,7 +281,7 @@ const CONNECTIONS = [
   [0, 17],
 ];
 
-const COLORS = { left: "#38bdf8", right: "#f472b6", between: "#facc15" };
+const COLORS = { left: "#1e95e3", right: "#5cb82c", between: "#f5861f" };
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -322,10 +291,10 @@ const calibBtn = document.getElementById("calibrate");
 const statusEl = document.getElementById("status");
 const calibMsg = document.getElementById("calibMsg");
 const $ = (id) => document.getElementById(id);
+const stageEl = document.querySelector(".stage");
 
 let landmarker;
 let cameraOn = false;
-let curSlot = null;     // deck.currentSlot, read once per frame
 let lastVideoTime = -1;
 const deck = new Deck();
 window.airdeck = { deck, fake: null };   // handy for debugging in the console
@@ -346,7 +315,7 @@ const row = (id, label) =>
   `<div class="row"><span class="label">${label}</span><div class="bar"><div id="${id}Bar"></div></div><span class="num" id="${id}Val">–</span></div>`;
 const CONTROL_NAMES = { left: "speed", right: "filter" };
 $("cards").innerHTML = ["left", "right"].map((side) => `
-  <div class="card ${side}">
+  <div class="card glass ${side}">
     <h2><span><span class="side">●</span> ${side} hand · ${CONTROL_NAMES[side]}</span><span class="pose" id="${side}Pose">not detected</span></h2>
     <div class="control" id="${side}Control">–</div>
     ${row(side + "Pinch", "Pinch")}
@@ -691,7 +660,6 @@ function update(result, now) {
   updateModes(left, right, now);
   updateBlend(left, right, now);
   updateFrame(left, right, now);
-  curSlot = deck.currentSlot;
   // The lock zone only counts in normal mode (not while a fist mode or a blend is using your hands);
   // it has a little hysteresis so a hand wobbling on the line doesn't reset the hold.
   const zoneEdge = lock.inZone ? LOCK_ZONE_Y + 0.05 : LOCK_ZONE_Y;
@@ -720,6 +688,8 @@ function update(result, now) {
   draw(left, right, between);
   drawModes(now);
   drawBlend(now);
+  const picking = modes.current !== "normal" || blend.active;
+  if (picking !== stageEl.classList.contains("picking")) stageEl.classList.toggle("picking", picking);
   drawZones(now);
   drawLock(now);
   drawEasterEggs(now);
@@ -884,15 +854,14 @@ function setVisual(name) {
   try { localStorage.setItem("airdeck-visual", name); } catch {}
 }
 const modes = {
-  current: "normal",       // "normal" | "song" | "fx"
-  keyForced: false,        // set by the S / F test keys
+  current: "normal",       // "normal" | "song" | "fx" | "vis"
+  keyForced: false,        // set by the S / F / V test keys
   fistSide: null, fistSince: 0, hold: 0,   // fist being held, and progress 0–1
   count: 0, countSince: 0, pick: 0, pending: 0,   // finger count now, steadiness 0–1, chosen count
   lostSince: null,
 };
 let lastFx = null;         // most recently switched-on effect (hand height sets its amount)
 let toast = { text: "", until: 0 };
-const slotTitles = Array(5).fill("");
 const flash = (text, ms = 1800) => { toast = { text, until: performance.now() + ms }; };
 // Draw text that shrinks to fit maxW (the canvas can be narrower than 1280 px)
 const fitCache = new Map();   // measuring text is slow, so remember the width of each (font, text)
@@ -913,7 +882,7 @@ function enterMode(m, forced = false) {
   modes.count = 0; modes.pick = 0; modes.pending = 0; modes.hold = 0; modes.lostSince = null; modes.dropSince = null; modes.zeroSince = null;
 }
 
-// Is this hand a fist inside the zone for its side? (palmX is in the mirrored view)
+// Is this hand a fist inside the zone for its side? Left edge = effects, right edge above the visuals corner = songs. (palmX is mirrored)
 const inFistZone = (h, side) => !!h && h.pose === "✊ fist" &&
   (side === "right" ? h.palmX > 1 - FIST_ZONE_W && h.palmY < VIS_ZONE_Y : h.palmX < FIST_ZONE_W);
 const inVisZone = (h) => !!h && h.pose === "✊ fist" && h.palmX > 1 - FIST_ZONE_W && h.palmY >= VIS_ZONE_Y;
@@ -965,14 +934,26 @@ function updateModes(left, right, now) {
   }
 }
 
-// Choose slot / effect number n (1–5) in the current mode.
+// Song zone: 1 finger = next song, 2 = previous song, 3 or more = nothing (changed your mind).
+const SONG_CHOICES = ["⏭ Next", "⏮ Previous", "Nothing"];
+const songChoice = (n) => Math.min(n, SONG_CHOICES.length);   // 4 or 5 fingers count as "nothing" too
+
+// The real previous song in the queue (the ⏮ button restarts the song first if it's a few seconds in)
+function previousSong() {
+  const { items, currentId } = queue.getState();
+  const i = items.findIndex((item) => item.id === currentId);
+  if (i > 0) queue.play(items[i - 1].id);
+  else queue.seek(0);
+}
+
+// Choose song action / visual / effect number n (1–5) in the current mode.
 function pick(n) {
   deck.ensureContext();
   if (modes.current === "song") {
-    deck.pause();   // the single-song player must not play over the slots
-    playBtn.textContent = "Play";
-    const ok = deck.pickSlot?.(n - 1, { manual: blendOn && deck.currentSlot !== null });
-    flash(ok ? `♪ ${n}: ${slotTitles[n - 1] || "song " + n}` : `Slot ${n} is empty`);
+    const c = songChoice(n);
+    if (!queue.getState().items.length && c < 3) { flash("The queue is empty"); return; }
+    if (c === 1) nextSong();
+    else if (c === 2) { previousSong(); flash("⏮ Previous song"); }
   } else if (modes.current === "vis") {
     setVisual(VIS_NAMES[n - 1]);
     flash(VIS_NAMES[n - 1] === "off" ? "Visuals off" : `✨ ${VIS_LABELS[VIS_NAMES[n - 1]]}`);
@@ -999,9 +980,9 @@ window.addEventListener("keydown", (e) => {
   else if (k >= "1" && k <= "5" && modes.current !== "normal") pick(+k);
   else if (blend.active && ["arrowleft", "arrowright", "arrowup", "arrowdown", "enter"].includes(k)) {
     blend.lastInput = performance.now();
-    if (k === "enter") deck.autoBlend?.(BLEND_AUTO_SECS);
-    else if (k === "arrowleft" || k === "arrowright") { blend.p = clamp01(blend.p + (k === "arrowright" ? 0.1 : -0.1)); deck.setBlend(blend.p); }
-    else { blend.sweep = clamp01(blend.sweep + (k === "arrowup" ? 0.1 : -0.1)); deck.setSweep(blend.sweep); }
+    if (k === "enter") finishBlend();
+    else if (k === "arrowleft" || k === "arrowright") blend.p = clamp01(blend.p + (k === "arrowright" ? 0.1 : -0.1));
+    else blend.sweep = clamp01(blend.sweep + (k === "arrowup" ? 0.1 : -0.1));
     e.preventDefault();
   }
   else if ((k === "arrowup" || k === "arrowdown") && lastFx) {
@@ -1012,9 +993,11 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---- Hand-driven blend between songs ---------------------------------------------------
-// After a song is chosen while another is playing, it queues (starts on the next beat, silent).
-// Left hand height = crossfade into the new song; right hand height = the old song's
-// filter sweep + echo. No left hand for BLEND_IDLE_MS → it finishes by itself.
+// "Next" in the song zone (or S then 1) beat-matches the next queued song in on a downbeat
+// (queue.startHandMix, the same mix the AI DJ coach uses) and hands it to you:
+// left hand height = crossfade into the new song; right hand height = fade the old song out faster.
+// No left hand for BLEND_IDLE_MS → it finishes by itself. With Hand blend off, or when the
+// two songs can't be beat-matched, the AI mixes into the next song on its own.
 let blendOn = true;
 try { blendOn = localStorage.getItem("airdeck-blend") !== "off"; } catch {}
 function setBlendOn(on) {
@@ -1025,20 +1008,52 @@ function setBlendOn(on) {
 $("blendBtn").addEventListener("click", () => setBlendOn(!blendOn));
 setBlendOn(blendOn);
 
-const blend = { active: false, p: 0, sweep: 0, since: 0, lastInput: 0, last: 0, to: null, from: null, auto: false, waiting: false };
+const blend = { active: false, starting: false, p: 0, sweep: 0, since: 0, lastInput: 0, last: 0, from: "", to: "", waiting: false, finishing: false, controls: null };
+const songTitle = (item) => (item ? [item.artist, item.title].filter(Boolean).join(" - ") || item.title || "song" : "song");
+
+async function nextSong() {
+  if (blend.active || blend.starting) return;
+  const { items, currentId } = queue.getState();
+  const next = queue.getUpNext()?.item;
+  if (!blendOn || !deck.playing || !next) {
+    if (!queue.mixNow()) queue.next();
+    flash("⏭ Next song");
+    return;
+  }
+  blend.starting = true;
+  flash(`⏭ Mixing into ${songTitle(next)}`);
+  const controls = await queue.startHandMix().catch(() => null);
+  blend.starting = false;
+  if (!controls) {
+    // No hand blend: the tempos couldn't be beat-matched, so the AI already echoed out into
+    // the next song by itself. Only if nothing moved on, skip the plain way.
+    if (queue.getState().currentId === currentId) { if (!queue.mixNow()) queue.next(); }
+    flash("⏭ Echo out (these two can't be beat-matched for a hand blend)");
+    return;
+  }
+  const now = performance.now();
+  queue.holdControls(true);              // volume + speed stay put while your hands mix
+  Object.assign(blend, { active: true, p: 0, sweep: 0, since: now, lastInput: now, last: now, waiting: true, finishing: false, controls,
+    from: songTitle(items.find((item) => item.id === currentId)), to: songTitle(next) });
+  controls.setIncoming(0);
+  controls.setOutgoing(1);
+}
+
+function finishBlend(secs = BLEND_AUTO_SECS) {
+  if (!blend.active || blend.finishing) return;
+  blend.finishing = true;
+  blend.controls.finish(secs);
+}
 
 function updateBlend(left, right, now) {
-  const tr = deck.transitionState?.();
-  const on = !!tr && tr.manual;
-  if (!on) { blend.active = false; return; }
-  if (!blend.active || tr.to !== blend.to) {        // a new blend has just opened
-    Object.assign(blend, { active: true, p: tr.progress01, sweep: 0, since: now, lastInput: now, last: now, to: tr.to, from: tr.from, auto: false });
-  }
-  blend.waiting = tr.waiting;
-  blend.auto = tr.auto;
+  if (!blend.active) return;
+  const c = blend.controls;
+  queue.coachPing();                     // the AI DJ leaves the mix timing to the hands meanwhile
+  if (c.done) { blend.active = false; queue.holdControls(false); return; }
+  blend.waiting = c.startsIn > 0;
   const dt = Math.min(0.1, (now - blend.last) / 1000);
   blend.last = now;
-  if (blend.auto) { blend.p = tr.progress01; blend.sweep = tr.sweep; return; }   // finishing by itself
+  if (blend.finishing) { blend.p += (1 - blend.p) * 0.05; return; }   // finishing by itself
   // A hand only drives the blend when it isn't busy with a mode gesture, isn't a fist, and the blend has been open a moment
   const free = (h) => h && modes.current === "normal" && modes.hold === 0 && h.pose !== "✊ fist" && now - blend.since > BLEND_ARM_MS;
   if (!free(left)) left = null;
@@ -1051,16 +1066,17 @@ function updateBlend(left, right, now) {
     blend.lastInput = now;
   }
   if (right) blend.sweep += (remap(right.height, BLEND_LOW, BLEND_HIGH) - blend.sweep) * 0.2;
-  deck.setBlend(blend.p);
-  deck.setSweep(blend.sweep);
-  if (now - blend.lastInput > BLEND_IDLE_MS) deck.autoBlend(BLEND_AUTO_SECS);
+  c.setIncoming(blend.p);
+  c.setOutgoing((1 - blend.p) * (1 - blend.sweep));
+  if (blend.p >= 0.5) c.swapBass();     // only one bass line at a time, swapped on a downbeat
+  if (blend.p >= 1) finishBlend(1);
+  else if (now - blend.lastInput > BLEND_IDLE_MS) finishBlend();
 }
 
 // Instructions + two vertical sliders while a blend is open
 function drawBlend(now) {
   if (!blend.active) return;
   const cx = canvas.width / 2, W = canvas.width, H = canvas.height;
-  const title = (i) => slotTitles[i] || `song ${i + 1}`;
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -1072,11 +1088,11 @@ function drawBlend(now) {
   ctx.beginPath(); ctx.roundRect(cx - cardW / 2, cardY, cardW, 108, 14); ctx.fill();
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#facc15";
-  fillFit(`🎚 BLENDING  ${title(blend.from)}  →  ${title(blend.to)}`, cx, cardY + 24, 24, 700, cardW - 30);
+  fillFit(`🎚 BLENDING  ${blend.from}  →  ${blend.to}`, cx, cardY + 24, 24, 700, cardW - 30);
   ctx.fillStyle = "#fff";
-  const lines = blend.auto ? ["Finishing by itself…"] : blend.waiting ? ["Queued — starts on the next beat…"] : [
+  const lines = blend.finishing ? ["Finishing by itself…"] : blend.waiting ? ["Queued — starts on the next beat…"] : [
     "LEFT hand UP / DOWN = fade into the new song / back",
-    "RIGHT hand UP = filter sweep + echo on the old song",
+    "RIGHT hand UP = fade the old song out faster",
     "Put your left hand away and it finishes by itself",
   ];
   lines.forEach((t, i) => fillFit(t, cx, cardY + 54 + i * 22, 18, 500, cardW - 30));
@@ -1106,37 +1122,32 @@ function drawModes(now) {
   ctx.shadowColor = "rgba(0,0,0,0.8)";
   ctx.shadowBlur = 8;
   const cx = canvas.width / 2;
-  const names = modes.current === "vis" ? VIS_NAMES.map((v, i) => `${i + 1} ${VIS_LABELS[v]}`) :
+  const names = modes.current === "song" ? SONG_CHOICES.map((c, i) => `${i + 1}${i === 2 ? "+" : ""} ${c}`) :
+    modes.current === "vis" ? VIS_NAMES.map((v, i) => `${i + 1} ${VIS_LABELS[v]}`) :
     ["1 " + FX_LABELS.reverb, "2 " + FX_LABELS.echo, "3 " + FX_LABELS.bitcrush, "4 " + FX_LABELS.flanger, "5 Off"];
-  const title = modes.current === "song" ? "🎵 SONG SELECT · pick with left hand, move fist out to apply" :
+  const title = modes.current === "song" ? "🎵 SONGS · 1 finger next, 2 previous, 3+ nothing · move fist out to apply" :
     modes.current === "fx" ? "🎛 FX SELECT · pick with right hand, move fist out to apply" :
     modes.current === "vis" ? "✨ VISUALS · pick with left hand, move fist out to apply. Show both hands in any pose" : "";
   if (modes.current !== "normal") {
     ctx.fillStyle = modes.current === "song" ? COLORS.left : modes.current === "vis" ? VIS_COLOR : COLORS.right;
     fillFit(title, cx, 50, 30, 700, canvas.width - 40);
-    // Row of 5 chips at the bottom; the current finger count fills as it holds
-    const gap = 10, w = Math.min(190, (canvas.width * (1 - 2 * FIST_ZONE_W) - 4 * gap) / 5), x0 = cx - (5 * w + 4 * gap) / 2, y = canvas.height - 60;
+    // Row of chips at the bottom; the current finger count fills as it holds
+    const n = names.length, chip = (c) => (modes.current === "song" ? songChoice(c) : c);
+    const gap = 10, w = Math.min(190, (canvas.width * (1 - 2 * FIST_ZONE_W) - (n - 1) * gap) / n), x0 = cx - (n * w + (n - 1) * gap) / 2, y = canvas.height - 60;
     const state = deck.effectState?.() ?? {};
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < n; i++) {
       const x = x0 + i * (w + gap);
-      const active = modes.current === "song" ? curSlot === i : modes.current === "vis" ? visualFx === VIS_NAMES[i] : i < 4 && state[FX_NAMES[i]]?.on;
+      const active = modes.current === "song" ? false : modes.current === "vis" ? visualFx === VIS_NAMES[i] : i < 4 && state[FX_NAMES[i]]?.on;
       ctx.fillStyle = active ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.6)";
       ctx.beginPath(); ctx.roundRect(x, y - 24, w, 48, 12); ctx.fill();
-      const fill = modes.pending === i + 1 ? 1 : modes.count === i + 1 ? modes.pick : 0;
+      const fill = chip(modes.pending) === i + 1 ? 1 : chip(modes.count) === i + 1 ? modes.pick : 0;
       if (fill > 0) {
-        ctx.fillStyle = modes.pending === i + 1 ? "rgba(250,204,21,0.75)" : "rgba(250,204,21,0.4)";
+        ctx.fillStyle = chip(modes.pending) === i + 1 ? "rgba(250,204,21,0.75)" : "rgba(250,204,21,0.4)";
         ctx.beginPath(); ctx.roundRect(x, y - 24, w * fill, 48, 12); ctx.fill();
       }
       ctx.fillStyle = "#fff";
-      const label = modes.current === "song" ? `${i + 1}  ${slotTitles[i] || "empty"}` : names[i];
+      const label = names[i];
       fillFit(label, x + w / 2, y + 1, 20, 600, w - 12);
-    }
-    const tr = deck.transitionState?.();
-    if (tr) {
-      ctx.fillStyle = "rgba(255,255,255,0.25)";
-      ctx.fillRect(cx - 300, y - 52, 600, 6);
-      ctx.fillStyle = "#facc15";
-      ctx.fillRect(cx - 300, y - 52, 600 * (tr.mashup ? 0.5 : tr.progress01), 6);
     }
   } else if (modes.hold > 0) {
     // Fist is being held: show the ring filling
@@ -1732,7 +1743,7 @@ function paintTest(now) {
 }
 function frameSource() { return cameraOn ? video : testCanvas; }
 frameFx.resize(canvas.width, canvas.height);
-// Before the camera starts the stage stays a plain dark screen with the placeholder text. The test picture and
+// Before the camera starts the stage stays a plain (clear) screen with the placeholder text. The test picture and
 // overlays only run in test mode: after a test key is pressed (S, F, V, L, K, D…) or when synthetic hands are fed in.
 let idleTest = false;
 window.addEventListener("keydown", (e) => { if (e.target.tagName !== "INPUT" && !e.metaKey && !e.ctrlKey) idleTest = true; });
@@ -1747,20 +1758,19 @@ function idleLoop(now) {
     try { update(window.airdeck.fake || { landmarks: [], worldLandmarks: [] }, now); } catch (err) { console.error(err); }   // .fake = synthetic hands for tests
   } else {
     if (!idleBlank) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);   // the stage's Aero glass shows through
       idleBlank = true;
     }
-    // the side panel (slot titles, effects) still refreshes while waiting for the camera
+    // the side panel (effects, visuals) still refreshes while waiting for the camera
     if (now - lastPanel >= PANEL_MS) { lastPanel = now; updateControls(); updateSidePanel(); }
   }
   requestAnimationFrame(idleLoop);
 }
 requestAnimationFrame(idleLoop);
 
-// ---- Slots + effects side panel ----------------------------------------------------------
-$("slots").innerHTML = [0, 1, 2, 3, 4].map((i) =>
-  `<div class="slot" id="slot${i}"><b>${i + 1}</b><span class="t" id="slotT${i}">empty</span><button class="secondary" data-slot="${i}">Load</button></div>`).join("");
+const songStatus = $("songStatus");
+
+// ---- Effects + visuals side panel ----------------------------------------------------------
 $("visChips").innerHTML = VIS_NAMES.map((v, i) =>
   `<div class="fxchip" id="vis_${v}" style="cursor:pointer" data-vis="${v}"><b>${i + 1}</b><span style="flex:1">${VIS_LABELS[v]}</span></div>`).join("");
 $("visChips").addEventListener("click", (e) => { const c = e.target.closest("[data-vis]"); if (c) setVisual(c.dataset.vis); });
@@ -1770,12 +1780,6 @@ $("fxChips").innerHTML = FX_NAMES.map((f, i) =>
 
 function updateSidePanel() {
   setText($("modeTag"), modes.current === "song" ? "· SONG MODE" : modes.current === "fx" ? "· FX MODE" : modes.current === "vis" ? "· VISUALS MODE" : "");
-  for (let i = 0; i < 5; i++) {
-    const loaded = !!deck.slotInfo?.(i)?.loaded;
-    setText($("slotT" + i), loaded ? (slotTitles[i] || "loaded") : "empty");
-    setOn($("slot" + i), "on", loaded);
-    setOn($("slot" + i), "cur", curSlot === i);
-  }
   for (const v of VIS_NAMES) setOn($("vis_" + v), "on", visualFx === v);
   const st = deck.effectState?.() ?? {};
   for (const f of FX_NAMES) {
@@ -1783,161 +1787,37 @@ function updateSidePanel() {
     setWidth($("fx_" + f).querySelector(".fxbar > div"), st[f]?.on ? st[f].amount * 100 : 0);
   }
 }
-// ---- Remembered slots (for testing) --------------------------------------------------
-// Slot songs are remembered across reloads: URLs (YouTube downloads, downloads/ files) in
-// localStorage, uploaded files as blobs in IndexedDB.
-const SLOTS_KEY = "airdeck-slots";
-const readSlotMeta = () => { try { return JSON.parse(localStorage.getItem(SLOTS_KEY) || "{}"); } catch { return {}; } };
-const writeSlotMeta = (m) => { try { localStorage.setItem(SLOTS_KEY, JSON.stringify(m)); } catch {} };
-const idb = () => new Promise((resolve, reject) => {
-  const req = indexedDB.open("airdeck", 1);
-  req.onupgradeneeded = () => req.result.createObjectStore("slots");
-  req.onsuccess = () => resolve(req.result);
-  req.onerror = () => reject(req.error);
-});
-async function idbDo(mode, fn) {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("slots", mode);
-    const r = fn(tx.objectStore("slots"));
-    tx.oncomplete = () => resolve(r && r.result);
-    tx.onerror = () => reject(tx.error);
-  });
-}
+// ---- Song + queue -------------------------------------------------------------------
+// Songs are added, ordered and picked in the queue panel (queue.js); the player
+// bar (progress, ⏮ ⏯ ⏭) shows here and at the top of the panel.
+const queue = createQueue(deck);
+const queuePanel = createQueuePanel(queue, deck);
+$("transport").append(createTransport(queue, deck));
+// What the AI DJ plays next (and when it mixes), on the camera view, like on the AI DJ page.
+const upNext = createUpNext(queue);
+stageEl.append(upNext.element);
+window.airdeck.queue = queue;   // for debugging and tests, like airdeck.deck
 
-async function loadSlotFrom(i, source, title, { remember = true } = {}) {
-  deck.ensureContext();
-  slotTitles[i] = "loading…";
-  try {
-    await deck.loadSlot(i, source);
-    slotTitles[i] = title;
-    if (remember) {
-      if (typeof source !== "string") await idbDo("readwrite", (st) => st.put(source, String(i)));
-      const meta = readSlotMeta();   // read + write with no await between, so parallel saves can't clobber each other
-      meta[i] = typeof source === "string" ? { url: source, title } : { idb: true, title };
-      writeSlotMeta(meta);
-    }
-    return true;
-  } catch (err) {
-    slotTitles[i] = "";
-    songStatus.textContent = "Slot error: " + err.message;
-    return false;
-  }
-}
-
-// Reload remembered slots on startup (no user click needed to decode)
-(async () => {
-  // One at a time: decoding five songs at once can use half a gigabyte of memory
-  const meta = readSlotMeta();
-  let ok = 0, total = 0;
-  for (const [i, m] of Object.entries(meta)) {
-    total++;
-    let source = null;
-    try { source = m.idb ? await idbDo("readonly", (st) => st.get(String(i))) : m.url; } catch {}
-    if (source && await loadSlotFrom(+i, source, m.title, { remember: false })) ok++;
-    else { const cur = readSlotMeta(); delete cur[i]; writeSlotMeta(cur); }   // forget songs that no longer load
-  }
-  if (total) songStatus.textContent = `Restored ${ok} of ${total} remembered slot${total > 1 ? "s" : ""}`;
-})();
-
-$("forgetSlots").addEventListener("click", async () => {
-  writeSlotMeta({});
-  try { await idbDo("readwrite", (st) => st.clear()); } catch {}
-  songStatus.textContent = "Forgot remembered slots (reload to clear the loaded songs)";
-});
-
-$("fillSlots").addEventListener("click", async () => {
-  deck.ensureContext();
-  try {
-    const html = await (await fetch("downloads/")).text();
-    const files = [...html.matchAll(/href="([^"]+\.(?:m4a|mp3|webm|opus|wav|ogg))"/g)].map((m) => decodeURIComponent(m[1]));
-    if (!files.length) throw new Error("no audio files in downloads/");
-    for (const [i, f] of files.slice(0, 5).entries()) await loadSlotFrom(i, "downloads/" + encodeURIComponent(f), f.replace(/\.[^.]+$/, ""));
-    songStatus.textContent = `Filled ${Math.min(5, files.length)} slots from downloads/`;
-  } catch (err) { songStatus.textContent = "Fill error: " + err.message; }
-});
-
-// Per-slot Load: uses the YouTube link box if it has a link, otherwise asks for a file.
-let pendingSlot = 0;
-$("slots").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-slot]");
-  if (!btn) return;
-  pendingSlot = +btn.dataset.slot;
-  const url = $("ytUrl").value.trim();
-  if (!url) { $("slotFile").click(); return; }
-  deck.ensureContext();
-  songStatus.textContent = "Downloading from YouTube…";
-  try {
-    const res = await fetch("/api/youtube", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error);
-    await loadSlotFrom(pendingSlot, body.file, body.title);
-    songStatus.textContent = `Slot ${pendingSlot + 1}: ${body.title}`;
-  } catch (err) { songStatus.textContent = "Error: " + err.message; }
-});
-const slotFile = document.createElement("input");
-slotFile.type = "file"; slotFile.accept = "audio/*"; slotFile.id = "slotFile"; slotFile.style.display = "none";
-document.body.appendChild(slotFile);
-slotFile.addEventListener("change", async () => {
-  const f = slotFile.files[0];
-  if (f) await loadSlotFrom(pendingSlot, f, f.name.replace(/\.[^.]+$/, ""));
-  slotFile.value = "";
-});
-
-// ---- Song loading ------------------------------------------------------------------
-const songStatus = $("songStatus");
-const playBtn = $("playBtn");
-
-async function loadSong(label, loader) {
-  songStatus.textContent = label;
-  deck.stopSlots?.();   // the single song replaces any slot songs
-  playBtn.disabled = true;
-  try {
-    await loader();
-    playBtn.disabled = false;
-    deck.play();
-    playBtn.textContent = "Pause";
-    return true;
-  } catch (err) {
-    songStatus.textContent = "Error: " + err.message;
-    return false;
-  }
-}
-
-$("ytLoad").addEventListener("click", async () => {
-  const url = $("ytUrl").value.trim();
-  if (!url) return;
+$("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it
-  let title = "";
-  const ok = await loadSong("Downloading from YouTube…", async () => {
-    const res = await fetch("/api/youtube", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    if (res.status === 501) throw new Error("start the app with `python3 server.py` to enable YouTube");
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error);
-    title = body.title;
-    songStatus.textContent = "Decoding…";
-    await deck.loadUrl(body.file);
-  });
-  if (ok) songStatus.textContent = "▶ " + title;
+  queuePanel.toggle();
 });
 
-$("fileBtn").addEventListener("click", () => $("fileInput").click());
-$("fileInput").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  deck.ensureContext();
-  const ok = await loadSong("Decoding…", () => deck.loadFile(file));
-  if (ok) songStatus.textContent = "▶ " + file.name;
-});
+// The AI DJ moved to its own page; old index.html#ai-dj links go there.
+if (location.hash === "#ai-dj") location.replace("ai-dj.html");
 
-playBtn.addEventListener("click", () => {
-  deck.toggle();
-  playBtn.textContent = deck.playing ? "Pause" : "Play";
-});
+// Keep the song card's count and status line in step with the queue.
+function updateSongCard() {
+  const { items, downloads, status, dj } = queue.getState();
+  $("queueCount").textContent = items.length;
+  const active = downloads.filter((download) => download.stage !== "failed");
+  const idle = items.length ? "" : "Open the queue to pick songs from the library or start the AI DJ.";
+  songStatus.textContent =
+    status?.message ??
+    (dj.talking ? "🎙 The DJ is on the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
+  songStatus.classList.toggle("error", Boolean(status?.isError));
+}
+queue.on(updateSongCard);
 
 startBtn.addEventListener("click", startCamera);
 calibBtn.addEventListener("click", calibrate);
