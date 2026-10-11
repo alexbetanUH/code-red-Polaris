@@ -21,6 +21,8 @@ Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew instal
 python3 server.py
 ```
 
+If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
+
 Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Load a song by pasting a YouTube link or with **Upload file**.
 
 ### Files

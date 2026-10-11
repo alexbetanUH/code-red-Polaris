@@ -8,6 +8,7 @@ Requires yt-dlp on PATH (brew install yt-dlp).
 
 import json
 import subprocess
+import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -15,7 +16,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).parent
 DOWNLOADS = ROOT / "downloads"
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
-PORT = 8000
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000  # python server.py 8001 for another port
 
 
 # YouTube often answers 403 Forbidden for one download method but not another,
@@ -92,6 +93,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
+class Server(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second server silently share a port that's
+    # already taken, so requests go to whichever copy started first (wrong files, 404s).
+    # Refuse the port instead, so the clash is obvious.
+    allow_reuse_address = sys.platform != "win32"
+
+
 if __name__ == "__main__":
-    print(f"AirDeck running at http://localhost:{PORT}")
-    ThreadingHTTPServer(("", PORT), Handler).serve_forever()
+    try:
+        server = Server(("", PORT), Handler)
+    except OSError:
+        sys.exit(f"Port {PORT} is already in use (another server.py still running?)\n"
+                 f"Stop it, or pick another port:  python server.py {PORT + 1}")
+    print(f"AirDeck running at http://localhost:{PORT}  (two decks: http://localhost:{PORT}/mix.html)")
+    server.serve_forever()
