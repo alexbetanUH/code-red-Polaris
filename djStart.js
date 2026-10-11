@@ -8,6 +8,7 @@
 //     startCamera: async () => true,          // false if the camera didn't start
 //     handSeen: (side) => bool,               // "left" / "right" in view right now
 //     prepare: async (ids) => {},             // load that set (called on Play, so it loads meanwhile)
+//     loadingText: () => "Downloading …",     // what's loading right now, for the loading screen (optional)
 //     begin: () => {},                        // start the set, on "Go"
 //   });
 //   screens.results({ score, perfect, good, miss, best, accuracy });
@@ -75,7 +76,7 @@ function saveSet(ids) {
   }
 }
 
-export function createStartScreen(stage, { library, startCamera, handSeen, prepare, begin }) {
+export function createStartScreen(stage, { library, startCamera, handSeen, prepare, begin, loadingText = () => null }) {
   addStyles();
   let root = null;
   let cameraReady = false; // the camera's on and the hands have been checked once
@@ -99,7 +100,8 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
     show(`<div class="djStart-panel"><p class="djStart-status">Loading the songs…</p></div>`);
     const songs = await library();
     if (mine !== run) return; // another screen came up meanwhile
-    const known = new Set(songs.filter((song) => song.available !== false).map((song) => song.id));
+    const known = new Set(songs.map((song) => song.id));
+    const missing = songs.filter((song) => song.available === false).length;
     let picked = (lastSet.length ? lastSet : savedSet()).filter((id) => known.has(id)).slice(0, setSize.max);
 
     show(`
@@ -110,14 +112,15 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
           ${songs
             .map(
               (song) => `
-            <li><button type="button" role="option" data-id="${escape(song.id)}" aria-label="${escape(`${song.title} by ${song.artist}${song.bpm ? `, ${Math.round(song.bpm)} BPM` : ""}`)}" ${song.available === false ? "disabled" : ""}>
+            <li><button type="button" role="option" data-id="${escape(song.id)}" aria-label="${escape(`${song.title} by ${song.artist}${song.bpm ? `, ${Math.round(song.bpm)} BPM` : ""}${song.available === false ? ", downloads first" : ""}`)}">
               <span class="djStart-order"></span>
               <span class="djStart-song"><b>${escape(song.title)}</b><small>${escape(song.artist)}${song.genre ? ` · ${escape(song.genre)}` : ""}</small></span>
-              <span class="djStart-bpm">${song.available === false ? "not downloaded" : song.bpm ? `${Math.round(song.bpm)} BPM` : ""}</span>
+              <span class="djStart-bpm">${song.bpm ? `${Math.round(song.bpm)} BPM` : ""}${song.available === false ? `<span class="djStart-dl" title="Not on this computer yet: it downloads the first time you play it">↓ download</span>` : ""}</span>
             </button></li>`,
             )
             .join("")}
         </ul>
+        ${missing ? `<p class="djStart-hint">Songs marked ↓ download the first time you play them (about 20 s each). To get them all now, run <code>python prefetch.py</code>.</p>` : ""}
         <p class="djStart-flow" aria-live="polite"></p>
         <div class="djStart-row">
           <button class="secondary" type="button" data-clear>Clear</button>
@@ -233,8 +236,26 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
 
   // ---- the set loads, 3, 2, 1
   async function ready() {
-    show(`<div class="djStart-panel"><p class="djStart-status">Getting the music ready…</p></div>`);
-    await loading;
+    show(`<div class="djStart-panel"><p class="djStart-status">Getting the music ready…</p><p class="djStart-loading" aria-live="polite"></p></div>`);
+    const line = root.querySelector(".djStart-loading");
+    const timer = setInterval(() => {
+      line.textContent = loadingText() ?? "";
+    }, 250);
+    try {
+      await loading;
+    } catch (error) {
+      // The set couldn't load (its first song's download failed): say so, back to the songs.
+      show(`
+        <div class="djStart-panel">
+          <p class="djStart-status">${escape(error.message)}</p>
+          <p>Check your internet connection, or pick another song. To get every song onto this computer at once, run <code>python prefetch.py</code>.</p>
+          <button class="lime" type="button">Back to songs</button>
+        </div>`);
+      root.querySelector("button").addEventListener("click", setSelect, { once: true });
+      return;
+    } finally {
+      clearInterval(timer);
+    }
     countdown();
   }
 
@@ -367,7 +388,11 @@ function addStyles() {
 .djStart-song { display: flex; flex-direction: column; min-width: 0; }
 .djStart-song b, .djStart-song small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .djStart-song small { color: var(--muted); font-size: 11.5px; }
-.djStart-bpm { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.djStart-bpm { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.djStart-dl { padding: 1px 6px; border-radius: 9px; border: 1px solid #9fb6cc; background: #f3f8fd; font-size: 10.5px; color: #2b6fb8; }
+.djStart-hint { font-size: 12px !important; color: var(--muted) !important; margin-bottom: 8px !important; }
+.djStart-hint code, .djStart-panel p code { font: 12px Consolas, monospace; padding: 0 4px; border-radius: 3px; background: #f1f3f5; }
+.djStart-loading { min-height: 1.4em; font-size: 13px !important; color: var(--muted) !important; }
 .djStart-flow { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 6px; font-size: 13px !important; }
 .djStart-flow em { color: var(--muted); font-style: normal; }
 .djStart-mix { padding: 1px 7px; border-radius: 9px; font-size: 11px; color: #fff; background: #5cb82c; }

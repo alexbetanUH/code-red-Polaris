@@ -95,7 +95,10 @@ how (blend or echo out).
 
 AirMix (`ai-dj.html`, part of the Arcade: the **♪ AirMix** button in the Arcade's top bar) is a single-player rhythm game in the style of
 osu!: you play a DJ set with your hands. It opens on **Pick your set**: tick 2–5 songs from the library in the
-order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Then, the
+order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Songs that
+aren't on this computer yet (not in `music/`, say on a fresh clone) are marked **↓ download**: each downloads from
+YouTube when it's needed (the first while you get ready, each next one while the one before plays; the game holds the
+mix until it's ready). `python prefetch.py` gets them all at once. A song that can't be downloaded drops out of the set. Then, the
 first time, how to play in three pictures, the camera and a check that it sees both hands; the set loads while
 you do that, then 3, 2, 1.
 

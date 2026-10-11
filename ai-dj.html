@@ -801,11 +801,21 @@ const screens = createStartScreen(stage, {
     return video.srcObject ? true : startCamera();
   },
   handSeen: (side) => performance.now() - sides[side].lastSeen < 300,
+  loadingText: () => {
+    const download = queue.getState().downloads.find((entry) => entry.stage !== "failed");
+    if (!download) return null;
+    const song = download.title.split(" - ").slice(1).join(" - ") || download.title;
+    return `Downloading ${song}${download.percent !== null ? ` ${Math.round(download.percent)}%` : "…"}`;
+  },
   prepare: async (ids) => {
     deck.ensureContext(); // the Play click
     djGame.reset();
     await queue.playSet(ids);
-    await queue.readyToStart();
+    if (!(await queue.readyToStart())) {
+      const first = queue.getState().items[0];
+      const name = first ? first.title.split(" - ").slice(1).join(" - ") || first.title : "the first song";
+      throw new Error(`Couldn't download ${name}${/[.!?]$/.test(name) ? "" : "."}`);
+    }
   },
   begin: () => {
     djGame.setEnabled(true);

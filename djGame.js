@@ -374,7 +374,17 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     if (mix && mix.song !== playback.songId && mix.state === "planned") mix = null;
     if (mix) return;
     // Not while the DJ is busy (talking over the last mix, say): the mix couldn't start.
-    if (queue.getUpNext()?.mixing) return;
+    const next = queue.getUpNext();
+    if (next?.mixing) return;
+    // A next song that couldn't be downloaded drops out of the set (the one after it, or
+    // the set's end, is next).
+    if (next && queue.loadFailed(next.item.id)) {
+      queue.remove(next.item.id);
+      return;
+    }
+    // Nor while the next song is still downloading: this one plays on (with its shapes)
+    // until it's ready, so the mix's first targets still get their whole approach.
+    if (next && !queue.isReady(next.item.id)) return;
     const mixOut = queue.mixOutAt();
     if (mixOut === null) return;
     const grid = queue.beatGridAt(mixOut);
@@ -387,7 +397,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     // already played those bars, so its mix moves on by whole phrases.
     // The set's last song: it ends where it would have been mixed out (a little later,
     // like a mix, if it came in late).
-    if (!queue.getUpNext()) {
+    if (!next) {
       let end = onBar(mixOut);
       while (end < playback.position + leadBars * bar) end += phraseBars * bar;
       mix = { song: playback.songId, state: "finale", bar, cue: Math.min(end, playback.duration - 1) };
