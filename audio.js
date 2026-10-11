@@ -57,8 +57,14 @@ export class Deck {
     const fxIn = c.createGain();
     const fxOut = c.createGain();
     this.filter.connect(fxIn);
-    fxIn.connect(fxOut); // dry
-    fxOut.connect(this.gain);
+    this.fxDry = c.createGain();
+    fxIn.connect(this.fxDry).connect(fxOut);
+    // Leave room for summed effects, then catch peaks before the master volume.
+    this.fxHeadroom = c.createGain();
+    const compressor = c.createDynamicsCompressor();
+    compressor.threshold.value = -8; compressor.knee.value = 12;
+    compressor.ratio.value = 8; compressor.attack.value = 0.003; compressor.release.value = 0.15;
+    fxOut.connect(this.fxHeadroom).connect(compressor).connect(this.gain);
     this.wet = {};
     const addWet = (name, node) => {
       const w = c.createGain();
@@ -67,13 +73,13 @@ export class Deck {
       this.wet[name] = w;
     };
 
-    // reverb: noise that fades out over ~2.5 s
+    // reverb: a broad stereo tail fading over ~4 s
     const verb = c.createConvolver();
-    const len = Math.floor(c.sampleRate * 2.5);
+    const len = Math.floor(c.sampleRate * 4.0);
     const imp = c.createBuffer(2, len, c.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = imp.getChannelData(ch);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.8);
     }
     verb.buffer = imp;
     // The convolver is the one expensive effect (long FFT convolution), so it is only wired in while reverb is on
@@ -87,6 +93,7 @@ export class Deck {
     delay.delayTime.value = 0.375;
     const fb = c.createGain();
     fb.gain.value = 0.45;
+    this.echoFeedback = fb;
     fxIn.connect(delay);
     delay.connect(fb).connect(delay);
     addWet("echo", delay);
@@ -97,10 +104,11 @@ export class Deck {
     fxIn.connect(this.crusher);
     addWet("bitcrush", this.crusher);
     this.updateCrush();
+    this.initCrusherWorklet();
 
     // flanger: ~5 ms delay swept by a slow LFO, with feedback
     const fl = c.createDelay(0.05);
-    fl.delayTime.value = 0.005;
+    fl.delayTime.value = 0.009;
     const lfo = c.createOscillator();
     lfo.frequency.value = 0.3;
     const depth = c.createGain();
@@ -109,6 +117,7 @@ export class Deck {
     lfo.start();
     const flfb = c.createGain();
     flfb.gain.value = 0.5;
+    this.flangerLfo = lfo; this.flangerDepth = depth; this.flangerFeedback = flfb;
     fxIn.connect(fl);
     fl.connect(flfb).connect(fl);
     addWet("flanger", fl);
@@ -118,7 +127,7 @@ export class Deck {
 
   updateCrush() {
     if (!this.crusher) return;
-    const steps = Math.max(3, Math.round(64 - this.fx.bitcrush.amount * 58));
+    const steps = Math.pow(2, Math.round(12 - this.fx.bitcrush.amount * 9) - 1);
     if (steps === this.crushSteps) return;   // the curve only changes when the step count does
     this.crushSteps = steps;
     const n = 4096;
@@ -130,10 +139,40 @@ export class Deck {
     this.crusher.curve = curve;
   }
 
+  // The worklet adds sample-rate reduction; older browsers keep the waveshaper.
+  async initCrusherWorklet() {
+    if (!this.ctx.audioWorklet || typeof AudioWorkletNode === "undefined") return;
+    try {
+      await this.ctx.audioWorklet.addModule(new URL("./bitcrush-worklet.js", import.meta.url));
+      const node = new AudioWorkletNode(this.ctx, "airdeck-bitcrush", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+      // Switch the muted branch first, and restore it smoothly at its current amount.
+      const wet = this.wet.bitcrush;
+      wet.gain.cancelScheduledValues(this.ctx.currentTime); wet.gain.setValueAtTime(0, this.ctx.currentTime);
+      this.crusher.disconnect(wet);
+      this.crusher.connect(node).connect(wet);
+      this.crushWorklet = node;
+      this.applyEffect("bitcrush");
+    } catch (error) { console.warn("Bitcrush sample-rate reduction unavailable:", error.message); }
+  }
+
   applyEffect(name) {
     const f = this.fx[name];
     if (!f || !this.ctx) return;
-    this.wet[name].gain.setTargetAtTime(f.on ? f.amount : 0, this.ctx.currentTime, RAMP);
+    const a = f.on ? f.amount : 0, now = this.ctx.currentTime;
+    const wetAmount = { reverb: a * 0.95, echo: a * 0.7, bitcrush: a, flanger: a * 0.8 }[name];
+    this.wet[name].gain.setTargetAtTime(wetAmount, now, RAMP);
+    if (name === "echo") this.echoFeedback.gain.setTargetAtTime(0.18 + a * 0.58, now, RAMP);
+    if (name === "flanger") {
+      this.flangerDepth.gain.setTargetAtTime(0.0004 + a * 0.007, now, RAMP);
+      this.flangerFeedback.gain.setTargetAtTime(0.1 + a * 0.65, now, RAMP);
+      this.flangerLfo.frequency.setTargetAtTime(0.12 + a * 0.68, now, RAMP);
+    }
+    if (name === "bitcrush" && this.crushWorklet) this.crushWorklet.parameters.get("amount").setTargetAtTime(a, now, RAMP);
+    const amount = (key) => this.fx[key].on ? this.fx[key].amount : 0;
+    const dry = 1 - Math.max(amount("bitcrush"), amount("reverb") * 0.72);
+    const wetSum = amount("bitcrush") + amount("reverb") * 0.95 + amount("echo") * 0.7 + amount("flanger") * 0.8;
+    this.fxDry.gain.setTargetAtTime(dry, now, RAMP);
+    this.fxHeadroom.gain.setTargetAtTime(1 / Math.max(1, dry + wetSum * 0.8), now, RAMP);
     if (name === "reverb") {
       clearTimeout(this.verbTimer);
       if (f.on) {
@@ -159,7 +198,7 @@ export class Deck {
     return this.fx[name].on;
   }
 
-  // Wet level 0..1.
+  // Intensity 0..1: each effect maps it to wet mix and its own audible character.
   setEffectAmount(name, v) {
     const f = this.fx[name];
     if (!f) return;

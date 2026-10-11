@@ -13,13 +13,13 @@ DJ with your hands in the browser, using your webcam (MediaPipe hand tracking + 
 
 The line between your hands is the live audio waveform.
 
-More gestures, on the hand tracker page `index.html` (**Hand FX** in the top bar; turn the basic controls off with the **Basic controls** button if you only want these):
+More gestures, on the hand tracker page `index.html` (**DJ Deck** in the top bar; turn the basic controls off with the **Basic controls** button if you only want these):
 
 | Gesture | Controls |
 |---|---|
-| Right fist in the **right-side zone** (above the visuals corner), then fingers on the left hand | Songs from the queue: **1** = next song, **2** = previous song, **3+** = nothing. It applies when the fist leaves the zone. With **Hand blend** on, "next" is beat-matched in on a downbeat and you mix it: **left hand height** = crossfade, **right hand up** = old song out faster; no left hand for 4 s and it finishes by itself. Songs whose tempos can't be matched echo out instead |
-| Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; hand height sets the amount |
-| Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: 1 Portal (swirling lens), 2 Color filter (neon palette), 3 Kaleidoscope, 4 8-bit, 5 all off |
+| Right fist in the **right-side zone** (above the visuals corner), then fingers on the left hand | Songs from the queue: **1** = next song, **2** = previous song, **3+** = nothing. It applies when the fist leaves the zone. An empty queue loads the default library and starts its first track for either Next or Previous. If the deck is idle or paused, the selected queued song starts immediately (Previous at the beginning starts the first song). With music playing and **Hand blend** on, "next" is beat-matched in on a downbeat and you mix it: **left hand height** = crossfade, **right hand up** = old song out faster; no left hand for 4 s and it finishes by itself. Songs whose tempos can't be matched echo out instead |
+| Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; raise/lower the right hand to set strength (85% down = subtle, 40% down = maximum, below the top lock zone). This also works after leaving effect selection; the last value holds in the lock zone |
+| Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: 1 Portal (swirling lens), 2 Color filter (neon palette), 3 Kaleidoscope, 4 Bubble Aero (floating glass bubbles), 5 all off |
 | **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
 | A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
 
@@ -136,7 +136,9 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
 
-## AirDeck Mix (two decks): `mix.html`
+## Archived two-deck implementation
+
+`index.html` is now DJ Deck. `mix.html` redirects there; the former two-deck source remains in Git history. The notes below describe that former implementation.
 
 Open http://localhost:8000/mix.html. Each deck has an on-screen **volume fader** and **filter knob** (deck A on the left, deck B on the right). Both decks are beat-synced to deck A's tempo (detected automatically).
 

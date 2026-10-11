@@ -3,10 +3,12 @@
 // The cabinet is ~470 pieces that morph between three forms, one per mode:
 //   arcade cabinet (voxel cubes) → turntable (glass bubbles) → headphones (bubbles)
 // Each 120° of rotation moves to the next form. You turn it by dragging, with the
-// switch buttons, or with an open hand on the webcam ("Use your hand").
+// automatic cycling, or by hovering/focusing a launch button.
 // Everything is drawn with Canvas 2D; the clouds are generated from fBm noise.
 
 const TAU = Math.PI * 2;
+const AUTO_TURN_SPEED = TAU / 24; // all three forms every 24 seconds
+const MUSIC_VOLUME = 0.12;
 const STEP = TAU / 3;          // rotation between forms
 const PITCH = 0.3;             // camera looks slightly down so top faces show
 const BPM = 112;
@@ -70,6 +72,7 @@ class Landing {
     this.mode = "arcade"; this.playing = false;
     // rotation
     this.dragYaw = 0; this.vel = 0; this.target = null; this.grab = null;
+    this.preview = null; this.autoplayPending = true;
     this.spin = 0; this.spinV = 0; this.swayA = 1;
     // audio-driven
     this.kick = 0; this.bass = 0; this.beats = [];
@@ -86,6 +89,7 @@ class Landing {
     new ResizeObserver(() => this.resize()).observe(this.cv);
     this.resize();
     requestAnimationFrame(this.frame);
+    this.startBackgroundMusic();
   }
 
   // ---- UI wiring -------------------------------------------------------------
@@ -108,8 +112,20 @@ class Landing {
     this.segs = [...document.querySelectorAll(".seg")];
     this.segs.forEach((b) => b.addEventListener("click", () => this.goTo(MODES.indexOf(b.dataset.mode) * STEP)));
     document.getElementById("play").addEventListener("click", () => this.togglePlay());
-    document.getElementById("skip").addEventListener("click", () => { this.playing = true; this.playTrack(this.trackPos + 1); });
-    document.getElementById("handBtn").addEventListener("click", () => this.toggleHand());
+    document.getElementById("skip").addEventListener("click", () => { this.ensureAudio(); this.actx.resume().catch(() => {}); this.autoplayPending = false; this.playing = true; this.playTrack(this.trackPos + 1); });
+    const previews = [...document.querySelectorAll("[data-preview]")];
+    const updatePreview = () => {
+      const active = previews.find((b) => b.matches(":hover") || b === document.activeElement);
+      this.preview = active?.dataset.preview || null;
+      if (this.preview) this.goTo(MODES.indexOf(this.preview) * STEP);
+    };
+    previews.forEach((b) => ["pointerenter", "pointerleave", "focus", "blur"].forEach((event) => b.addEventListener(event, updatePreview)));
+    const unlock = (e) => {
+      if (!this.autoplayPending || e.target.closest("#play, #skip")) return;
+      this.startBackgroundMusic();
+    };
+    document.addEventListener("pointerdown", unlock);
+    document.addEventListener("keydown", unlock);
   }
 
   setMode(m) {
@@ -412,9 +428,13 @@ class Landing {
     if (this.actx) return;
     const A = new AudioContext();
     this.actx = A;
+    A.addEventListener("statechange", () => {
+      if (A.state === "running" && this.autoplayPending && !this.playing) this.startBackgroundMusic();
+    });
     this.an = A.createAnalyser(); this.an.fftSize = 1024; this.an.smoothingTimeConstant = 0.5;
     this.fbuf = new Uint8Array(this.an.frequencyBinCount);
-    this.an.connect(A.destination);
+    this.output = A.createGain(); this.output.gain.value = MUSIC_VOLUME;
+    this.an.connect(this.output); this.output.connect(A.destination);
     this.audio = new Audio(); this.audio.preload = "auto";
     this.audio.addEventListener("ended", () => this.playTrack(this.trackPos + 1));
     A.createMediaElementSource(this.audio).connect(this.an);
@@ -424,12 +444,38 @@ class Landing {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = nb;
   }
+  startBackgroundMusic() {
+    this.ensureAudio();
+    this.actx.resume().catch(() => {});
+    this.playing = true;
+    if (this.src === "synth") {
+      if (this.actx.state === "running") { this.autoplayPending = false; this.startSynth(); }
+      else this.waitForMusicGesture();
+    } else if (this.audio.src) this.tryPlayMusic();
+    else if (!this.loadingTrack) this.playTrack(0);
+    this.renderPlayer();
+  }
+  waitForMusicGesture() {
+    this.playing = false; this.audio.pause(); this.autoplayPending = true;
+    this.status = "Click anywhere for quiet music"; this.renderPlayer();
+  }
+  async tryPlayMusic() {
+    if (this.actx.state !== "running") { this.waitForMusicGesture(); return; }
+    try {
+      await this.audio.play(); this.autoplayPending = false; this.status = "";
+    } catch (err) {
+      if (err.name === "NotAllowedError") this.waitForMusicGesture();
+      else throw err;
+    }
+    this.renderPlayer();
+  }
   togglePlay() {
+    this.autoplayPending = false;
     this.ensureAudio(); this.actx.resume();
     this.playing = !this.playing;
     if (this.src === "synth") this.playing ? this.startSynth() : this.stopSynth();
     else if (!this.playing) this.audio.pause();
-    else if (this.audio.src) this.audio.play().catch(() => {});
+    else if (this.audio.src) this.tryPlayMusic().catch(() => { this.playing = false; this.status = "Could not play music"; this.renderPlayer(); });
     else this.playTrack(0);
     this.renderPlayer();
   }
@@ -437,16 +483,19 @@ class Landing {
   // A song that fails is skipped; with no server at all, fall back to the built-in beat.
   async playTrack(k) {
     const n = PLAYLIST.length, tr = PLAYLIST[this.order[((k % n) + n) % n]], token = ++this.loadToken;
+    this.loadingTrack = true;
     this.trackPos = k; this.track = tr; this.status = "Loading…"; this.renderPlayer();
     try {
       const file = await this.fetchTrack(tr);
       if (token !== this.loadToken) return;  // skipped while loading
       this.audio.src = file;
-      if (this.playing) await this.audio.play();
-      this.fails = 0; this.status = ""; this.renderPlayer();
+      this.loadingTrack = false; this.status = "";
+      if (this.playing) await this.tryPlayMusic();
+      this.fails = 0; this.renderPlayer();
       this.fetchTrack(PLAYLIST[this.order[(k + 1) % n]]).catch(() => {});  // get the next one ready
     } catch (err) {
       if (token !== this.loadToken) return;
+      this.loadingTrack = false;
       console.warn("[music]", tr.title, err.message);
       if (err.noServer || ++this.fails >= 3) return this.fallbackSynth();
       this.playTrack(k + 1);
@@ -475,7 +524,10 @@ class Landing {
   fallbackSynth() {
     this.src = "synth"; this.track = null;
     this.status = "Songs not found · playing a built-in beat";
-    if (this.playing) this.startSynth();
+    if (this.playing) {
+      if (this.actx.state === "running") { this.autoplayPending = false; this.startSynth(); }
+      else this.waitForMusicGesture();
+    }
     this.renderPlayer();
   }
   renderPlayer() {
@@ -568,7 +620,7 @@ class Landing {
     } else this.bass *= Math.exp(-dt * 3);
     if (beat) this.onBeat(); else this.kick *= Math.exp(-dt * 6);
 
-    // Rotation: grab, inertia, then snap to the nearest form
+    // Rotate continuously through every form; hover/focus holds its matching model.
     if (!this.grab) {
       if (this.target !== null) {
         this.dragYaw += (this.target - this.dragYaw) * (1 - Math.exp(-dt * 5));
@@ -576,7 +628,7 @@ class Landing {
       } else if (this.vel) {
         this.dragYaw += this.vel * dt; this.vel *= Math.exp(-dt * 3);
         if (Math.abs(this.vel) < 0.8) this.snap();
-      }
+      } else if (!this.preview) this.dragYaw += AUTO_TURN_SPEED * dt * (rm ? 0.25 : 1);
     } else if (now - this.grab.t > 60) this.vel *= Math.exp(-dt * 12);
     // The vinyl only turns while you turn the cabinet, like scratching, then coasts to a stop.
     if (this.grab) this.spinV = this.vel * 3.5; else this.spinV *= Math.exp(-dt * 1.4);

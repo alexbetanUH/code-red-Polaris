@@ -183,6 +183,13 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     if (!decoded.has(item.id)) {
       const promise = retryOnNetworkError(async () => {
         let data;
+        if (item.defaultLibrary && !item.url) {
+          // Register this decode before download progress calls changed()/prefetch().
+          await Promise.resolve();
+          const song = library.find((song) => song.id === item.libraryId);
+          if (!song) throw new Error("Default song is no longer in the library");
+          item.url = (await libraryEntry(song, "Default library")).url;
+        }
         if (item.url) {
           const response = await fetch(item.url);
           if (!response.ok) throw new Error(`could not fetch audio (${response.status})`);
@@ -223,6 +230,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // cancel a load, so a slow older one finishing late would replace a newer song.
   let playRequest = 0;
   let playsPending = 0;
+  let defaultQueueStarting = null;
   let playChain = Promise.resolve();
 
   // mix: false, or { mixOutAt } to mix into the song (see transitions.mixInto).
@@ -581,8 +589,31 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       }
     },
 
+    // An empty gesture queue boots the built-in library and plays its first track.
+    // Only nearby songs resolve/download as they are decoded, so startup never waits
+    // for all twenty downloads. Repeated gestures share one startup request.
+    startDefaultQueue() {
+      if (defaultQueueStarting) return defaultQueueStarting;
+      defaultQueueStarting = (async () => {
+        await libraryReady;
+        if (!items.length) {
+          if (!library.length) throw new Error("The default song library could not be loaded");
+          for (const song of library) add({
+            title: `${song.artist} - ${song.title}`, detail: "Default library",
+            libraryId: song.id, bpm: song.bpm, genre: song.genre, defaultLibrary: true,
+            url: song.available ? song.file : null,
+          }, { autoplay: false });
+        }
+        const first = items[0];
+        await queue.play(first.id);
+        if (currentId !== first.id) throw new Error(status?.message || "Could not start the default queue");
+      })().finally(() => { defaultQueueStarting = null; });
+      return defaultQueueStarting;
+    },
+
     // Adds the whole library in order.
     async addAllFromLibrary() {
+      await libraryReady;
       for (const song of library) await queue.addFromLibrary(song.id);
     },
 
@@ -832,7 +863,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       topUpDj();
     },
   };
-  loadLibrary();
+  const libraryReady = loadLibrary();
   return queue;
 }
 
