@@ -25,6 +25,22 @@ const WASM_URL = TASKS_URL + "/wasm";
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const HAND_GAIN = 7;           // radians of turn per full frame width of hand travel
 
+// Landing page music. Shuffled on every page load; server.py's /api/youtube
+// downloads each song once (into downloads/) and the page streams the file.
+const PLAYLIST = [
+  { title: "New Look (Wii U Mii Maker Lofi Mix)", artist: "Secret Potion", id: "NoWJIeNtFds" },
+  { title: "Butterflies", artist: "Tsundere Twintails", id: "11dAGSfNvMI" },
+  { title: "LEASE", artist: "Takeshi Abo", id: "tjlvmb8SGEs" },
+  { title: "three", artist: "Cult Member", id: "R_IHpuTu7ww" },
+  { title: "bubble fountain", artist: "frutiger pm", id: "YCMg8zEVWHs" },
+  { title: "aquatic ambience", artist: "scizzie", id: "DP3rDP02lE0" },
+  { title: "U Weren't Here I Really Miss You", artist: "Cult Member", id: "N6IaHiLN34c" },
+  { title: "Dire Dire Docks (Trap Remix)", artist: "OSRSBeatz", id: "WYToS6e4Zm4" },
+  { title: "Wii Party Main Menu Theme (Lofi Mix)", artist: "Nostalgiacore", id: "-olyU4FxIqY" },
+  { title: "reflection pond", artist: "frutiger pm", id: "K2NQ8tnSzBY" },
+];
+const IDLE_SUB = "10 songs, shuffled · the clouds move to the music";
+
 const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
@@ -57,6 +73,11 @@ class Landing {
     this.spin = 0; this.spinV = 0; this.swayA = 1;
     // audio-driven
     this.kick = 0; this.bass = 0; this.beats = [];
+    // music: a fresh random order every time the page opens
+    this.order = PLAYLIST.map((_, i) => i);
+    for (let i = this.order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [this.order[i], this.order[j]] = [this.order[j], this.order[i]]; }
+    this.src = "music"; this.track = null; this.status = ""; this.trackPos = 0; this.loadToken = 0; this.fails = 0;
+    this.eHist = []; this.prevE = 0; this.lastBeat = 0;
     this.ripples = []; this.bubs = []; this.bubT = 0;
     this.mx = -9999; this.my = -9999;
     this.rm = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -87,6 +108,7 @@ class Landing {
     this.segs = [...document.querySelectorAll(".seg")];
     this.segs.forEach((b) => b.addEventListener("click", () => this.goTo(MODES.indexOf(b.dataset.mode) * STEP)));
     document.getElementById("play").addEventListener("click", () => this.togglePlay());
+    document.getElementById("skip").addEventListener("click", () => { this.playing = true; this.playTrack(this.trackPos + 1); });
     document.getElementById("handBtn").addEventListener("click", () => this.toggleHand());
   }
 
@@ -384,33 +406,90 @@ class Landing {
     this.sc = Math.min(s.width / 18, s.height / 27);
   }
 
-  // ---- Audio: a small synthesized loop (no files) --------------------------------
+  // ---- Music: the shuffled playlist, streamed through the analyser ----------------
+  // Graph: <audio> → analyser → speakers, and the fallback synth → compressor → analyser.
+  ensureAudio() {
+    if (this.actx) return;
+    const A = new AudioContext();
+    this.actx = A;
+    this.an = A.createAnalyser(); this.an.fftSize = 1024; this.an.smoothingTimeConstant = 0.5;
+    this.fbuf = new Uint8Array(this.an.frequencyBinCount);
+    this.an.connect(A.destination);
+    this.audio = new Audio(); this.audio.preload = "auto";
+    this.audio.addEventListener("ended", () => this.playTrack(this.trackPos + 1));
+    A.createMediaElementSource(this.audio).connect(this.an);
+    this.master = A.createGain(); this.master.gain.value = 0.5;
+    this.master.connect(A.createDynamicsCompressor()).connect(this.an);
+    const nb = A.createBuffer(1, A.sampleRate, A.sampleRate), d = nb.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    this.noiseBuf = nb;
+  }
   togglePlay() {
+    this.ensureAudio(); this.actx.resume();
     this.playing = !this.playing;
-    if (this.playing) this.startAudio(); else this.stopAudio();
-    const label = this.playing ? "Pause the beat" : "Play a beat", btn = document.getElementById("play");
+    if (this.src === "synth") this.playing ? this.startSynth() : this.stopSynth();
+    else if (!this.playing) this.audio.pause();
+    else if (this.audio.src) this.audio.play().catch(() => {});
+    else this.playTrack(0);
+    this.renderPlayer();
+  }
+  // Ask the server for the song file (it downloads it the first time), then stream it.
+  // A song that fails is skipped; with no server at all, fall back to the built-in beat.
+  async playTrack(k) {
+    const n = PLAYLIST.length, tr = PLAYLIST[this.order[((k % n) + n) % n]], token = ++this.loadToken;
+    this.trackPos = k; this.track = tr; this.status = "Loading…"; this.renderPlayer();
+    try {
+      const file = await this.fetchTrack(tr);
+      if (token !== this.loadToken) return;  // skipped while loading
+      this.audio.src = file;
+      if (this.playing) await this.audio.play();
+      this.fails = 0; this.status = ""; this.renderPlayer();
+      this.fetchTrack(PLAYLIST[this.order[(k + 1) % n]]).catch(() => {});  // get the next one ready
+    } catch (err) {
+      if (token !== this.loadToken) return;
+      console.warn("[music]", tr.title, err.message);
+      if (err.noServer || ++this.fails >= 3) return this.fallbackSynth();
+      this.playTrack(k + 1);
+    }
+  }
+  fetchTrack(tr) {
+    if (tr.file) return tr.file;
+    const p = fetch("/api/youtube", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://www.youtube.com/watch?v=" + tr.id }),
+    }).then(async (res) => {
+      const body = await res.json().catch(() => null);
+      if (!body) throw Object.assign(new Error("no song server (status " + res.status + ")"), { noServer: true });
+      if (!res.ok) throw new Error(body.error || "download failed");
+      return body.file;
+    });
+    p.catch(() => { if (tr.file === p) tr.file = null; });  // let a failed song be retried later
+    tr.file = p;
+    return p;
+  }
+  fallbackSynth() {
+    this.src = "synth"; this.track = null;
+    this.status = "Playlist needs server.py · playing a built-in beat";
+    if (this.playing) this.startSynth();
+    this.renderPlayer();
+  }
+  renderPlayer() {
+    const btn = document.getElementById("play"), tr = this.track, label = this.playing ? "Pause music" : "Play music";
     btn.setAttribute("aria-label", label); btn.setAttribute("aria-pressed", this.playing);
-    document.getElementById("playLabel").textContent = label;
     document.getElementById("iconPlay").toggleAttribute("hidden", this.playing);  // SVGs have no .hidden property
     document.getElementById("iconPause").toggleAttribute("hidden", !this.playing);
+    document.getElementById("playLabel").textContent = tr ? tr.title : this.src === "synth" ? "Built-in beat" : "Play music";
+    document.getElementById("playSub").textContent = this.status || (tr ? tr.artist + (this.playing ? "" : " · paused") : IDLE_SUB);
+    document.getElementById("skip").hidden = !(this.src === "music" && tr);
   }
-  startAudio() {
-    if (!this.actx) {
-      const A = new AudioContext();
-      this.actx = A;
-      this.master = A.createGain(); this.master.gain.value = 0.5;
-      const comp = A.createDynamicsCompressor();
-      this.an = A.createAnalyser(); this.an.fftSize = 1024; this.fbuf = new Uint8Array(this.an.frequencyBinCount);
-      this.master.connect(comp).connect(this.an).connect(A.destination);
-      const nb = A.createBuffer(1, A.sampleRate, A.sampleRate), d = nb.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      this.noiseBuf = nb;
-    }
-    this.actx.resume();
+
+  // ---- Fallback: a small synthesized loop (no files) -----------------------------
+  startSynth() {
     this.step = 0; this.nextT = this.actx.currentTime + 0.08; this.beats = [];
-    this.timer = setInterval(() => this.sched(), 25);
+    clearInterval(this.timer); this.timer = setInterval(() => this.sched(), 25);
   }
-  stopAudio() { clearInterval(this.timer); this.beats = []; if (this.actx) this.actx.suspend(); }
+  stopSynth() { clearInterval(this.timer); this.beats = []; }
   // Look-ahead scheduler: queue every 16th note that falls in the next 120 ms.
   sched() {
     const st = 60 / BPM / 4;
@@ -463,14 +542,25 @@ class Landing {
     const dt = Math.min(0.05, Math.max(0, (now - (this.last || now)) / 1000)); this.last = now;
     const t = now / 1000, W = this.W, H = this.H, rm = this.rm, playing = this.playing;
 
-    // Beat: kicks are scheduled ahead, so fire them when the audio clock reaches them
+    // Bass level and beats from the analyser
     let beat = false;
     if (this.actx && playing) {
-      const act = this.actx.currentTime;
-      while (this.beats.length && this.beats[0] <= act) { this.beats.shift(); beat = true; }
       this.an.getByteFrequencyData(this.fbuf);
-      const bs = (this.fbuf[1] + this.fbuf[2] + this.fbuf[3] + this.fbuf[4]) / 1020;  // ~40–200 Hz
-      this.bass += (bs - this.bass) * Math.min(1, dt * 14);
+      const e = (this.fbuf[1] + this.fbuf[2] + this.fbuf[3] + this.fbuf[4]) / 1020;  // ~40–200 Hz
+      this.bass += (e - this.bass) * Math.min(1, dt * 14);
+      if (this.src === "synth") {
+        // The synth's kicks are scheduled ahead, so fire them when the audio clock reaches them
+        const act = this.actx.currentTime;
+        while (this.beats.length && this.beats[0] <= act) { this.beats.shift(); beat = true; }
+      } else {
+        // Onset detection: a beat is a rising bass level well above its last ~0.7 s,
+        // with at least 0.3 s between beats.
+        const hist = this.eHist; hist.push(e); if (hist.length > 43) hist.shift();
+        const mean = hist.reduce((s, v) => s + v, 0) / hist.length;
+        const sd = Math.sqrt(hist.reduce((s, v) => s + (v - mean) * (v - mean), 0) / hist.length);
+        if (hist.length > 10 && e > mean + Math.max(0.05, 1.4 * sd) && e > this.prevE && t - this.lastBeat > 0.3) { beat = true; this.lastBeat = t; }
+        this.prevE = e;
+      }
     } else this.bass *= Math.exp(-dt * 3);
     if (beat) this.onBeat(); else this.kick *= Math.exp(-dt * 6);
 
@@ -652,4 +742,4 @@ class Landing {
   };
 }
 
-new Landing();
+window.airdeck = new Landing();  // exposed for debugging in the console

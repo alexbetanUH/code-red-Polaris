@@ -54,9 +54,11 @@
   .row { display: flex; flex-wrap: wrap; gap: 12px; }
   .beat { display: flex; align-items: center; gap: 14px; padding-top: 18px; border-top: 1px solid rgba(120,180,225,0.45); }
   #play { width: 58px; height: 58px; min-height: 58px; padding: 0; border-radius: 50%; flex: none; }
-  .beat-text { display: flex; flex-direction: column; gap: 2px; }
+  .beat-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .beat-text b, .beat-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .beat-text b { font-size: 17px; font-weight: 800; color: #0b2f52; }
   .beat-text span { font-size: 15px; color: #2b5a82; }
+  #skip { width: 48px; height: 48px; min-height: 48px; padding: 0; border-radius: 50%; flex: none; }
   [hidden] { display: none !important; }
 
   #stage { flex: 1 1 440px; min-width: 0; min-height: 620px; position: relative; touch-action: pan-y; cursor: grab; user-select: none; }
@@ -133,14 +135,17 @@
         <a class="sun" href="#ai">Talk to the AI DJ</a>
       </div>
       <div class="beat">
-        <button class="lime" id="play" aria-label="Play a beat" aria-pressed="false">
+        <button class="lime" id="play" aria-label="Play music" aria-pressed="false">
           <svg id="iconPause" hidden width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></svg>
           <svg id="iconPlay" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>
         </button>
         <div class="beat-text">
-          <b id="playLabel">Play a beat</b>
-          <span>The clouds move to the beat</span>
+          <b id="playLabel">Play music</b>
+          <span id="playSub" aria-live="polite">10 songs, shuffled · the clouds move to the music</span>
         </div>
+        <button class="gbtn" id="skip" hidden aria-label="Next song">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.6v12.8a1 1 0 0 0 1.53.85L15 13.9V18a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v4.1L6.53 4.75A1 1 0 0 0 5 5.6z" fill="currentColor"/></svg>
+        </button>
       </div>
     </div>
 
