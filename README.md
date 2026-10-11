@@ -39,7 +39,19 @@ python3 server.py
 ```
 
 The server prints whether the DJ is on. Without an ElevenLabs key the browser's built-in voice is used. Optional:
-`GEMINI_MODEL` (default `gemini-3.8-flash`) and `ELEVENLABS_VOICE_ID`.
+`GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
+The landing page's **Talk to the AI DJ** opens `index.html#ai-dj`, which shows the queue with the DJ ready.
+
+### Demo set list
+
+`setlist.txt` lists songs (one name or YouTube link per line). Before a demo, download them all once:
+
+```bash
+python prefetch.py
+```
+
+Then **Set list** in the queue panel adds them all in order, and they start instantly. It's also the backup if
+the AI DJ or the internet misbehaves on stage.
 
 ### Files
 
@@ -47,5 +59,6 @@ The server prints whether the DJ is on. Without an ElevenLabs key the browser's 
 - `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform)
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
+- `setlist.txt`, `prefetch.py`: the demo set list and a script that downloads it ahead of time
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.

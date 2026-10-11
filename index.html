@@ -781,6 +781,11 @@ $("queueBtn").addEventListener("click", () => {
   queuePanel.toggle();
 });
 
+// landing.html's "Talk to the AI DJ" links here as index.html#ai-dj: open the queue at the DJ.
+const openDjFromLink = () => location.hash === "#ai-dj" && queuePanel.openDj();
+window.addEventListener("hashchange", openDjFromLink);
+openDjFromLink();
+
 // Keep the song card's count and status line in step with the queue.
 function updateSongCard() {
   const { items, downloads, status, dj } = queue.getState();

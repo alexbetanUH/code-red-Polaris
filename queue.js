@@ -429,6 +429,24 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       add({ title: file.name.replace(/\.[^.]+$/, ""), detail: "File", file });
     },
 
+    // Adds every song in a set list file (one song name or link per line, # for
+    // comments) in order. Songs prefetch.py already downloaded arrive instantly.
+    async addSetList(url = "setlist.txt") {
+      let songs;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`couldn't load ${url} (${response.status})`);
+        songs = (await response.text())
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#"));
+      } catch (error) {
+        setStatus(`Error: ${error.message}`, true);
+        return;
+      }
+      for (const song of songs) await queue.addYouTube(song);
+    },
+
     // Moves an item to a new position (0 = top).
     move(id, position) {
       const item = items.find((entry) => entry.id === id);
@@ -810,6 +828,16 @@ export function createQueuePanel(queue, deck) {
           fileInput.click();
         },
       }),
+      element("button", {
+        type: "button",
+        className: "secondary",
+        text: "Set list",
+        title: "Add every song from setlist.txt",
+        onClick: () => {
+          deck.ensureContext();
+          queue.addSetList();
+        },
+      }),
       fileInput,
     ]),
     status,
@@ -976,6 +1004,12 @@ export function createQueuePanel(queue, deck) {
     },
     toggle() {
       panel.hidden = !panel.hidden;
+    },
+    // Opens the panel with the AI DJ's vibe box ready to type in.
+    openDj() {
+      panel.hidden = false;
+      djRow.scrollIntoView({ block: "nearest" });
+      vibeInput.focus();
     },
   };
   return controls;

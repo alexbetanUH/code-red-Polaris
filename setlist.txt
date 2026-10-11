@@ -1,0 +1,16 @@
+# AirDeck demo set list: one song per line (a song name or a single YouTube video link).
+# "Set list" in the queue panel adds them all in order; run `python prefetch.py` before a demo
+# so every song is already downloaded and starts instantly. Lines starting with # are ignored.
+Disclosure - Latch
+Clarity
+KAYTRANADA - 10%
+Masego - Tadow
+Daniel Caesar - Get You
+Anderson .Paak - Come Down
+GoldLink - Crew
+SchoolBoy Q - Collard Greens
+Kendrick Lamar - HUMBLE.
+Kendrick Lamar - DNA.
+Baby Keem - Family Ties
+Baby Keem - Range Brothers
+Travis Scott - SICKO MODE
