@@ -21,7 +21,7 @@ Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew instal
 python3 server.py
 ```
 
-Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Click **Queue** to add songs: paste a YouTube link, type a song name (downloads the top result), or pick a file. Drag songs to reorder them, ▶ plays one, and **Next** goes down the list.
+Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Click **Queue** to add songs: paste a YouTube link, type a song name (downloads the top result), or pick a file. Downloads show a live progress bar. Drag songs to reorder them and ▶ plays one. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead, so skipping back and forth is instant.
 
 ### AI DJ
 

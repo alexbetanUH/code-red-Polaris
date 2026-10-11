@@ -87,8 +87,20 @@ if shutil.which("ffmpeg"):
     STRATEGIES.append(("convert", ["-f", "best", "-x", "--audio-format", "m4a"]))
 
 
-def download(url, extra):
-    """Run yt-dlp once. Returns ((title, path), None) or (None, error message)."""
+# Download progress the page polls (GET /api/progress?job=...), keyed by a job id it sends.
+progress = {}  # job -> {"stage": "searching" | "downloading", "percent": number or None}
+progress_lock = threading.Lock()
+PROGRESS_MARK = "AIRDECK-PROGRESS"
+
+
+def set_progress(job, **values):
+    if job:
+        with progress_lock:
+            progress[job] = {**progress.get(job, {}), **values}
+
+
+def download(url, extra, job=None):
+    """Run yt-dlp once, reporting progress for job. Returns ((title, path), None) or (None, error message)."""
     cmd = [
         *YTDLP, *JS_RUNTIME, *extra,
         "--no-playlist",
@@ -100,17 +112,52 @@ def download(url, extra):
         "--no-simulate",
         "--print", "title",
         "--print", "after_move:filepath",
+        # One machine-readable progress line per update (shown even though --print makes it quiet).
+        "--progress", "--newline",
+        "--progress-template",
+        f"download:{PROGRESS_MARK} %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s",
         "--", url,
     ]
+    # UTF-8 so titles with accents or emoji come through intact on Windows.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env
+    )
+    timed_out = threading.Event()
+
+    def stop():
+        timed_out.set()
+        proc.kill()
+
+    timer = threading.Timer(180, stop)
+    timer.start()
+    printed, errors = [], []
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
+        for line in proc.stdout:
+            line = line.strip()
+            if line.startswith(PROGRESS_MARK):
+                numbers = []
+                for value in line.split()[1:4]:
+                    try:
+                        numbers.append(float(value))
+                    except ValueError:  # "NA" when yt-dlp doesn't know yet
+                        numbers.append(None)
+                done, total, estimate = (numbers + [None, None, None])[:3]
+                if done is not None and (total or estimate):
+                    set_progress(job, stage="downloading", percent=min(100.0, done * 100 / (total or estimate)))
+            elif line.startswith("ERROR:"):
+                errors.append(line)
+            elif line and not line.startswith(("WARNING:", "[")):
+                printed.append(line)  # what --print asked for: the title, then the file path
+        proc.wait()
+    finally:
+        timer.cancel()
+    if timed_out.is_set():
         return None, "download timed out"
-    lines = [l for l in proc.stdout.splitlines() if l.strip()]
     # 101 means "stopped at --max-downloads", which is fine.
-    if proc.returncode not in (0, 101) or len(lines) < 2:
-        return None, (proc.stderr.strip().splitlines() or ["download failed"])[-1]
-    return (lines[0], Path(lines[-1])), None
+    if proc.returncode not in (0, 101) or len(printed) < 2:
+        return None, (errors or ["download failed"])[-1]
+    return (printed[0], Path(printed[-1])), None
 
 
 def load_index():
@@ -261,6 +308,19 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def do_GET(self):
+        if self.path.startswith("/api/progress"):
+            job = parse_qs(urlparse(self.path).query).get("job", [""])[0]
+            with progress_lock:
+                state = progress.get(job)
+            return self.send_json(200, state or {"stage": "unknown"})
+        super().do_GET()
+
+    def log_message(self, format, *args):
+        # The page polls progress several times a second; keep that out of the log.
+        if not self.path.startswith("/api/progress"):
+            super().log_message(format, *args)
+
     def do_POST(self):
         routes = {"/api/youtube": self.youtube, "/api/dj/pick": self.pick, "/api/dj/voice": self.voice}
         route = routes.get(self.path)
@@ -279,7 +339,15 @@ class Handler(SimpleHTTPRequestHandler):
         target = to_target(str(body.get("url", "")))
         if not target:
             return self.send_json(400, {"error": "paste a single YouTube video link, or type a song name"})
+        job = re.sub(r"[^\w-]", "", str(body.get("job", "")))[:40]
+        set_progress(job, stage="searching", percent=None)
+        try:
+            self.download_song(target, job)
+        finally:
+            with progress_lock:
+                progress.pop(job, None)
 
+    def download_song(self, target, job):
         hit = remembered(target)
         if hit:
             print(f"[youtube] already downloaded: {hit['title']}", flush=True)
@@ -289,7 +357,7 @@ class Handler(SimpleHTTPRequestHandler):
         errors = []
         for name, extra in STRATEGIES:
             print(f"[youtube] trying {name}: {target}", flush=True)
-            result, err = download(target, extra)
+            result, err = download(target, extra, job)
             if result:
                 title, filepath = result
                 print(f"[youtube] ok via {name}: {title}", flush=True)

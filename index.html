@@ -103,7 +103,8 @@
   .left .control { color: var(--left); }
   .right .control { color: var(--right); }
   .between .control { color: var(--between); }
-  #nowPlaying { font-weight: 600; overflow-wrap: anywhere; }
+  .song h2 { align-items: center; }
+  .song h2 button { padding: 4px 12px; font-size: 12px; text-transform: none; letter-spacing: 0; }
   #queueCount {
     display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px;
     background: var(--border); color: var(--text); font-size: 11px; text-align: center;
@@ -135,13 +136,8 @@
 
   <aside>
     <div class="card song">
-      <h2><span>Song</span></h2>
-      <div id="nowPlaying">No song loaded</div>
-      <div class="actions">
-        <button id="queueBtn">Queue <span id="queueCount">0</span></button>
-        <button id="playBtn" class="secondary" disabled>Play</button>
-        <button id="nextBtn" class="secondary" disabled>Next</button>
-      </div>
+      <h2><span>Song</span><button id="queueBtn">Queue <span id="queueCount">0</span></button></h2>
+      <div id="transport"></div>
       <div id="songStatus">Open the queue to add a YouTube link, song name or file.</div>
     </div>
     <div id="cards"></div>
@@ -162,7 +158,7 @@
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./audio.js";
-import { createQueue, createQueuePanel } from "./queue.js";
+import { createQueue, createQueuePanel, createTransport } from "./queue.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -773,39 +769,27 @@ function updateFps(now) {
 }
 
 // ---- Song + queue -------------------------------------------------------------------
-// Songs are added, ordered and picked in the queue panel (queue.js).
+// Songs are added, ordered and picked in the queue panel (queue.js); the player
+// bar (progress, ⏮ ⏯ ⏭) shows here and at the top of the panel.
 const songStatus = $("songStatus");
-const playBtn = $("playBtn");
-const nextBtn = $("nextBtn");
 const queue = createQueue(deck);
 const queuePanel = createQueuePanel(queue, deck);
+$("transport").append(createTransport(queue, deck));
 
 $("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it
   queuePanel.toggle();
 });
 
-playBtn.addEventListener("click", () => {
-  deck.toggle();
-  updateSongCard();
-});
-
-nextBtn.addEventListener("click", () => {
-  deck.ensureContext();
-  queue.next();
-});
-
-// Keep the song card in step with the queue and the play button.
+// Keep the song card's count and status line in step with the queue.
 function updateSongCard() {
-  const { items, currentId, status } = queue.getState();
-  const current = items.find((item) => item.id === currentId);
+  const { items, downloads, status, dj } = queue.getState();
   $("queueCount").textContent = items.length;
-  $("nowPlaying").textContent = current ? current.title : "No song loaded";
-  playBtn.disabled = !deck.buffer;
-  playBtn.textContent = deck.playing ? "Pause" : "Play";
-  nextBtn.disabled = items.length === 0;
-  const idle = current ? (deck.playing ? "▶ Playing" : "Paused") : "Open the queue to add a YouTube link, song name or file.";
-  songStatus.textContent = status?.message ?? idle;
+  const active = downloads.filter((download) => download.stage !== "failed");
+  const idle = items.length ? "" : "Open the queue to add a YouTube link, song name or file.";
+  songStatus.textContent =
+    status?.message ??
+    (dj.talking ? "🎙 The DJ is on the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
   songStatus.classList.toggle("error", Boolean(status?.isError));
 }
 queue.on(updateSongCard);

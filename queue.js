@@ -1,15 +1,16 @@
 // Song queue for the Deck in audio.js: add songs from YouTube (a link or a song
-// name, downloaded by server.py) or from files, reorder, remove, play one, or
-// skip to the next. An AI DJ can fill it for you: Gemini picks songs that fit a
-// vibe and what's playing, and a voice (ElevenLabs, or the browser's) introduces
-// each one. Plus a floating panel to do all of that.
+// name, downloaded by server.py) or from files, reorder, remove, play, seek, and
+// skip back and forth. An AI DJ can fill it for you: Gemini picks songs that fit
+// a vibe and what's playing, and a voice (ElevenLabs, or the browser's)
+// introduces each one. Plus a floating panel and a player bar for all of that.
 //
 //   const queue = createQueue(deck);
 //   const panel = createQueuePanel(queue, deck);
+//   someElement.append(createTransport(queue, deck)); // progress bar + ⏮ ⏯ ⏭
 //   queueButton.onclick = () => { deck.ensureContext(); panel.toggle(); };
 //
 // Call deck.ensureContext() inside clicks before queue actions: browsers only
-// allow sound after one. The panel already does this for its own buttons.
+// allow sound after one. The panel and player bar already do this for their buttons.
 
 const djSongsAhead = 2; // the DJ keeps this many songs queued after the current one
 const djPicksPerRequest = 3;
@@ -18,6 +19,9 @@ const introPadding = 0.5; // the intro starts this much earlier than its length,
 const duckedVolume = 0.25; // the outgoing song's level while the DJ talks over it
 const duckFadeMs = 600;
 const voiceTimeoutMs = 15000; // never let a stuck voice line stall the set
+const restartThreshold = 3; // ⏮ restarts the song if it's past this many seconds, else goes back one
+const progressPollMs = 400;
+const hoverDecodeMs = 250; // hovering a song this long starts decoding it
 
 // Python's dev server sometimes resets the first request on a connection that sat
 // idle ("Failed to fetch"). A network error (not an HTTP error) gets one retry.
@@ -33,18 +37,20 @@ async function retryOnNetworkError(request) {
 
 export function createQueue(deck, { apiBase = "/api" } = {}) {
   // Items: { id, title, detail, url } for YouTube, { id, title, detail, file } for files.
-  // DJ picks also carry dj: { intro, voiceUrl }.
+  // DJ picks also carry dj: { intro, voiceUrl, voiceSeconds }.
   let items = [];
   let currentId = null;
   let status = null; // { message, isError } while adding or loading
   let nextId = 1;
   let played = []; // titles in the order they played, for the DJ to avoid repeats
+  // YouTube downloads in progress: { key, title, detail, fromDj, stage, percent, error }.
+  let downloads = [];
   const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0 };
   const listeners = new Set();
 
   const changed = () => {
     listeners.forEach((listener) => listener());
-    prefetch(); // the next song may have changed
+    prefetch(); // the songs around the current one may have changed
   };
   function setStatus(message, isError = false) {
     status = message ? { message, isError } : null;
@@ -69,6 +75,42 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     return data;
   }
 
+  // Downloads a YouTube link or search through server.py, showing it in `downloads`
+  // with live progress while it runs. Resolves with { file, title }.
+  async function downloadYouTube(text, { title = text, detail = "YouTube", fromDj = false } = {}) {
+    const job = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const entry = { key: job, title, detail, fromDj, stage: "searching", percent: null, error: null };
+    downloads = [...downloads, entry];
+    changed();
+    const poll = setInterval(async () => {
+      try {
+        const state = await (await fetch(`${apiBase}/progress?job=${job}`)).json();
+        if (state.stage !== "unknown" && entry.stage !== "failed") {
+          Object.assign(entry, state);
+          changed();
+        }
+      } catch {
+        // Progress is a nicety; the download itself decides success.
+      }
+    }, progressPollMs);
+    const removeEntry = () => {
+      downloads = downloads.filter((download) => download !== entry);
+      changed();
+    };
+    try {
+      const result = await postJson("/youtube", { url: text, job });
+      clearInterval(poll);
+      removeEntry();
+      return result;
+    } catch (error) {
+      clearInterval(poll);
+      Object.assign(entry, { stage: "failed", error: error.message });
+      changed();
+      setTimeout(removeEntry, 6000); // leave the failure visible for a moment
+      throw error;
+    }
+  }
+
   // The first song added plays right away, like loading one did before.
   function add(item, { autoplay = true } = {}) {
     const entry = { id: nextId++, ...item };
@@ -78,7 +120,8 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     return entry;
   }
 
-  const upcoming = () => items.slice(items.findIndex((item) => item.id === currentId) + 1);
+  const currentIndex = () => items.findIndex((item) => item.id === currentId);
+  const upcoming = () => items.slice(currentIndex() + 1);
 
   // The DJ talks over the end of a song with the music turned down. The hand
   // controls set the volume every frame, so the duck level multiplies whatever they set.
@@ -101,12 +144,13 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     }
   }
 
-  // Decoding a song into raw audio takes about 3 s, so the current song and the
-  // next one are kept decoded: Next (or the DJ moving on) starts instantly. Only
-  // those two, since a decoded song is about 100 MB.
+  // Decoding a song into raw audio takes about 3 s, so the songs around the current
+  // one (previous, current, next) and the one under the mouse are kept decoded:
+  // ⏮, ⏭ and ▶ start instantly. Not more, since a decoded song is about 100 MB.
   const decoded = new Map(); // item id -> Promise<AudioBuffer>
   let fallbackDecoder = null;
-  let loadingId = null; // the song being loaded right now, kept even if it's no longer current or next
+  let loadingId = null; // the song being loaded right now, kept even if it moves out of the window
+  let hoveredId = null;
 
   function decode(item) {
     if (!decoded.has(item.id)) {
@@ -129,10 +173,12 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     return decoded.get(item.id);
   }
 
-  // Decodes the current and next song ahead of time, and frees any others.
+  // Decodes the songs around the current one ahead of time, and frees any others.
   function prefetch() {
-    const current = items.find((item) => item.id === currentId);
-    const wanted = [current, upcoming()[0]].filter(Boolean);
+    const index = currentIndex();
+    const wanted = index === -1 ? items.slice(0, 1) : items.slice(Math.max(0, index - 1), index + 2);
+    const hovered = items.find((item) => item.id === hoveredId);
+    if (hovered) wanted.push(hovered);
     wanted.forEach(decode);
     const keep = new Set(wanted.map((item) => item.id));
     for (const id of decoded.keys()) if (!keep.has(id) && id !== loadingId) decoded.delete(id);
@@ -241,18 +287,19 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
         played,
         count: djPicksPerRequest,
       });
-      // All picks download (and get their voice line) at the same time; they join
-      // the queue in pick order, each as soon as it and the ones before it are ready.
-      setDjStatus(`Downloading ${picks.length} songs…`);
+      // All picks download (and get their voice line) at the same time, each shown in
+      // the downloads list with its progress; they join the queue in pick order.
+      setDjStatus(`Getting ${picks.length} songs ready…`);
       const jobs = picks.map((pick) => {
         const label = `${pick.artist} - ${pick.title}`;
-        return Promise.all([postJson("/youtube", { url: label }), prepareVoice(pick.intro)]).then(
-          ([song, voice]) => ({ pick, label, song, voice }),
+        const song = downloadYouTube(label, { title: label, detail: `AI DJ · ${pick.reason}`, fromDj: true });
+        return Promise.all([song, prepareVoice(pick.intro)]).then(
+          ([download, voice]) => ({ pick, label, download, voice }),
           (error) => ({ label, error }),
         );
       });
       for (const job of jobs) {
-        const { pick, label, song, voice, error } = await job;
+        const { pick, label, download, voice, error } = await job;
         if (!stillValid()) break;
         if (error) {
           console.warn(`DJ skipped ${label}:`, error.message);
@@ -262,7 +309,7 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
           {
             title: label,
             detail: `AI DJ · ${pick.reason}`,
-            url: song.file,
+            url: download.file,
             dj: { intro: pick.intro, voiceUrl: voice?.url ?? null, voiceSeconds: voice?.seconds ?? null },
           },
           { autoplay: false },
@@ -310,9 +357,9 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
   async function loadAndPlay(id) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
-    if (!decoded.has(id)) setStatus(`Loading ${item.title}…`);
+    loadingId = id;
+    changed();
     try {
-      loadingId = id;
       const buffer = await decode(item);
       // Same steps as Deck.loadArrayBuffer in audio.js, with the decoding already done.
       deck.ensureContext();
@@ -320,16 +367,24 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       deck.buffer = buffer;
       deck.offset = 0;
       deck.play();
+      lastPhase = 0;
       currentId = id;
       if (played.at(-1) !== item.title) played = [...played, item.title].slice(-50);
-      setStatus(null);
+      status = null;
       topUpDj();
     } catch (error) {
-      setStatus(`Error: ${error.message}`, true);
+      status = { message: `Error: ${error.message}`, isError: true };
     } finally {
       loadingId = null;
-      prefetch();
+      changed();
     }
+  }
+
+  // Where the current song is, in seconds (0 when nothing is loaded).
+  function position() {
+    if (!deck.buffer) return 0;
+    const seconds = deck.playing ? deck.position() : deck.offset;
+    return seconds % deck.buffer.duration;
   }
 
   // ---- public API -----------------------------------------------------------------
@@ -338,8 +393,18 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     getState: () => ({
       items,
       currentId,
+      loadingId,
+      downloads,
       status,
       dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status },
+    }),
+
+    // Fast-changing playback state for progress bars; read it every frame.
+    getPlayback: () => ({
+      position: position(),
+      duration: deck.buffer?.duration ?? 0,
+      playing: Boolean(deck.playing),
+      loaded: Boolean(deck.buffer),
     }),
 
     on(listener) {
@@ -351,13 +416,11 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     async addYouTube(linkOrSearch) {
       const text = linkOrSearch.trim();
       if (!text) return;
-      setStatus(/^https?:\/\//i.test(text) ? "Downloading from YouTube…" : `Searching YouTube for "${text}"…`);
       try {
-        const body = await postJson("/youtube", { url: text });
-        setStatus(null);
+        const body = await downloadYouTube(text, { title: /^https?:\/\//i.test(text) ? "YouTube link" : text });
         add({ title: body.title, detail: "YouTube", url: body.file });
       } catch (error) {
-        setStatus(`Error: ${error.message}`, true);
+        console.warn("YouTube add failed:", error.message);
       }
     },
 
@@ -390,11 +453,44 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       return playChain;
     },
 
+    togglePlay() {
+      if (!deck.buffer) {
+        if (items.length) queue.play(items[0].id);
+        return;
+      }
+      deck.toggle();
+      changed();
+    },
+
     // Plays the song after the current one, wrapping to the top.
     next() {
       if (!items.length) return;
-      const position = items.findIndex((entry) => entry.id === currentId);
-      queue.play(items[(position + 1) % items.length].id);
+      queue.play(items[(currentIndex() + 1) % items.length].id);
+    },
+
+    // Like most players: restarts the song if it's a few seconds in, otherwise goes back one.
+    previous() {
+      const index = currentIndex();
+      if (position() > restartThreshold || index <= 0) return queue.seek(0);
+      queue.play(items[index - 1].id);
+    },
+
+    // Jumps to a point in the current song (seconds).
+    seek(seconds) {
+      if (!deck.buffer) return;
+      const wasPlaying = deck.playing;
+      if (wasPlaying) deck.pause();
+      deck.offset = Math.max(0, Math.min(seconds, deck.buffer.duration - 0.05));
+      lastPhase = 0; // a backwards jump isn't the song looping
+      if (wasPlaying) deck.play();
+      changed();
+    },
+
+    // The song under the mouse gets decoded early, so clicking ▶ on it is quick.
+    hover(id) {
+      if (hoveredId === id) return;
+      hoveredId = id;
+      prefetch();
     },
 
     // Turns the AI DJ on: it fills the queue to match the vibe and moves on at the end of each song.
@@ -434,7 +530,7 @@ const styles = `
 .queuePanel {
   position: fixed; top: 72px; right: 20px; z-index: 50;
   display: flex; flex-direction: column; gap: 10px;
-  width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 92px);
+  width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 92px); overflow-y: auto;
   padding: 16px; border-radius: 18px;
   background: var(--panel); color: var(--text);
   border: 1px solid var(--border);
@@ -477,9 +573,10 @@ const styles = `
 @keyframes queuePanel-pulse { 50% { opacity: 0.55; } }
 .queuePanel-status { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .queuePanel-status.error { color: #ff7b7b; }
-.queuePanel-list {
-  margin: 0; padding: 2px; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+.queuePanel-list, .queuePanel-downloads {
+  margin: 0; padding: 2px; list-style: none; display: flex; flex-direction: column; gap: 6px;
 }
+.queuePanel-downloads:empty { display: none; }
 .queuePanel-row {
   position: relative; display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px;
   border-radius: 12px; cursor: grab; background: rgba(0, 0, 0, 0.32); border: 1px solid rgba(255, 255, 255, 0.08);
@@ -497,6 +594,9 @@ const styles = `
 .queuePanel-row.dragging { opacity: 0.35; }
 .queuePanel-row.dropBefore { box-shadow: inset 0 3px 0 var(--left), 0 -4px 12px -4px var(--left); }
 .queuePanel-row.dropAfter { box-shadow: inset 0 -3px 0 var(--left), 0 4px 12px -4px var(--left); }
+.queuePanel-row.download { cursor: default; flex-wrap: wrap; border-style: dashed; }
+.queuePanel-row.download.failed { border-color: #ff7b7b; }
+.queuePanel-row.download .queuePanel-bar { flex-basis: 100%; }
 .queuePanel-handle { color: var(--muted); letter-spacing: -2px; user-select: none; }
 .queuePanel-number { width: 18px; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .queuePanel-track { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -504,9 +604,38 @@ const styles = `
 .queuePanel-track small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queuePanel-row.current small { color: var(--between); font-weight: 700; text-shadow: 0 0 8px rgba(255, 210, 63, 0.5); }
 .queuePanel-row.fromDj small::before { content: "✦ "; color: var(--violet, var(--between)); }
+.queuePanel-row.failed small { color: #ff7b7b; }
 .queuePanel-actions { display: flex; gap: 4px; }
 .queuePanel-row .queuePanel-actions button { width: 30px; height: 30px; padding: 0; }
 .queuePanel-empty { margin: 0; padding: 14px 0; font-size: 13px; text-align: center; color: var(--muted); }
+
+/* Progress bars: downloads, loading, and the player's song position. */
+.queuePanel-bar {
+  position: relative; height: 5px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.1);
+}
+.queuePanel-bar > span {
+  position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px;
+  background: linear-gradient(90deg, var(--left), var(--right)); box-shadow: 0 0 8px var(--left);
+  transition: width 0.3s;
+}
+.queuePanel-bar.fromDj > span { background: var(--violet, var(--between)); box-shadow: 0 0 8px var(--violet, var(--between)); }
+.queuePanel-bar.busy > span { width: 35% !important; animation: queuePanel-sweep 1.1s ease-in-out infinite; transition: none; }
+@keyframes queuePanel-sweep { from { left: -35%; } to { left: 100%; } }
+
+/* Player: song title, progress bar, times, and ⏮ ⏯ ⏭ */
+.queueTransport { display: flex; flex-direction: column; gap: 6px; }
+.queueTransport-title { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queueTransport-seek { position: relative; height: 16px; cursor: pointer; touch-action: none; }
+.queueTransport-seek .queuePanel-bar { position: absolute; left: 0; right: 0; top: 5px; height: 6px; }
+.queueTransport-seek .queuePanel-bar > span { transition: none; }
+.queueTransport-thumb {
+  position: absolute; top: 2px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+  background: var(--text); box-shadow: 0 0 10px var(--left); pointer-events: none;
+}
+.queueTransport-times { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.queueTransport-buttons { display: flex; justify-content: center; gap: 10px; }
+.queueTransport-buttons button { width: 38px; height: 38px; padding: 0; font-size: 15px; flex: none; }
+.queueTransport-buttons .queueTransport-play { width: 46px; height: 46px; font-size: 18px; }
 `;
 
 function element(tag, attributes = {}, children = []) {
@@ -521,14 +650,125 @@ function element(tag, attributes = {}, children = []) {
   return node;
 }
 
-// Floating panel for a queue: add (YouTube link, song name or file), drag to
-// reorder, ✕ to remove, ▶ to play. Uses the page's CSS variables for colors.
-export function createQueuePanel(queue, deck) {
+function addStyles() {
   if (!document.getElementById("queuePanel-styles")) {
     document.head.append(element("style", { id: "queuePanel-styles", text: styles }));
   }
+}
+
+const formatTime = (seconds) => {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+};
+
+// A progress bar: percent 0–100, or null for "busy" (an animated sweep).
+function progressBar(percent, { fromDj = false } = {}) {
+  const fill = element("span");
+  if (percent !== null) fill.style.width = `${percent}%`;
+  return element("div", { className: ["queuePanel-bar", percent === null && "busy", fromDj && "fromDj"].filter(Boolean).join(" ") }, [fill]);
+}
+
+// Player bar: what's playing, a progress bar you can click or drag to seek, the
+// times, and ⏮ (restart / previous) ⏯ ⏭. Returns the element to put on the page.
+export function createTransport(queue, deck) {
+  addStyles();
+  const title = element("div", { className: "queueTransport-title", text: "No song loaded" });
+  const fill = element("span");
+  const bar = element("div", { className: "queuePanel-bar" }, [fill]);
+  const thumb = element("div", { className: "queueTransport-thumb" });
+  const seek = element("div", { className: "queueTransport-seek", role: "slider", "aria-label": "Song position" }, [bar, thumb]);
+  const elapsed = element("span", { text: "0:00" });
+  const total = element("span", { text: "0:00" });
+  const playButton = element("button", { type: "button", className: "queueTransport-play", "aria-label": "Play or pause", text: "▶" });
+  const root = element("div", { className: "queueTransport" }, [
+    title,
+    seek,
+    element("div", { className: "queueTransport-times" }, [elapsed, total]),
+    element("div", { className: "queueTransport-buttons" }, [
+      element("button", {
+        type: "button",
+        className: "secondary",
+        "aria-label": "Restart or previous song",
+        title: "Restart (or previous song if near the start)",
+        text: "⏮",
+        onClick: () => {
+          deck.ensureContext();
+          queue.previous();
+        },
+      }),
+      playButton,
+      element("button", {
+        type: "button",
+        className: "secondary",
+        "aria-label": "Next song",
+        title: "Next song",
+        text: "⏭",
+        onClick: () => {
+          deck.ensureContext();
+          queue.next();
+        },
+      }),
+    ]),
+  ]);
+  playButton.addEventListener("click", () => {
+    deck.ensureContext();
+    queue.togglePlay();
+  });
+
+  // Click or drag on the bar to seek; while dragging, the bar follows the pointer.
+  let dragRatio = null;
+  const ratioAt = (event) => {
+    const rect = seek.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+  };
+  seek.addEventListener("pointerdown", (event) => {
+    if (!queue.getPlayback().loaded) return;
+    try {
+      seek.setPointerCapture(event.pointerId); // keep getting moves while dragging outside the bar
+    } catch {
+      // Capture is a nicety; clicking still seeks without it.
+    }
+    dragRatio = ratioAt(event);
+  });
+  seek.addEventListener("pointermove", (event) => {
+    if (dragRatio !== null) dragRatio = ratioAt(event);
+  });
+  seek.addEventListener("pointerup", (event) => {
+    if (dragRatio === null) return;
+    const ratio = ratioAt(event);
+    dragRatio = null;
+    queue.seek(ratio * queue.getPlayback().duration);
+  });
+
+  function update() {
+    const { items, currentId, loadingId } = queue.getState();
+    const playback = queue.getPlayback();
+    const loading = items.find((item) => item.id === loadingId);
+    const current = items.find((item) => item.id === currentId);
+    title.textContent = loading ? `Loading ${loading.title}…` : current?.title ?? (playback.loaded ? "Now playing" : "No song loaded");
+    bar.classList.toggle("busy", Boolean(loading));
+    const ratio = dragRatio ?? (playback.duration ? playback.position / playback.duration : 0);
+    fill.style.width = `${ratio * 100}%`;
+    thumb.style.left = `${ratio * 100}%`;
+    thumb.hidden = !playback.loaded || Boolean(loading);
+    elapsed.textContent = formatTime(ratio * playback.duration);
+    total.textContent = formatTime(playback.duration);
+    playButton.textContent = playback.playing ? "⏸" : "▶";
+    requestAnimationFrame(update);
+  }
+  requestAnimationFrame(update);
+  return root;
+}
+
+// Floating panel for a queue: the player, add (YouTube link, song name or file),
+// downloads with progress, drag to reorder, ✕ to remove, ▶ to play, and the AI DJ.
+// Uses the page's CSS variables for colors.
+export function createQueuePanel(queue, deck) {
+  addStyles();
   let draggedId = null;
   let dropIndex = null; // insertion point, 0..items.length
+  let rowsKey = ""; // the rows are only rebuilt when this changes, not on every progress tick
+  let hoverTimer = null;
 
   const input = element("input", { type: "text", placeholder: "YouTube link or song name" });
   const fileInput = element("input", { type: "file", accept: "audio/*,video/mp4" });
@@ -541,6 +781,7 @@ export function createQueuePanel(queue, deck) {
     djButtons,
   ]);
   const djStatus = element("p", { className: "queuePanel-status", hidden: "" });
+  const downloadsList = element("ol", { className: "queuePanel-downloads", "aria-label": "Downloading" });
   const list = element("ol", { className: "queuePanel-list" });
   const empty = element("p", { className: "queuePanel-empty", text: "The queue is empty. Add a YouTube link, song name or file." });
 
@@ -567,13 +808,17 @@ export function createQueuePanel(queue, deck) {
   list.addEventListener("dragleave", (event) => {
     if (!list.contains(event.relatedTarget)) setDropIndex(null);
   });
+  list.addEventListener("pointerleave", () => {
+    clearTimeout(hoverTimer);
+    queue.hover(null);
+  });
 
   const panel = element("section", { className: "queuePanel", role: "dialog", "aria-label": "Queue", hidden: "" }, [
     // A div, not <header>: pages often style every header element.
     element("div", { className: "queuePanel-header" }, [
       element("div", {}, [
         element("h2", { text: "Queue" }),
-        element("p", { text: "Drag to reorder. ▶ plays a song, Next goes down the list. The AI DJ picks songs for you." }),
+        element("p", { text: "Drag to reorder. ▶ plays a song. The AI DJ picks songs for you." }),
       ]),
       element("button", {
         type: "button",
@@ -583,6 +828,7 @@ export function createQueuePanel(queue, deck) {
         onClick: () => controls.close(),
       }),
     ]),
+    createTransport(queue, deck),
     element("div", { className: "queuePanel-add" }, [
       input,
       element("button", { type: "button", text: "Add", onClick: addFromInput }),
@@ -602,6 +848,7 @@ export function createQueuePanel(queue, deck) {
     djStatus,
     list,
     empty,
+    downloadsList,
   ]);
   document.body.append(panel);
 
@@ -628,13 +875,15 @@ export function createQueuePanel(queue, deck) {
 
   function row(item, index, state) {
     const isCurrent = item.id === state.currentId;
+    const isLoading = item.id === state.loadingId;
     const classes = ["queuePanel-row", isCurrent && "current", item.dj && "fromDj"].filter(Boolean).join(" ");
     const entry = element("li", { className: classes, draggable: "true" }, [
       element("span", { className: "queuePanel-handle", "aria-hidden": "true", text: "⋮⋮" }),
       element("span", { className: "queuePanel-number", text: String(index + 1) }),
       element("div", { className: "queuePanel-track" }, [
         element("strong", { text: item.title }),
-        element("small", { text: isCurrent ? "Now playing" : item.detail }),
+        element("small", { text: isLoading ? "Loading…" : isCurrent ? "Now playing" : item.detail }),
+        ...(isLoading ? [progressBar(null)] : []),
       ]),
       element("div", { className: "queuePanel-actions" }, [
         element("button", {
@@ -657,6 +906,11 @@ export function createQueuePanel(queue, deck) {
         }),
       ]),
     ]);
+    // Hovering a song for a moment decodes it ahead of a click.
+    entry.addEventListener("pointerenter", () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => queue.hover(item.id), hoverDecodeMs);
+    });
     entry.addEventListener("dragstart", (event) => {
       draggedId = item.id;
       entry.classList.add("dragging");
@@ -678,17 +932,44 @@ export function createQueuePanel(queue, deck) {
       if (draggedId !== null) {
         draggedId = null;
         setDropIndex(null);
+        rowsKey = "";
         render();
       }
     });
     return entry;
   }
 
+  // A song on its way: name, where it's at, and a progress bar.
+  function downloadRow(download) {
+    const stageText =
+      download.stage === "failed"
+        ? `Failed: ${download.error}`
+        : download.stage === "downloading" && download.percent !== null
+          ? `Downloading ${Math.round(download.percent)}%`
+          : "Searching YouTube…";
+    const classes = ["queuePanel-row", "download", download.fromDj && "fromDj", download.stage === "failed" && "failed"];
+    return element("li", { className: classes.filter(Boolean).join(" ") }, [
+      element("div", { className: "queuePanel-track" }, [
+        element("strong", { text: download.title }),
+        element("small", { text: download.fromDj ? `AI DJ · ${stageText}` : stageText }),
+      ]),
+      progressBar(download.stage === "downloading" ? (download.percent ?? 0) : download.stage === "failed" ? 100 : null, {
+        fromDj: download.fromDj,
+      }),
+    ]);
+  }
+
   function render() {
-    if (draggedId !== null) return; // don't rebuild rows mid-drag
     const state = queue.getState();
-    list.replaceChildren(...state.items.map((item, index) => row(item, index, state)));
-    empty.hidden = state.items.length > 0;
+    // Song rows: only rebuilt when something about them changed, so buttons
+    // don't get replaced mid-click while downloads tick.
+    const key = JSON.stringify([state.items.map((item) => item.id), state.currentId, state.loadingId]);
+    if (draggedId === null && key !== rowsKey) {
+      rowsKey = key;
+      list.replaceChildren(...state.items.map((item, index) => row(item, index, state)));
+    }
+    empty.hidden = state.items.length > 0 || state.downloads.length > 0;
+    downloadsList.replaceChildren(...state.downloads.map(downloadRow));
     status.hidden = !state.status;
     status.textContent = state.status?.message ?? "";
     status.classList.toggle("error", Boolean(state.status?.isError));
@@ -697,7 +978,12 @@ export function createQueuePanel(queue, deck) {
     djRow.classList.toggle("on", dj.on);
     startButton.textContent = dj.on ? "Change vibe" : "Start";
     djButtons.replaceChildren(...(dj.on ? [startButton, stopButton] : [startButton]));
-    const djMessage = dj.talking ? "🎙 The DJ is on the mic…" : dj.status?.message ?? (dj.on ? "DJ on: it moves to the next song when one ends." : "");
+    const djDownloads = state.downloads.filter((download) => download.fromDj && download.stage !== "failed").length;
+    const djMessage = dj.talking
+      ? "🎙 The DJ is on the mic…"
+      : djDownloads
+        ? `The DJ is getting ${djDownloads} song${djDownloads > 1 ? "s" : ""} ready (below)…`
+        : (dj.status?.message ?? (dj.on ? "DJ on: it moves to the next song when one ends." : ""));
     djStatus.hidden = !djMessage;
     djStatus.textContent = djMessage;
     djStatus.classList.toggle("error", Boolean(dj.status?.isError));
