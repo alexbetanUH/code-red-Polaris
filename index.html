@@ -1127,7 +1127,22 @@ const songTitle = (item) => (item ? [item.artist, item.title].filter(Boolean).jo
 async function nextSong() {
   if (blend.active || blend.starting) return;
   const { items, currentId } = queue.getState();
-  const next = queue.getUpNext()?.item;
+  const candidate = queue.getUpNext()?.item ?? items[0];
+  const next = candidate?.id === currentId ? null : candidate;
+  if (!items.length) {
+    if (defaultQueueStarting) return;
+    defaultQueueStarting = true;
+    flash("Loading the default queue…", 10000);
+    try {
+      await queue.startDefaultQueue();
+      flash("▶ Playing the default queue");
+    } catch (error) {
+      flash(error.message || "Could not start the default queue", 5000);
+    } finally {
+      defaultQueueStarting = false;
+    }
+    return;
+  }
   if (!deck.playing) {
     // No outgoing audio to blend: start the queued song immediately.
     queue.next();
@@ -1923,7 +1938,7 @@ function updateSidePanel() {
 const queue = createQueue(deck);
 const queuePanel = createQueuePanel(queue, deck, { embedded: true });
 $("queueMount").append(queuePanel.element);
-$("transport").append(createTransport(queue, deck));
+$("transport").append(createTransport(queue, deck, { onNext: nextSong }));
 // Keep the upcoming song alongside the player without covering the camera.
 const upNext = createUpNext(queue);
 $("songQueue").insertBefore(upNext.element, $("queueMount"));

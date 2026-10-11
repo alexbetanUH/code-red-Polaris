@@ -12,10 +12,10 @@ function boot(path) {
  const box={console,performance,Math,Float32Array,Uint8Array, setTimeout:()=>0,clearTimeout:noop,
  window:{addEventListener:(k,f)=>(events[k]??=[]).push(f)},document:{addEventListener:noop,getElementById:k=>{if(!elements.has(k))elements.set(k,el());return elements.get(k)},createElement:el,querySelector:el,querySelectorAll:()=>[],body:el()},
  localStorage:{getItem:()=>null,setItem:noop},requestAnimationFrame:noop,Audio:class{play(){return Promise.resolve()}},
- Deck:class {constructor(){return new Proxy({currentSlot:null,blendState:()=>null,effectState:()=>({}),slotState:()=>[],waveform:()=>new Float32Array(128),bass:()=>0},{get:(o,k)=>k in o?o[k]:noop})}},
+ Deck:class {constructor(){return new Proxy({playing:false,currentSlot:null,blendState:()=>null,effectState:()=>({}),slotState:()=>[],waveform:()=>new Float32Array(128),bass:()=>0},{get:(o,k)=>k in o?o[k]:noop})}},
  BubbleParticles:class{render(){}clear(){}},
  FrameFx:class{constructor(){this.canvas=el();this.ok=true} resize(){}clear(){}render(){}},
- createQueue:()=>({calls:[],on:noop,next(){this.calls.push('next')},play(id){this.calls.push('play:'+id)},seek(t){this.calls.push('seek:'+t)},getUpNext:()=>null,mixNow:()=>false,holdControls:noop,coachPing:noop,startHandMix:async()=>null,startDefaultQueue(){this.calls.push('default');return new Promise(()=>{})},getState:()=>({items:[{id:'a'},{id:'b'}],currentId:'b',downloads:[],status:null,dj:{}})}),createQueuePanel:()=>({toggle:noop}),createTransport:el,createUpNext:()=>({element:el()}),location:{hash:'',replace:noop},
+ createQueue:()=>({calls:[],on:noop,next(){this.calls.push('next')},play(id){this.calls.push('play:'+id)},seek(t){this.calls.push('seek:'+t)},getUpNext:()=>null,mixNow:()=>false,holdControls:noop,coachPing:noop,startHandMix:async()=>null,startDefaultQueue(){this.calls.push('default');return new Promise(()=>{})},getState:()=>({items:[{id:'a'},{id:'b'}],currentId:'b',downloads:[],status:null,dj:{}})}),createQueuePanel:()=>({toggle:noop}),createTransport:(q,d,options={})=>{box.transportOptions=options;return el();},createUpNext:()=>({element:el()}),location:{hash:'',replace:noop},
  FilesetResolver:{forVisionTasks:async()=>({})},HandLandmarker:{createFromOptions:async()=>({})}};
  vm.createContext(box);vm.runInContext(code+'\nwindow.test={sides,resetSide,drawFrame,frameTips,assignSides,processHand,setVisual,OneEuro};',box);
  return {box,api:box.window.airdeck,internal:box.window.test,events,run:c=>vm.runInContext(c,box)};
@@ -196,3 +196,18 @@ console.log('PASS: comfortable bottom-third hand blend endpoints');
  assert(low.api.controls.volume<.02,'hands close together still reach minimum volume');
 }
 console.log('PASS: full volume range within the central gesture-safe area');
+
+// The visible transport uses the same Next path as the gesture, including wraparound.
+{
+ const e=boot(path);
+ e.run('queue.getState=()=>({items:[],currentId:null});');
+ e.box.transportOptions.onNext();
+ assert.deepEqual(e.run('queue.calls'),['default'],'transport starts the default queue when empty');
+}
+{
+ const e=boot(path);e.api.deck.playing=true;
+ e.run(`queue.getState=()=>({items:[{id:'a'},{id:'b'}],currentId:'b'});queue.getUpNext=()=>null;queue.startHandMix=()=>{queue.calls.push('handmix');return new Promise(()=>{})};`);
+ e.box.transportOptions.onNext();
+ assert.deepEqual(e.run('queue.calls'),['handmix'],'transport blends from last song back to first');
+}
+console.log('PASS: Next transport starts defaults and opens wraparound hand blends');

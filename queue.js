@@ -815,8 +815,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // startAt: the downbeat (song seconds) it starts on, beat-matched (AirMix);
     // style: "blend" or "cut" to insist on one.
     startHandMix({ startAt = null, style = null } = {}) {
-      const next = upcoming()[0];
-      if (transitioning || !next || !deck.playing || !deck.buffer) return Promise.resolve(null);
+      const next = upcoming()[0] ?? items[0];
+      if (transitioning || !next || next.id === currentId || !deck.playing || !deck.buffer) return Promise.resolve(null);
       return new Promise((resolve) => {
         handMixStarted = (controls) => {
           handMixStarted = null;
@@ -830,8 +830,11 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // Holds the master volume and speed where they are (while the hands perform a mix), or lets go.
     // Which of the hands' controls hold still: { speed, volume, filter } (true = held).
     // Speed is held at 1.00×.
-    holdControls({ speed = false, volume = false, filter = false } = {}) {
-      if (speed && !speedHeld) transitions.resetSpeed();
+    holdControls(options = {}) {
+      // DJ Deck holds the user's current speed; AirMix's object options reset it to 1×.
+      const manual = typeof options === "boolean";
+      const { speed = false, volume = false, filter = false } = manual ? { speed: options, volume: options } : options;
+      if (speed && !speedHeld && !manual) transitions.resetSpeed();
       speedHeld = speed;
       volumeHeld = volume;
       frequencyHeld = filter;
@@ -1081,7 +1084,7 @@ function progressBar(percent, { fromDj = false } = {}) {
 
 // Player bar: what's playing, a progress bar you can click or drag to seek, the
 // times, and ⏮ (restart / previous) ⏯ ⏭. Returns the element to put on the page.
-export function createTransport(queue, deck) {
+export function createTransport(queue, deck, { onNext = () => queue.next() } = {}) {
   addStyles();
   const title = element("div", { className: "queueTransport-title", text: "No song loaded" });
   const fill = element("span");
@@ -1116,7 +1119,7 @@ export function createTransport(queue, deck) {
         text: "⏭",
         onClick: () => {
           deck.ensureContext();
-          queue.next();
+          onNext();
         },
       }),
     ]),
