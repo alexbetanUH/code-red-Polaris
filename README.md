@@ -48,7 +48,7 @@ YouTube downloads can take 10–30 seconds, with a progress bar.
 In the Queue panel, type a vibe (e.g. "chill into hype") and press **Start**. Gemini picks songs from the library that
 fit the vibe and flow from what's playing: same or neighboring genre, close tempo, no repeats until every song has
 played. With the DJ on, it mixes into the next song before the current one's ending fades out (it keeps two queued
-ahead), and a DJ voice introduces each song over the mix:
+ahead), and a DJ voice speaks up over the mix when the genre switches (and at the start of the set):
 
 - **Blend** when the tempos are close: the next song comes in beat-matched on a downbeat, the two swap bass lines
   halfway, and the new song then eases back to its own tempo.

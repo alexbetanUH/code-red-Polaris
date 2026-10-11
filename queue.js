@@ -21,6 +21,7 @@ const djPicksPerRequest = 3;
 const duckedVolume = 0.5; // the music's level while the DJ talks over a transition
 const duckFadeMs = 600;
 const voiceTimeoutMs = 15000; // never let a stuck voice line stall the set
+const voiceWaitMs = 4000; // longest wait for the ElevenLabs clip before using the browser's voice
 const restartThreshold = 3; // ⏮ restarts the song if it's past this many seconds, else goes back one
 const progressPollMs = 400;
 const hoverDecodeMs = 250; // hovering a song this long starts decoding it
@@ -39,7 +40,7 @@ async function retryOnNetworkError(request) {
 
 export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json" } = {}) {
   // Items: { id, title, detail, url } for YouTube, { id, title, detail, file } for files.
-  // DJ picks also carry dj: { intro, voiceUrl, voiceSeconds }.
+  // DJ picks also carry dj: { intro, voice }, voice being the ElevenLabs clip once it's asked for.
   let items = [];
   let currentId = null;
   let status = null; // { message, isError } while adding or loading
@@ -248,38 +249,49 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // ---- AI DJ ----------------------------------------------------------------------
 
-  // The ElevenLabs clip for a DJ line and its length, or null to fall back to the browser's voice.
+  // The ElevenLabs clip's URL for a DJ line, or null to fall back to the browser's voice.
   async function prepareVoice(text) {
-    if (!text) return null;
     try {
-      const url = (await postJson("/dj/voice", { text })).file;
-      const seconds = await new Promise((resolve) => {
-        const audio = new Audio();
-        audio.preload = "metadata";
-        audio.onloadedmetadata = () => resolve(audio.duration);
-        audio.onerror = () => resolve(null);
-        setTimeout(() => resolve(null), 3000);
-        audio.src = url;
-      });
-      return { url, seconds };
+      return (await postJson("/dj/voice", { text })).file;
     } catch (error) {
       console.warn("DJ voice unavailable, using the browser voice:", error.message);
       return null;
     }
   }
 
+  // Only asked for once the line will be spoken (it costs ElevenLabs credits).
+  function voiceFor(item) {
+    item.dj.voice ??= prepareVoice(item.dj.intro);
+    return item.dj.voice;
+  }
+
+  // The DJ only speaks up when the set changes direction: its first song, and genre
+  // switches (hip-hop into trap, reggaeton into afrobeats). Close moves like hip-hop
+  // into "R&B / hip-hop" share a genre and stay quiet, and so do songs without one.
+  const genresOf = (item) => (item?.genre ?? "").toLowerCase().split("/").map((genre) => genre.trim()).filter(Boolean);
+  function djSpeaksBefore(item, previous) {
+    if (!item.dj?.intro) return false;
+    if (!previous) return true;
+    const before = genresOf(previous);
+    const after = genresOf(item);
+    return before.length > 0 && after.length > 0 && !after.some((genre) => before.includes(genre));
+  }
+
   // Plays a DJ line and resolves when it's done (or after a timeout).
-  function speak(item) {
+  async function speak(item) {
     const intro = item.dj?.intro;
-    if (!intro) return Promise.resolve();
+    if (!intro) return;
+    // The clip is normally ready (asked for while the song before played); never wait long for it.
+    const late = new Promise((resolve) => setTimeout(() => resolve(null), voiceWaitMs));
+    const voiceUrl = await Promise.race([voiceFor(item), late]);
     return new Promise((resolve) => {
       const timer = setTimeout(done, voiceTimeoutMs);
       function done() {
         clearTimeout(timer);
         resolve();
       }
-      if (item.dj.voiceUrl) {
-        const audio = new Audio(item.dj.voiceUrl);
+      if (voiceUrl) {
+        const audio = new Audio(voiceUrl);
         audio.onended = done;
         audio.onerror = done;
         audio.play().catch(done);
@@ -302,11 +314,12 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     transitionId = item.id;
     try {
       const mixing = deck.playing && deck.buffer;
+      const talks = djSpeaksBefore(item, mixing ? items.find((entry) => entry.id === currentId) : null);
       if (mixing) {
         await playItem(item.id, { mix: true }); // resolves once the new song comes in
         if (currentId !== item.id) return; // skipped or paused meanwhile
       }
-      if (item.dj?.intro) {
+      if (talks) {
         dj.talking = true;
         changed();
         await fadeTo(duckedVolume, duckFadeMs);
@@ -355,13 +368,13 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const song = librarySong
           ? libraryEntry(librarySong, detail)
           : downloadYouTube(label, { title: label, detail, fromDj: true }).then((download) => ({ title: label, detail, url: download.file }));
-        return Promise.all([song, prepareVoice(pick.intro)]).then(
-          ([entryData, voice]) => ({ pick, label, entryData, voice }),
+        return song.then(
+          (entryData) => ({ pick, label, entryData }),
           (error) => ({ label, error }),
         );
       });
       for (const job of jobs) {
-        const { pick, label, entryData, voice, error } = await job;
+        const { pick, label, entryData, error } = await job;
         if (!stillValid()) break;
         if (error) {
           console.warn(`DJ skipped ${label}:`, error.message);
@@ -370,7 +383,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const entry = add(
           {
             ...entryData,
-            dj: { intro: pick.intro, voiceUrl: voice?.url ?? null, voiceSeconds: voice?.seconds ?? null },
+            dj: { intro: pick.intro, voice: null },
           },
           { autoplay: false },
         );
@@ -396,7 +409,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   setInterval(() => {
     if (!dj.on || transitioning || !deck.playing || !deck.buffer) return;
     const next = upcoming()[0];
-    if (next && position() >= transitions.mixPoint(deck.buffer)) transitionTo(next);
+    if (!next) return;
+    if (djSpeaksBefore(next, items.find((entry) => entry.id === currentId))) voiceFor(next);
+    if (position() >= transitions.mixPoint(deck.buffer)) transitionTo(next);
   }, 200);
 
   // mix: blend or echo into the song from the playing one (the DJ), instead of switching.

@@ -221,7 +221,8 @@ naturally from what's playing now (similar energy, tempo and genre, or a smooth 
 Never pick a song that's already queued or played. Vary the artists.
 For each pick give:
 - reason: why it fits, under 12 words.
-- intro: what you'd say on the mic right before it plays, like a radio DJ. One or two short, upbeat
+- intro: what you'd say on the mic as it comes in, like a radio DJ. You only get on the mic when the
+  set switches genre (and at the very start), so make it about the switch: one or two short, upbeat
   sentences that name the song and artist. No emojis, hashtags or stage directions."""
 
 PICK_SCHEMA = {
