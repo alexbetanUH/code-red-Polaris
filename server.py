@@ -3,19 +3,51 @@
 Run:  python3 server.py   (then open http://localhost:8000)
 POST /api/youtube  {"url": "https://www.youtube.com/watch?v=..."}
   -> {"file": "downloads/<id>.m4a", "title": "..."}
-Requires yt-dlp on PATH (brew install yt-dlp).
+"url" can also be plain words ("clarity zedd") or a YouTube search link: both
+download the top search result.
+Requires yt-dlp (pip install -U "yt-dlp[default]" or brew install yt-dlp).
 """
 
 import json
+import re
+import shutil
 import subprocess
+import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).parent
 DOWNLOADS = ROOT / "downloads"
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 PORT = 8000
+# The yt-dlp command, or Python's module when pip's per-user install folder isn't on PATH.
+YTDLP = ["yt-dlp"] if shutil.which("yt-dlp") else [sys.executable, "-m", "yt_dlp"]
+# One video only: watch, shorts and live links, or youtu.be short links.
+SINGLE_VIDEO = re.compile(
+    r"^https?://((www\.|m\.|music\.)?youtube\.com/(watch\?(\S*&)?v=|shorts/|live/)|youtu\.be/)[\w-]{11}\S*$"
+)
+
+
+def to_target(text):
+    """What to hand yt-dlp, or None if it isn't allowed.
+
+    A single video link is used as-is. A YouTube search link or plain words become
+    a search for the top result. Playlists, channels and other sites are refused:
+    yt-dlp would download every video in them.
+    """
+    text = text.strip()
+    if not text or len(text) > 300:
+        return None
+    if SINGLE_VIDEO.match(text):
+        return text
+    if re.match(r"^https?://", text, re.IGNORECASE):
+        parsed = urlparse(text)
+        if parsed.hostname in ALLOWED_HOSTS and parsed.path == "/results":
+            query = parse_qs(parsed.query).get("search_query", [""])[0].strip()
+            return f"ytsearch1:{query}" if query else None
+        return None
+    return f"ytsearch1:{text}"
 
 
 # YouTube often answers 403 Forbidden for one download method but not another,
@@ -34,8 +66,10 @@ STRATEGIES = [
 def download(url, extra):
     """Run yt-dlp once. Returns ((title, path), None) or (None, error message)."""
     cmd = [
-        "yt-dlp", *extra,
+        *YTDLP, *extra,
         "--no-playlist",
+        # Never more than one file, even if the target turns out to be a list.
+        "--max-downloads", "1",
         "--max-filesize", "50M",
         "--retries", "3",
         "-o", str(DOWNLOADS / "%(id)s.%(ext)s"),
@@ -49,7 +83,8 @@ def download(url, extra):
     except subprocess.TimeoutExpired:
         return None, "download timed out"
     lines = [l for l in proc.stdout.splitlines() if l.strip()]
-    if proc.returncode != 0 or len(lines) < 2:
+    # 101 means "stopped at --max-downloads", which is fine.
+    if proc.returncode not in (0, 101) or len(lines) < 2:
         return None, (proc.stderr.strip().splitlines() or ["download failed"])[-1]
     return (lines[0], Path(lines[-1])), None
 
@@ -67,9 +102,10 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self.send_json(400, {"error": "invalid request body"})
 
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https") or parsed.hostname not in ALLOWED_HOSTS:
-            return self.send_json(400, {"error": "please paste a youtube.com or youtu.be link"})
+        target = to_target(url)
+        if not target:
+            return self.send_json(400, {"error": "paste a single YouTube video link, or type a song name"})
+        url = target
 
         DOWNLOADS.mkdir(exist_ok=True)
         err = "download failed"
@@ -93,5 +129,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"AirDeck running at http://localhost:{PORT}")
+    print(f"AirDeck running at http://localhost:{PORT} (yt-dlp: {' '.join(YTDLP)})")
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
