@@ -43,7 +43,8 @@ SINGLE_VIDEO = re.compile(
 )
 
 # AI DJ settings (environment variables override the defaults).
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+# Flash-Lite: the free tier allows 500 requests a day (3.8 Flash only 20), plenty for picking songs.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 ELEVENLABS_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
 ELEVENLABS_MODEL = "eleven_flash_v2_5"  # ElevenLabs' low-latency voice model
 
@@ -180,6 +181,31 @@ def remember(target, entry):
         DOWNLOAD_INDEX.write_text(json.dumps(index, indent=1), encoding="utf-8")
 
 
+def get_song(target, job=None):
+    """The song's {"file", "title"}, downloading it unless it was downloaded before.
+    Returns (entry, None) or (None, error message)."""
+    hit = remembered(target)
+    if hit:
+        print(f"[youtube] already downloaded: {hit['title']}", flush=True)
+        return hit, None
+
+    DOWNLOADS.mkdir(exist_ok=True)
+    errors = []
+    for name, extra in STRATEGIES:
+        print(f"[youtube] trying {name}: {target}", flush=True)
+        result, err = download(target, extra, job)
+        if result:
+            title, filepath = result
+            print(f"[youtube] ok via {name}: {title}", flush=True)
+            entry = {"file": filepath.relative_to(ROOT).as_posix(), "title": title}
+            remember(target, entry)
+            return entry, None
+        print(f"[youtube] {name} failed: {err}", flush=True)
+        errors.append(err)
+    # The first method's error is the real one; later fallbacks fail for their own reasons.
+    return None, errors[0] if errors else "download failed"
+
+
 # ---- AI DJ -------------------------------------------------------------------------
 
 class DjError(Exception):
@@ -305,6 +331,11 @@ def dj_voice(text):
 # ---- HTTP --------------------------------------------------------------------------
 
 class Handler(SimpleHTTPRequestHandler):
+    # Keep connections open between requests. With Python's default (HTTP/1.0, close
+    # after every response), Windows often cut off the last ~32 KB of a song file and
+    # hung for ~19 s before resetting: about half of all song loads failed.
+    protocol_version = "HTTP/1.1"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
@@ -322,13 +353,19 @@ class Handler(SimpleHTTPRequestHandler):
             super().log_message(format, *args)
 
     def do_POST(self):
+        # Read the whole body first: on a kept-open connection, unread bytes would be
+        # taken for the start of the next request.
+        try:
+            raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        except ValueError:
+            self.close_connection = True
+            return self.send_json(400, {"error": "invalid request body"})
         routes = {"/api/youtube": self.youtube, "/api/dj/pick": self.pick, "/api/dj/voice": self.voice}
         route = routes.get(self.path)
         if not route:
             return self.send_json(404, {"error": "not found"})
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
             if not isinstance(body, dict):
                 raise ValueError
         except (ValueError, json.JSONDecodeError):
@@ -348,26 +385,10 @@ class Handler(SimpleHTTPRequestHandler):
                 progress.pop(job, None)
 
     def download_song(self, target, job):
-        hit = remembered(target)
-        if hit:
-            print(f"[youtube] already downloaded: {hit['title']}", flush=True)
-            return self.send_json(200, hit)
-
-        DOWNLOADS.mkdir(exist_ok=True)
-        errors = []
-        for name, extra in STRATEGIES:
-            print(f"[youtube] trying {name}: {target}", flush=True)
-            result, err = download(target, extra, job)
-            if result:
-                title, filepath = result
-                print(f"[youtube] ok via {name}: {title}", flush=True)
-                entry = {"file": filepath.relative_to(ROOT).as_posix(), "title": title}
-                remember(target, entry)
-                return self.send_json(200, entry)
-            print(f"[youtube] {name} failed: {err}", flush=True)
-            errors.append(err)
-        # The first method's error is the real one; later fallbacks fail for their own reasons.
-        return self.send_json(502, {"error": errors[0] if errors else "download failed"})
+        entry, error = get_song(target, job)
+        if entry:
+            return self.send_json(200, entry)
+        return self.send_json(502, {"error": error})
 
     def pick(self, body):
         try:
