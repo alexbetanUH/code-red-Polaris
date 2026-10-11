@@ -17,7 +17,9 @@
 
 import { createTransitions } from "./transitions.js";
 
-const djSongsAhead = 2; // the DJ keeps this many songs queued after the current one
+const djSongsAhead = 3; // the DJ keeps this many songs queued after the current one (the choices)
+const choiceCount = 3; // songs offered to choose from for the next mix
+const blendTolerance = 0.08; // library tempos this close (or half/double) can be blended by hand
 const djPicksPerRequest = 3;
 const duckedVolume = 0.5; // the music's level while the DJ talks over a transition
 const duckFadeMs = 600;
@@ -143,6 +145,12 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let handVolume = 0.8; // audio.js's starting volume
   let duckLevel = 1;
   let volumeHeld = false;
+  // The filter (right pinch) too: grabbing things on screen pinches.
+  const setDeckFrequency = deck.setFrequency.bind(deck);
+  let frequencyHeld = false;
+  deck.setFrequency = (hz) => {
+    if (!frequencyHeld) setDeckFrequency(hz);
+  };
   deck.setVolume = (volume) => {
     if (volumeHeld) return;
     handVolume = volume;
@@ -228,6 +236,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // Resolves startHandMix()'s promise with the hand controls once the mix is scheduled.
   let handMixStarted = null;
+  let handMix = null; // the hand mix's controls while it runs (until .done)
 
   // While the DJ is introducing a song or switching to it: the flag, and which song.
   let transitioning = false;
@@ -406,7 +415,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const entry = add(
           {
             ...entryData,
-            dj: { intro: pick.intro, voice: null },
+            dj: { intro: pick.intro, voice: null, reason: pick.reason },
           },
           { autoplay: false },
         );
@@ -667,6 +676,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       return new Promise((resolve) => {
         handMixStarted = (controls) => {
           handMixStarted = null;
+          handMix = controls ?? null;
           resolve(controls ?? null);
         };
         transitionTo(next, { mixOutAt: 0, hands: true }).finally(() => handMixStarted?.(null));
@@ -676,7 +686,34 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // Holds the master volume and speed where they are (while the hands perform a mix), or lets go.
     holdControls(on) {
       volumeHeld = Boolean(on);
+      frequencyHeld = Boolean(on);
       transitions.holdSpeed(on);
+    },
+
+    // The songs to choose from for the next mix: the next few queued, each with the
+    // DJ's reason and whether it can be blended by hand with what's playing (close
+    // library tempos) rather than echoed out. The first is the DJ's own pick.
+    getChoices() {
+      const current = items.find((entry) => entry.id === currentId);
+      return upcoming()
+        .slice(0, choiceCount)
+        .map((item) => {
+          let blends = null;
+          if (current?.bpm && item.bpm) {
+            let ratio = current.bpm / item.bpm;
+            while (ratio > Math.SQRT2) ratio /= 2;
+            while (ratio < Math.SQRT1_2) ratio *= 2;
+            blends = Math.abs(ratio - 1) <= blendTolerance;
+          }
+          return { item, reason: item.dj?.reason ?? null, blends };
+        });
+    },
+
+    // Makes a queued song the next one (choosing it for the next mix).
+    chooseNext(id) {
+      const index = currentIndex();
+      if (index === -1 || items[index + 1]?.id === id) return;
+      queue.move(id, index + 1);
     },
 
     // What happens next, for an on-screen preview, or null when nothing's queued:
@@ -686,7 +723,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // next one on the beat grid the mix uses), beatSeconds, short }.
     getUpNext() {
       // While mixing (the AI's or the hands'), it's about the song coming in.
-      const mixing = transitioning || volumeHeld;
+      const mixing = transitioning || Boolean(handMix && !handMix.done);
       const incoming = mixing && (items.find((entry) => entry.id === transitionId) ?? items.find((entry) => entry.id === currentId));
       const next = incoming || upcoming()[0];
       if (!next) return null;

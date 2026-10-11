@@ -63,18 +63,19 @@ quiet intro) and mix it out after about 20 s, in whole phrases, with shorter ble
 transitions. The camera view shows what's up next, when the DJ mixes into it and
 how (blend or echo out).
 
-**You do the mixes** (with the camera on): the DJ picks the next song, keeps it beat-synced and decides where the mix
-belongs, and a move track above the strip shows what your hands do, timed to the beat like a rhythm game. Your
-**left hand is the song playing now, your right hand is the one coming in**:
+**You do the mixes** (with the camera on), Maestro style: big glossy orbs over the camera view that you reach
+into and grab (pinch) in time with the music. The AI suggests and keeps everything beat-synced; you perform:
 
-| Cue | Move | Does |
+| Step | Move | Does |
 |---|---|---|
-| ✋↑ Right hand up | Raise your right hand on the cue (up to 8 bars early is fine) | The next song comes in on the downbeat; your right hand's height is now its volume |
-| ✋↓ Left hand down | Lower your left hand on the cue | The bass lines swap on the downbeat; your left hand's height is the old song's volume, all the way down ends the mix |
+| 🎵 Choose | Grab one of the orbs on the right (or hold a left fist and show 1–3 fingers on your right hand) | That song is next. Each orb shows the DJ's reason and whether it blends by hand (✋) or gets echoed out (🌊). Don't choose and the DJ's pick (⭐) stands |
+| ✋ Grab the drop | Grab the green orb as its ring closes, then pull it toward the middle | The song comes in on that downbeat; how far you pull it is its volume |
+| 🔌 Pull the plug | Grab the blue orb on its beat, then drag it off to the left | The bass lines swap; dragging it away fades the old song out |
 
-When the tempos don't match, the AI echoes the old song out by itself. Moves within a beat of the cue are PERFECT, within two GOOD. Miss one by a bar, or stall, and the AI does that part
-for you, so the music never stops. Pinching never counts as a move, so the pinch controls keep working, and the
-master volume and speed hold still while you mix. Without the camera the DJ does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+Grabs within a beat of the cue are PERFECT, within two GOOD (with a combo count). Miss one by a bar, or stall, and
+the AI does that part, so the music never stops. Songs whose tempos clash get echoed out by the AI. While a hand is
+at an orb, and for the whole mix, speed, filter and volume hold still (grabbing pinches). Without the camera the DJ
+does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
@@ -101,7 +102,7 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
   changes to `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
-- `djCoach.js`: the move track and the hand moves that perform the AI DJ's mixes
+- `djCoach.js`: the Maestro-style coach: choosing songs and performing mixes by grabbing orbs
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 

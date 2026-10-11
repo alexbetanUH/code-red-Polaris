@@ -760,11 +760,12 @@ const queue = createQueue(deck);
 const queuePanel = createQueuePanel(queue, deck);
 $("transport").append(createTransport(queue, deck));
 
-// What the DJ does next, on the camera view, and the coach that cues the moves for
-// your hands to perform its mixes (djCoach.js).
+// What the DJ does next, on the camera view, and the Maestro-style coach over the
+// whole view: choose the next song and perform its mixes with your hands (djCoach.js).
+const stage = document.querySelector(".stage");
 const upNext = createUpNext(queue);
-document.querySelector(".stage").append(upNext.element);
-const djCoach = createDjCoach(queue, upNext);
+stage.append(upNext.element);
+const djCoach = createDjCoach(queue, upNext, { stage, camera: canvas });
 
 $("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it
