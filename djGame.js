@@ -36,9 +36,9 @@ const approachMinMs = 1600; // but never less than this
 const approachMaxMs = 2400; // or more than this
 const perfectMs = 160;
 const goodMs = 320;
-const dotSize = 0.03; // a target dot's radius, as a share of the stage height
-const reach = 0.075; // a fingertip within this share of the stage height of its dot counts
-const followReach = 0.15; // fingertips within this of a slider's dots are following it
+const dotSize = 0.05; // a target dot's radius, as a share of the stage height
+const reach = 0.1; // a fingertip within this share of the stage height of its dot counts
+const followReach = 0.18; // fingertips within this of a slider's dots are following it
 const gapBars = { short: 2, full: 4 }; // the new song's slide
 const outBars = 2; // the old song's slide
 const chooseBars = 4; // the choice lands this many bars before the mix (or as early as it can after the last one)
@@ -51,9 +51,9 @@ const approachMs = (beatMs) => Math.max(approachMinMs, Math.min(approachMaxMs, a
 // The shape's choreography, in shares of the stage (gaps in shares of its height).
 const shapeLook = {
   spread: { quiet: 0.42, normal: 0.52, loud: 0.58, drop: 0.68 }, // between the hands' pinch points
-  openGap: 0.11, // the right thumb–index gap with the filter open
-  closedGap: 0.025, // ... and closed, at the end of a build-up
-  leftGap: 0.065, // the left gap (speed is held at 1.00× anyway)
+  openGap: 0.16, // the right thumb–index gap with the filter open
+  closedGap: 0.05, // ... and closed, at the end of a build-up (the dots overlap: pinched)
+  leftGap: 0.11, // the left gap (speed is held at 1.00× anyway)
   tilt: 0.35, // radians: index fingertips lean in toward each other
 };
 const choiceSpots = [[0.86, 0.24], [0.86, 0.45], [0.86, 0.66]];
@@ -491,20 +491,14 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   }
 
   // A shape: its outline (the four fingertips joined up), each hand's pinch gap, and the
-  // dots. Thumbs are hollow, index fingers filled. Before its beat it's drawn bigger
-  // around its center, shrinking onto its place as the beat arrives.
-  function drawShape(dots, center, when, now, beatMs, { emphasis = false } = {}) {
+  // dots, right where they'll be from the moment they show up. Thumbs are hollow, index
+  // fingers filled. Each dot's ring closes in on it, landing on the beat.
+  function drawShape(dots, when, now, beatMs, { emphasis = false } = {}) {
     const leadMs = approachMs(beatMs);
     if (when - now > leadMs || now - when > goodMs) return;
     const progress = clamp01(1 - (when - now) / leadMs);
     const alpha = clamp01(progress * 5);
-    const grow = 1 + 0.3 * (1 - progress) ** 1.5;
-    const c = point(center);
-    const place = (spot) => {
-      const p = point(spot);
-      return { x: c.x + (p.x - c.x) * grow, y: c.y + (p.y - c.y) * grow };
-    };
-    const corners = [dots.left?.thumb, dots.left?.index, dots.right?.index, dots.right?.thumb].filter(Boolean).map(place);
+    const corners = [dots.left?.thumb, dots.left?.index, dots.right?.index, dots.right?.thumb].filter(Boolean).map(point);
     if (corners.length === 4) {
       // The four fingertips joined up, faintly (a drop's shape is outlined in orange).
       context.save();
@@ -521,8 +515,8 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     for (const side of ["left", "right"]) {
       const pair = dots[side];
       if (!pair) continue;
-      const thumb = place(pair.thumb);
-      const index = place(pair.index);
+      const thumb = point(pair.thumb);
+      const index = point(pair.index);
       context.save();
       context.globalAlpha = alpha;
       context.strokeStyle = colors[side];
@@ -534,7 +528,29 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       context.restore();
       targetDot(thumb, colors[side], alpha, false);
       targetDot(index, colors[side], alpha, true);
+      if (now < when) {
+        approachRing(thumb, colors[side], progress, alpha);
+        approachRing(index, colors[side], progress, alpha);
+      }
     }
+  }
+
+  // A dot's approach ring, in segments like the XP progress bar: it starts wide and
+  // closes onto the dot exactly on the beat.
+  function approachRing(p, color, progress, alpha) {
+    const r = dot() * (1 + 2.2 * (1 - progress));
+    const segments = 12;
+    context.save();
+    context.globalAlpha = alpha * (0.45 + 0.55 * progress);
+    context.strokeStyle = color;
+    context.lineWidth = Math.max(2, dot() * 0.16);
+    for (let i = 0; i < segments; i += 1) {
+      const start = (i / segments) * Math.PI * 2 - Math.PI / 2;
+      context.beginPath();
+      context.arc(p.x, p.y, r, start + 0.07, start + (Math.PI * 2) / segments - 0.07);
+      context.stroke();
+    }
+    context.restore();
   }
 
   // Dotted trails from each hand's pinch on one shape to the same hand on the next.
@@ -694,7 +710,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
     const upcoming = [...shapes.values()].filter((shape) => shape.song === playback.songId && !shape.verdict).sort((a, b) => a.time - b.time);
     for (let i = 1; i < upcoming.length; i += 1) followPoints(upcoming[i - 1].dots, upcoming[i].dots, realAt(upcoming[i].time), now, beatMs);
-    for (const shape of [...upcoming].reverse()) drawShape(shape.dots, shape.center, realAt(shape.time), now, beatMs, { emphasis: shape.drop });
+    for (const shape of [...upcoming].reverse()) drawShape(shape.dots, realAt(shape.time), now, beatMs, { emphasis: shape.drop });
 
     if (mix?.choices && !mix.chosen) {
       const when = realAt(mix.chooseAt);
@@ -716,18 +732,22 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       // itself is only set up just before its downbeat).
       const when = realAt(mix.cue);
       if (queue.getUpNext()?.style === "echo") {
-        drawShape(makeShape(cutShape), [cutShape.cx, cutShape.cy], when, now, beatMs, { emphasis: true });
+        drawShape(makeShape(cutShape), when, now, beatMs, { emphasis: true });
       } else if (when - now <= approachMs(beatMs)) {
         slide(inPath, "right", null, false, clamp01((1 - (when - now) / approachMs(beatMs)) * 4) * 0.8);
-        drawShape({ right: pairAt(inPath[0], "right") }, inPath[0], when, now, beatMs);
+        drawShape({ right: pairAt(inPath[0], "right") }, when, now, beatMs);
       }
     }
     if (mix?.heads) {
       if (mix.state === "blend" || mix.state === "landing") {
-        slide(inPath, "right", now >= mix.comesIn ? mix.in?.ideal ?? 0 : null, mix.in?.following, now < mix.swapAt + mix.barMs ? 1 : 0.35);
-        if (now >= mix.swapAt - approachMs(beatMs)) slide(outPath, "left", now >= mix.swapAt ? mix.out?.ideal ?? 0 : null, mix.out?.following, 1);
+        // Each track shows from its approach until its slide is over, then fades away.
+        const fadeOut = (end) => clamp01(1 - (now - end) / 300);
+        if (now < mix.swapAt + 300) slide(inPath, "right", now >= mix.comesIn && now <= mix.swapAt ? mix.in?.ideal ?? 0 : null, mix.in?.following, fadeOut(mix.swapAt));
+        if (now >= mix.swapAt - approachMs(beatMs) && now < mix.endAt + 300) {
+          slide(outPath, "left", now >= mix.swapAt && now <= mix.endAt ? mix.out?.ideal ?? 0 : null, mix.out?.following, fadeOut(mix.endAt));
+        }
       }
-      for (const head of mix.heads) if (!head.verdict) drawShape(head.dots, head.center, head.real, now, beatMs, { emphasis: mix.state === "cut" });
+      for (const head of mix.heads) if (!head.verdict) drawShape(head.dots, head.real, now, beatMs, { emphasis: mix.state === "cut" });
     }
 
     for (let i = effects.length - 1; i >= 0; i -= 1) {
