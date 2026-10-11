@@ -328,7 +328,7 @@ def tempo_gap(a, b):
 def dj_pick(request):
     """Ask Gemini for the next songs. Returns a list of {artist, title, reason, intro}.
 
-    With a "library" ([{id, artist, title, bpm}]) in the request, Gemini may only pick
+    With a "library" ([{id, artist, title, bpm, genre}]) in the request, Gemini may only pick
     from it and each pick also has its "id"; otherwise it can pick any song (beta).
     """
     count = max(1, min(int(request.get("count") or 3), 5))
@@ -346,29 +346,44 @@ def dj_pick(request):
         if isinstance(song, dict) and song.get("id")
     }
     if library:
-        tempo = lambda s: f" (~{bpm(s)} BPM)" if bpm(s) else ""
+        def facts(s):
+            known = [f"~{bpm(s)} BPM" if bpm(s) else "", clean(s.get("genre", ""), 40)]
+            return f" ({', '.join(k for k in known if k)})" if any(known) else ""
+
         menu = "\n".join(
-            f"- {song_id}: {clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}{tempo(s)}"
+            f"- {song_id}: {clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}{facts(s)}"
             for song_id, s in library.items()
         )
         prompt = (
             f"{situation}"
-            f"You may only pick from this library (id: artist - title (tempo)):\n{menu}\n"
-            "Answer with library ids. Prefer songs that haven't been played or queued; only repeat a song "
-            "once every song has played, starting with the one played longest ago.\n"
-            "Keep the tempo flowing: step to nearby BPMs (or half/double time), and build energy gradually "
-            "unless the vibe asks for a change.\n"
+            f"You may only pick from this library (id: artist - title (tempo, genre)), listed in a set "
+            f"order where neighbors flow into each other:\n{menu}\n"
+            "Answer with library ids, in the order they should play. Prefer songs that haven't been played "
+            "or queued; only repeat a song once every song has played, starting with the one played longest ago.\n"
+            "Make it flow like a real DJ set: each song in the same or a neighboring genre as the one before "
+            "(e.g. hip-hop to R&B, house to disco), never a drastic jump like trap straight into disco or "
+            "EDM. Change genre one small step at a time, keep tempos close (or half/double time), and build "
+            "energy gradually. Only make a big jump when the vibe asks for one.\n"
             f"Pick {count} songs."
         )
         # Songs already queued or played, by the "artist - title" label the page uses.
         label = lambda s: f"{clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}".lower()
         used = {clean(t, 200).lower() for t in [*request.get("queued", []), *request.get("played", [])]}
-        # Fill-ins (when Gemini comes up short) start with the closest tempo to what's playing.
+        unused = [s for s in library.values() if label(s) not in used]
         playing = next((s for s in library.values() if label(s) == clean(request.get("nowPlaying") or "", 200).lower()), None)
-        unused = sorted(
-            (s for s in library.values() if label(s) not in used),
-            key=lambda s: tempo_gap(bpm(playing), bpm(s)),
-        )
+        order = {song_id: number for number, song_id in enumerate(library)}
+        genre = lambda s: clean(s.get("genre", ""), 40).lower()
+
+        def closest(after, choices):
+            """The song that follows `after` best: same genre, then nearest tempo, then nearest in the set order."""
+            if not after:
+                return choices[0]
+            here = order.get(clean(after.get("id", ""), 20), 0)
+            return min(choices, key=lambda s: (
+                genre(s) != genre(after),
+                tempo_gap(bpm(after), bpm(s)),
+                abs(order[clean(s.get("id", ""), 20)] - here),
+            ))
 
         def entry(song, reason, intro):
             return {
@@ -389,12 +404,14 @@ def dj_pick(request):
             cleaned.append(entry(song, pick.get("reason", ""), pick.get("intro", "")))
             if len(cleaned) == count:
                 break
-        # Gemini came up short (repeats, bad ids): fill in with unused songs.
-        for song in unused:
-            if len(cleaned) == count:
+        # Gemini came up short (repeats, bad ids): fill in with unused songs, each one
+        # the closest match to the song before it.
+        while len(cleaned) < count:
+            choices = [s for s in unused if all(p["id"] != s["id"] for p in cleaned)]
+            if not choices:
                 break
-            if all(p["id"] != song["id"] for p in cleaned):
-                cleaned.append(entry(song, "keeps the set going", f"Up next, {song.get('title', '')} by {song.get('artist', '')}."))
+            song = closest(library.get(cleaned[-1]["id"]) if cleaned else playing, choices)
+            cleaned.append(entry(song, "keeps the set going", f"Up next, {song.get('title', '')} by {song.get('artist', '')}."))
     else:
         cleaned = []
         for pick in ask_gemini_for_picks(f"{situation}Pick {count} songs.", PICK_SCHEMA)[:count]:

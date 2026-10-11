@@ -1,0 +1,340 @@
+// DJ transitions for the Deck in audio.js (queue.js uses them when the AI DJ moves on).
+//
+// - Blend: when the two tempos are close, the next song comes in beat-matched and on a
+//   downbeat under the current one, they swap bass lines halfway (only one bass at a
+//   time, like a DJ on a mixer), and afterwards the new song eases back to its own tempo.
+// - Echo out: when the tempos are too far apart (a big genre jump), the current song
+//   echoes out and the next one fades in under the echoes.
+// Either way the mix starts before the current song's ending fades out, and the next
+// song starts where its music starts (no silence). Tempo and downbeats come from
+// analyzeTempo in mix-audio.js.
+//
+// audio.js isn't changed. Like queue.js, this uses the Deck's fields (ctx, buffer,
+// source, rate, offset, anchorTime, playing, filter). The outgoing song keeps playing
+// on its own source (the "tail") into the deck's filter, so the hand controls (filter,
+// volume) still shape both songs.
+
+import { analyzeTempo } from "./mix-audio.js";
+
+const startShare = 0.1; // a song's music starts where its level first reaches this share of its median level
+const endShare = 0.5; // its ending fades out where the level drops below this share for good
+const blendSeconds = 8; // a blend lasts about this long (rounded to whole bars)
+const maxNudge = 0.08; // the incoming song's speed may be nudged up to 8% to match tempos
+const tempoTolerance = 0.06; // a detected tempo is trusted if it's within 6% of the library's
+const bassCutHz = 300; // in a blend, the bass line of one song is cut below this
+const openHz = 10; // a high-pass this low lets everything through
+const echoFeedback = 0.5;
+const echoRingSeconds = 4; // how long an echo-out rings
+const echoFadeInSeconds = 1.5; // the incoming song's fade-in under the echoes
+const glideSeconds = 16; // after a blend the new song eases back to its own tempo over this long
+const analysisSeconds = 45; // tempo is detected on this much audio near the start or end
+const scheduleAhead = 0.1; // seconds: a transition is scheduled this far ahead, for exact timing
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A tempo ratio folded into 0.71–1.41, so half and double time count as the same tempo.
+function fold(ratio) {
+  while (ratio > Math.SQRT2) ratio /= 2;
+  while (ratio < Math.SQRT1_2) ratio *= 2;
+  return ratio;
+}
+const trusted = (detected, expected) => !expected || Math.abs(fold(detected / expected) - 1) <= tempoTolerance;
+
+// Where a song's music starts and where its ending fades out (seconds), from its level
+// in half-second steps.
+const boundsCache = new WeakMap();
+function bounds(buffer) {
+  let found = boundsCache.get(buffer);
+  if (found) return found;
+  const data = buffer.getChannelData(0);
+  const window = Math.round(buffer.sampleRate / 2);
+  const levels = [];
+  for (let at = 0; at + window <= data.length; at += window) {
+    let sum = 0;
+    for (let i = at; i < at + window; i += 8) sum += data[i] * data[i];
+    levels.push(Math.sqrt((sum * 8) / window));
+  }
+  const median = [...levels].sort((a, b) => a - b)[levels.length >> 1] ?? 0;
+  const first = Math.max(0, levels.findIndex((level) => level >= median * startShare));
+  let last = levels.length - 1;
+  while (last > first && levels[last] < median * endShare) last -= 1;
+  let end = (last + 1) / 2;
+  if (end < buffer.duration / 2) end = buffer.duration; // an odd level curve: use the real end
+  found = { start: first / 2, end: Math.min(end, buffer.duration) };
+  boundsCache.set(buffer, found);
+  return found;
+}
+
+// The beat grid near a song's start ("intro") or end ("outro"): its tempo and one
+// downbeat (seconds into the song). Songs like SICKO MODE change tempo, so each end
+// gets its own.
+const gridCache = new WeakMap();
+function grid(buffer, where) {
+  const grids = gridCache.get(buffer) ?? {};
+  if (!grids[where]) {
+    const { start, end } = bounds(buffer);
+    const seconds = Math.min(analysisSeconds, buffer.duration);
+    const from = where === "intro" ? Math.min(start, buffer.duration - seconds) : Math.max(0, end - seconds);
+    const offset = Math.round(from * buffer.sampleRate);
+    const length = Math.min(Math.round(seconds * buffer.sampleRate), buffer.length - offset);
+    const part = new AudioBuffer({
+      length,
+      sampleRate: buffer.sampleRate,
+      numberOfChannels: Math.min(2, buffer.numberOfChannels),
+    });
+    for (let channel = 0; channel < part.numberOfChannels; channel += 1) {
+      part.copyToChannel(buffer.getChannelData(channel).subarray(offset, offset + length), channel);
+    }
+    const { bpm, first } = analyzeTempo(part);
+    grids[where] = { bpm, first: from + first };
+    gridCache.set(buffer, grids);
+  }
+  return grids[where];
+}
+
+const barOf = ({ bpm }) => 240 / bpm;
+// The first downbeat of a grid at or after a point in the song.
+function downbeatAfter(beats, seconds) {
+  const bar = barOf(beats);
+  return beats.first + Math.ceil((seconds - beats.first) / bar - 1e-6) * bar;
+}
+// A blend's length in song seconds: about blendSeconds, in whole bars.
+function blendLength(beats) {
+  const bar = barOf(beats);
+  return Math.max(2, Math.min(8, Math.round(blendSeconds / bar))) * bar;
+}
+
+// An equal-power fade (no dip in loudness halfway) on a gain, between two times.
+function fade(param, rising, start, end) {
+  const curve = Float32Array.from({ length: 32 }, (_, i) => {
+    const x = (i / 31) * (Math.PI / 2);
+    return rising ? Math.sin(x) : Math.cos(x);
+  });
+  param.setValueCurveAtTime(curve, start, Math.max(0.01, end - start));
+}
+
+export function createTransitions(deck) {
+  // The hand controls set the deck's speed every frame. A tempo nudge (to match the
+  // song being mixed out) multiplies whatever they set, and the tail follows the hands too.
+  const setDeckSpeed = deck.setSpeed.bind(deck);
+  let handSpeed = deck.rate;
+  let nudge = 1;
+  let glide = null;
+  let tail = null; // { source, nodes, incoming, nudge, timer, watch } while the outgoing song fades
+
+  deck.setSpeed = (speed) => {
+    handSpeed = speed;
+    // A song scheduled to start on a downbeat hasn't started yet: the next frame applies it.
+    if (deck.ctx && deck.anchorTime > deck.ctx.currentTime) return;
+    setDeckSpeed(speed * nudge);
+    if (tail) tail.source.playbackRate.setTargetAtTime(speed * tail.nudge, deck.ctx.currentTime, 0.03);
+  };
+  function setNudge(value) {
+    nudge = value;
+    setDeckSpeed(handSpeed * nudge);
+  }
+  function stopGlide() {
+    clearInterval(glide);
+    glide = null;
+  }
+  // Eases the nudge back to 1, slowly enough that nobody hears the tempo change.
+  function glideHome() {
+    stopGlide();
+    const from = nudge;
+    const started = performance.now();
+    glide = setInterval(() => {
+      const done = Math.min(1, (performance.now() - started) / (glideSeconds * 1000));
+      setNudge(from + (1 - from) * done);
+      if (done === 1) stopGlide();
+    }, 250);
+  }
+
+  // Ends a transition now: stops the tail and plugs the new song straight into the deck.
+  function finish() {
+    if (!tail) return;
+    const { source, nodes, incoming, timer, watch } = tail;
+    tail = null;
+    clearTimeout(timer);
+    clearInterval(watch);
+    try {
+      source.stop();
+    } catch {
+      // already stopped
+    }
+    source.disconnect();
+    nodes.forEach((node) => node.disconnect());
+    if (deck.source === incoming) {
+      incoming.disconnect();
+      incoming.connect(deck.filter);
+    }
+  }
+
+  function filterNode(type, hz) {
+    const node = deck.ctx.createBiquadFilter();
+    node.type = type;
+    node.frequency.value = hz;
+    return node;
+  }
+  function gainNode(level) {
+    const node = deck.ctx.createGain();
+    node.gain.value = level;
+    return node;
+  }
+
+  return {
+    // Decodes are slow anyway; analyzing a song as soon as it's decoded keeps the
+    // moment of the transition smooth.
+    prepare(buffer) {
+      setTimeout(() => {
+        grid(buffer, "intro");
+        grid(buffer, "outro");
+      }, 0);
+    },
+
+    // Where (seconds into the song) the queue should call mixInto: a little before the
+    // blend has to start for it to end as the song's ending fades out.
+    mixPoint(buffer) {
+      const beats = grid(buffer, "outro");
+      return Math.max(0, bounds(buffer).end - blendLength(beats) - barOf(beats));
+    },
+
+    // Manual song changes: no tail, no nudge.
+    cancel() {
+      finish();
+      stopGlide();
+      setNudge(1);
+    },
+
+    // Mixes from the playing song into `next` (an AudioBuffer). fromBpm/toBpm are the
+    // library's tempos, to sanity-check detection. Once the new song is on the deck,
+    // resolves with what it did ({ style: "blend" | "echo", ... }), or with null if
+    // stillWanted() turned false (or the music stopped) while waiting for the right beat.
+    async mixInto(next, { fromBpm, toBpm, stillWanted = () => true } = {}) {
+      finish();
+      stopGlide();
+      const { ctx } = deck;
+      const current = deck.buffer;
+      const now = () => Math.max(0, deck.position() % current.duration);
+      const speed = () => handSpeed * nudge;
+      const out = bounds(current);
+      const beatsOut = grid(current, "outro");
+      const beatsIn = grid(next, "intro");
+      const knownOut = trusted(beatsOut.bpm, fromBpm);
+      const ratio = fold(beatsOut.bpm / beatsIn.bpm); // the next song's speed that matches beats
+      let blend = knownOut && trusted(beatsIn.bpm, toBpm) && Math.abs(nudge * ratio - 1) <= maxNudge;
+
+      // Where in the current song the transition starts, and how long a blend gets.
+      let at;
+      let length;
+      const plan = () => {
+        const earliest = now() + scheduleAhead * 2;
+        if (blend) {
+          length = blendLength(beatsOut);
+          at = downbeatAfter(beatsOut, Math.max(earliest, out.end - length));
+          // Late (e.g. a skip near the end)? A shorter blend, down to one bar, else echo out.
+          const room = Math.floor((current.duration - 0.05 - at) / barOf(beatsOut)) * barOf(beatsOut);
+          length = Math.min(length, room);
+          if (length < barOf(beatsOut)) blend = false;
+        }
+        if (!blend) {
+          const wanted = Math.max(earliest, out.end - barOf(beatsOut));
+          at = knownOut ? downbeatAfter(beatsOut, wanted) : wanted;
+          if (at > current.duration - 0.2) at = earliest;
+        }
+      };
+      plan();
+      const beat = (knownOut ? 60 / beatsOut.bpm : 0.5) / speed();
+      // An echo-out sends the last beat into the echo, so it starts one beat early.
+      const lead = () => scheduleAhead + (blend ? 0 : beat);
+
+      // Wait for that moment (re-checking: the hands can change the speed meanwhile).
+      for (;;) {
+        if (!stillWanted() || deck.buffer !== current || !deck.playing || !deck.source) return null;
+        const wait = (at - now()) / speed() - lead();
+        if (wait <= 0.02) break;
+        await sleep(Math.min(wait * 1000, 250));
+      }
+      if ((at - now()) / speed() < scheduleAhead / 2) plan(); // woke up late (e.g. a background tab)
+
+      const when = ctx.currentTime + (at - now()) / speed();
+      const outNudge = nudge;
+      // The current song becomes the tail. It's the same source, so not a sample is skipped.
+      const source = deck.source;
+      source.loop = false;
+      deck.source = null;
+      const tailFilter = filterNode("highpass", openHz);
+      const tailGain = gainNode(1);
+      source.disconnect();
+      source.connect(tailFilter).connect(tailGain).connect(deck.filter);
+      const nodes = [tailFilter, tailGain];
+
+      // The next song, scheduled on the downbeat: what Deck.play() does, with a start time.
+      const inBounds = bounds(next);
+      const offset = blend ? downbeatAfter(beatsIn, Math.max(0, inBounds.start - 0.05)) % next.duration : inBounds.start;
+      nudge = blend ? outNudge * ratio : 1;
+      const rate = handSpeed * nudge;
+      const incoming = ctx.createBufferSource();
+      incoming.buffer = next;
+      incoming.loop = true;
+      incoming.playbackRate.value = rate;
+      const inGain = gainNode(0);
+      const inFilter = filterNode("highpass", blend ? bassCutHz : openHz);
+      incoming.connect(inGain).connect(inFilter).connect(deck.filter);
+      incoming.start(when, offset);
+      Object.assign(deck, { buffer: next, source: incoming, offset, anchorTime: when, rate, playing: true });
+
+      let ends;
+      if (blend) {
+        // In over the first half, bass lines swap on the middle downbeat, out over the second half.
+        const half = when + length / 2 / (handSpeed * outNudge);
+        ends = when + length / (handSpeed * outNudge);
+        fade(inGain.gain, true, when, half);
+        fade(tailGain.gain, false, half, ends);
+        tailFilter.frequency.setValueAtTime(openHz, half - beat);
+        tailFilter.frequency.exponentialRampToValueAtTime(bassCutHz, half);
+        inFilter.frequency.setValueAtTime(bassCutHz, half - beat);
+        inFilter.frequency.exponentialRampToValueAtTime(openHz, half);
+      } else {
+        // The last beat repeats into the distance while the next song fades in.
+        const delay = ctx.createDelay(2);
+        delay.delayTime.value = Math.min(1.9, beat * 0.75);
+        const feedback = gainNode(echoFeedback);
+        const echoTone = filterNode("highpass", 400);
+        const echoOut = gainNode(1);
+        tailGain.connect(delay);
+        delay.connect(feedback).connect(delay);
+        delay.connect(echoTone).connect(echoOut).connect(deck.filter);
+        nodes.push(delay, feedback, echoTone, echoOut);
+        tailGain.gain.setValueAtTime(1, when);
+        tailGain.gain.linearRampToValueAtTime(0, when + beat / 2);
+        echoOut.gain.setValueAtTime(1, when);
+        echoOut.gain.linearRampToValueAtTime(0, when + echoRingSeconds);
+        inGain.gain.setValueAtTime(0, when);
+        inGain.gain.linearRampToValueAtTime(1, when + echoFadeInSeconds);
+        ends = when + echoRingSeconds;
+      }
+
+      tail = {
+        source,
+        nodes,
+        incoming,
+        nudge: outNudge,
+        timer: setTimeout(() => {
+          finish();
+          if (blend) glideHome();
+        }, (ends - ctx.currentTime) * 1000 + 50),
+        // A skip, seek or pause replaces or stops the new song: drop the tail with it.
+        watch: setInterval(() => {
+          if (deck.source !== incoming) finish();
+        }, 100),
+      };
+      const round = (value) => Math.round(value * 100) / 100;
+      return {
+        style: blend ? "blend" : "echo",
+        seconds: round(ends - when),
+        from: { bpm: beatsOut.bpm, trusted: knownOut, mixAt: round(at) },
+        to: { bpm: beatsIn.bpm, trusted: trusted(beatsIn.bpm, toBpm), startsAt: round(offset), speed: round(nudge) },
+      };
+    },
+  };
+}

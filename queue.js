@@ -14,11 +14,11 @@
 // Call deck.ensureContext() inside clicks before queue actions: browsers only
 // allow sound after one. The panel and player bar already do this for their buttons.
 
+import { createTransitions } from "./transitions.js";
+
 const djSongsAhead = 2; // the DJ keeps this many songs queued after the current one
 const djPicksPerRequest = 3;
-const songEndMargin = 0.3; // seconds before the end at which the DJ moves on (no intro)
-const introPadding = 0.5; // the intro starts this much earlier than its length, so it ends with the song
-const duckedVolume = 0.25; // the outgoing song's level while the DJ talks over it
+const duckedVolume = 0.5; // the music's level while the DJ talks over a transition
 const duckFadeMs = 600;
 const voiceTimeoutMs = 15000; // never let a stuck voice line stall the set
 const restartThreshold = 3; // ⏮ restarts the song if it's past this many seconds, else goes back one
@@ -127,8 +127,11 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   const currentIndex = () => items.findIndex((item) => item.id === currentId);
   const upcoming = () => items.slice(currentIndex() + 1);
 
-  // The DJ talks over the end of a song with the music turned down. The hand
-  // controls set the volume every frame, so the duck level multiplies whatever they set.
+  // How the DJ moves from song to song: beat-matched blends or echo-outs (transitions.js).
+  const transitions = createTransitions(deck);
+
+  // The DJ talks over a transition with the music turned down. The hand controls
+  // set the volume every frame, so the duck level multiplies whatever they set.
   const setDeckVolume = deck.setVolume.bind(deck);
   let handVolume = 0.8; // audio.js's starting volume
   let duckLevel = 1;
@@ -169,7 +172,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         }
         // Before the first click there's no audio context yet; an offline one can still decode.
         fallbackDecoder ??= new OfflineAudioContext(2, 1, 48000);
-        return (deck.ctx ?? fallbackDecoder).decodeAudioData(data);
+        const buffer = await (deck.ctx ?? fallbackDecoder).decodeAudioData(data);
+        transitions.prepare(buffer);
+        return buffer;
       });
       promise.catch(() => decoded.delete(item.id));
       decoded.set(item.id, promise);
@@ -192,6 +197,12 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // cancel a load, so a slow older one finishing late would replace a newer song.
   let playRequest = 0;
   let playChain = Promise.resolve();
+
+  function playItem(id, { mix = false } = {}) {
+    const request = ++playRequest;
+    playChain = playChain.then(() => (request === playRequest ? loadAndPlay(id, { mix, request }) : undefined));
+    return playChain;
+  }
 
   // While the DJ is introducing a song or switching to it: the flag, and which song.
   let transitioning = false;
@@ -226,12 +237,13 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // if it isn't there yet (run prefetch.py so that never happens on stage).
   async function libraryEntry(song, detail) {
     const title = `${song.artist} - ${song.title}`;
-    if (song.available !== false) return { title, detail, url: song.file, libraryId: song.id };
+    const facts = { libraryId: song.id, bpm: song.bpm, genre: song.genre };
+    if (song.available !== false) return { title, detail, url: song.file, ...facts };
     const download = await downloadYouTube(`https://www.youtube.com/watch?v=${song.id}`, {
       title,
       detail: "Not in music/ yet (run prefetch.py), downloading",
     });
-    return { title, detail, url: download.file, libraryId: song.id };
+    return { title, detail, url: download.file, ...facts };
   }
 
   // ---- AI DJ ----------------------------------------------------------------------
@@ -254,12 +266,6 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       console.warn("DJ voice unavailable, using the browser voice:", error.message);
       return null;
     }
-  }
-
-  // How long a song's intro takes: the clip's length, or a guess for the browser voice.
-  function introSeconds(item) {
-    if (!item.dj?.intro) return 0;
-    return item.dj.voiceSeconds ?? item.dj.intro.split(/\s+/).length / 2.7 + 0.4;
   }
 
   // Plays a DJ line and resolves when it's done (or after a timeout).
@@ -288,21 +294,28 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     });
   }
 
-  // The DJ introduces the next song over the end of the current one (turned down),
-  // then the new song starts. Without an intro it's a straight switch. One at a time.
+  // The DJ mixes into the next song (transitions.js) and introduces it over the mix,
+  // with the music turned down. With nothing playing, it introduces the song first.
+  // One at a time.
   async function transitionTo(item) {
     transitioning = true;
     transitionId = item.id;
     try {
-      const talking = Boolean(item.dj?.intro);
-      dj.talking = talking;
-      changed();
-      decode(item); // decodes while the DJ talks
-      if (talking && deck.playing) await fadeTo(duckedVolume, duckFadeMs);
-      else if (deck.playing) deck.pause();
-      await speak(item);
-      dj.talking = false;
-      await queue.play(item.id); // stops the outgoing song and starts this one
+      const mixing = deck.playing && deck.buffer;
+      if (mixing) {
+        await playItem(item.id, { mix: true }); // resolves once the new song comes in
+        if (currentId !== item.id) return; // skipped or paused meanwhile
+      }
+      if (item.dj?.intro) {
+        dj.talking = true;
+        changed();
+        await fadeTo(duckedVolume, duckFadeMs);
+        await speak(item);
+        dj.talking = false;
+        changed();
+        await fadeTo(1, duckFadeMs);
+      }
+      if (!mixing) await playItem(item.id);
     } finally {
       duck(1);
       dj.talking = false;
@@ -330,7 +343,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         queued: items.map((item) => item.title),
         played,
         count: djPicksPerRequest,
-        ...(useLibrary && { library: library.map(({ id, artist, title, bpm }) => ({ id, artist, title, bpm })) }),
+        ...(useLibrary && { library: library.map(({ id, artist, title, bpm, genre }) => ({ id, artist, title, bpm, genre })) }),
       });
       // Every pick gets ready (and gets its voice line) at the same time; they join
       // the queue in pick order.
@@ -378,43 +391,42 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     topUpDj(); // still short because some picks failed? ask again
   }
 
-  // When a song is about to end (or just looped) with the DJ on, move to the next one.
-  let lastPhase = 0;
-  let lastBuffer = null;
+  // With the DJ on, the mix into the next song starts as the current one nears its end.
+  // No next song yet: the current one loops (and gets mixed out next time around).
   setInterval(() => {
-    if (!dj.on || transitioning || !deck.playing || !deck.buffer) {
-      lastPhase = 0;
-      return;
-    }
-    if (deck.buffer !== lastBuffer) {
-      lastBuffer = deck.buffer; // a different song started: start watching it fresh
-      lastPhase = 0;
-    }
-    const duration = deck.buffer.duration;
-    const phase = deck.position() % duration;
+    if (!dj.on || transitioning || !deck.playing || !deck.buffer) return;
     const next = upcoming()[0];
-    // Start the intro early enough that it finishes as the song does.
-    const lead = next?.dj?.intro ? introSeconds(next) + introPadding : songEndMargin;
-    const ending = phase >= duration - lead || phase < lastPhase;
-    lastPhase = phase;
-    if (!ending || !next) return; // no next song yet: let this one loop
-    transitionTo(next);
+    if (next && position() >= transitions.mixPoint(deck.buffer)) transitionTo(next);
   }, 200);
 
-  async function loadAndPlay(id) {
+  // mix: blend or echo into the song from the playing one (the DJ), instead of switching.
+  async function loadAndPlay(id, { mix = false, request } = {}) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
     loadingId = id;
     changed();
     try {
       const buffer = await decode(item);
-      // Same steps as Deck.loadArrayBuffer in audio.js, with the decoding already done.
       deck.ensureContext();
-      deck.stopSource();
-      deck.buffer = buffer;
-      deck.offset = 0;
-      deck.play();
-      lastPhase = 0;
+      if (mix && deck.playing) {
+        loadingId = null;
+        changed();
+        const from = items.find((entry) => entry.id === currentId);
+        const mixed = await transitions.mixInto(buffer, {
+          fromBpm: from?.bpm,
+          toBpm: item.bpm,
+          stillWanted: () => request === playRequest,
+        });
+        if (!mixed) return;
+        console.info(`AI DJ ${mixed.style}: ${from?.title} → ${item.title}`, mixed);
+      } else {
+        // Same steps as Deck.loadArrayBuffer in audio.js, with the decoding already done.
+        transitions.cancel();
+        deck.stopSource();
+        deck.buffer = buffer;
+        deck.offset = 0;
+        deck.play();
+      }
       currentId = id;
       if (played.at(-1) !== item.title) played = [...played, item.title].slice(-50);
       status = null;
@@ -431,7 +443,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   function position() {
     if (!deck.buffer) return 0;
     const seconds = deck.playing ? deck.position() : deck.offset;
-    return seconds % deck.buffer.duration;
+    return Math.max(0, seconds % deck.buffer.duration);
   }
 
   // ---- public API -----------------------------------------------------------------
@@ -513,9 +525,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
     play(id) {
-      const request = ++playRequest;
-      playChain = playChain.then(() => (request === playRequest ? loadAndPlay(id) : undefined));
-      return playChain;
+      return playItem(id);
     },
 
     togglePlay() {
@@ -546,7 +556,6 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       const wasPlaying = deck.playing;
       if (wasPlaying) deck.pause();
       deck.offset = Math.max(0, Math.min(seconds, deck.buffer.duration - 0.05));
-      lastPhase = 0; // a backwards jump isn't the song looping
       if (wasPlaying) deck.play();
       changed();
     },

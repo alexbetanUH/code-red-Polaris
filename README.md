@@ -46,10 +46,18 @@ YouTube downloads can take 10–30 seconds, with a progress bar.
 ### AI DJ
 
 In the Queue panel, type a vibe (e.g. "chill into hype") and press **Start**. Gemini picks songs from the library that
-fit the vibe, the tempo and what's already playing (no repeats until every song has played), and before each one a DJ voice
-introduces it over the end of the previous song. With the DJ on, songs move on when they end (it keeps two queued
-ahead); **Change vibe** swaps the upcoming picks, **Stop** goes back to normal looping. You can still drag, remove or
-▶ anything.
+fit the vibe and flow from what's playing: same or neighboring genre, close tempo, no repeats until every song has
+played. With the DJ on, it mixes into the next song before the current one's ending fades out (it keeps two queued
+ahead), and a DJ voice introduces each song over the mix:
+
+- **Blend** when the tempos are close: the next song comes in beat-matched on a downbeat, the two swap bass lines
+  halfway, and the new song then eases back to its own tempo.
+- **Echo out** when they're far apart (or a song's tempo can't be detected reliably): the current song echoes out and
+  the next one fades in under the echoes.
+
+Tempo and downbeats are detected from the audio (`analyzeTempo` in `mix-audio.js`) and checked against the library's
+BPM. The browser console logs each mix. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+looping. You can still drag, remove or ▶ anything (those switch instantly).
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
 machine and never reach the browser):
@@ -68,6 +76,7 @@ The landing page's **Talk to the AI DJ** opens `index.html#ai-dj`, which shows t
 - `index.html`: hand tracking, gesture smoothing, hand → audio mapping, drawing
 - `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform)
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
+- `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 
