@@ -27,6 +27,20 @@ Songs come from the queue and the song library (**Queue** button; the up-next st
 
 Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` finish blend, `F` effects mode, `V` visuals mode, `1`–`5` pick, `↑↓` effect amount, `L` frame, `K` lock, `Esc` leave a mode.
 
+### Arcade · 2P
+
+`arcade-versus.html`: two players, one camera. P1 plays with the left half of the frame, P2 with the right half; each side panel shows that player's half of the camera with their hand drawn on it. Pick a game with the arrows in the top bar; the last stop is AirMix, the one-player game (it opens its own page). Background music is a short chiptune made with Web Audio (no audio files).
+
+| Game | How you play | How you win |
+|---|---|---|
+| Snake Battle | Your snake follows your index fingertip; eat apples | 2 rounds of 20 s; tied rounds → most apples in total |
+| Bubble Trails | Your bubble follows your fingertip and leaves a trail | Hit a wall or a trail and the other player scores; first to 3 |
+| Air Pong | Raise or lower your hand to move the paddle | First to 3 |
+| Bubble Pop | Touch bubbles of your color with your fingertip (golden = +2, wrong color = −1) | Best of 3 rounds of 15 s |
+| Hand Duel | Show rock, paper or scissors on beat 4 (a photo of each hand is shown) | First to 3 |
+
+No camera? P1 uses `W A S D` (and `1 2 3` for rock / paper / scissors), P2 the arrow keys (and `8 9 0`). `Space` starts.
+
 ### Run it
 
 Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp` or `pip install -U "yt-dlp[default]"`), Chrome. ffmpeg is optional (one extra download fallback). On Windows, run `python server.py`.
@@ -79,7 +93,7 @@ how (blend or echo out).
 
 ### AirMix
 
-AirMix (`ai-dj.html`, on hold: not linked from the home page yet) is a single-player rhythm game in the style of
+AirMix (`ai-dj.html`, part of the Arcade: the last game on its carousel, and on the home page's Arcade card) is a single-player rhythm game in the style of
 osu!: you play a DJ set with your hands. It opens on **Pick your set**: tick 2–5 songs from the library in the
 order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Then, the
 first time, how to play in three pictures, the camera and a check that it sees both hands; the set loads while

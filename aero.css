@@ -3,7 +3,7 @@
 
    Each app page links this file plus the Nunito font and sets a world on <body>:
      <body class="world-water">   DJ Deck (mix.html)        aqua
-     <body class="world-hills">   Arcade · 2P (arcade.html) lime
+     <body class="world-hills">   Arcade · 2P (arcade-versus.html) lime
      <body class="world-sunset">  AI DJ (index.html)        orange
    Page-specific layout stays in each page's own <style>. */
 

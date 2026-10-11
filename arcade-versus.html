@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AirDeck · Arcade 2P</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* Shared landing-page look for the Snake mockups: Nunito, white glass, glossy pills, orbs. */
+* { box-sizing: border-box; }
+body { margin: 0; height: 100vh; overflow: hidden; font-family: 'Nunito', sans-serif; color: #0d3557; -webkit-font-smoothing: antialiased; }
+.glass { background: linear-gradient(180deg, rgba(255,255,255,.88), rgba(255,255,255,.62)); border: 1px solid #fff;
+  box-shadow: 0 14px 38px rgba(18,92,160,.18), inset 0 1px 0 #fff, inset 0 -1px 0 rgba(120,180,225,.35); backdrop-filter: blur(16px) saturate(1.5); }
+.pill { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 20px; border-radius: 999px; font: 800 15px/1 'Nunito'; }
+.pill::before { content: ''; position: absolute; left: 7%; right: 7%; top: 2px; height: 46%; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.12)); }
+.aqua { border: 1px solid #0b62a8; background: linear-gradient(180deg, #63cdfc 0%, #1e95e3 49%, #0a6bc0 50%, #1d8fe0 100%); color: #fff; text-shadow: 0 1px 1px rgba(0,50,110,.55); box-shadow: 0 6px 14px rgba(10,100,180,.3); }
+.lime { border: 1px solid #4a9a22; background: linear-gradient(180deg, #d4f8ad 0%, #8fda55 49%, #62b92e 50%, #86d44e 100%); color: #123d0c; box-shadow: 0 6px 14px rgba(70,150,30,.3); }
+.sun { border: 1px solid #cf6a12; background: linear-gradient(180deg, #ffe2c2 0%, #ffab60 49%, #f5861f 50%, #ffa24f 100%); color: #3d1800; box-shadow: 0 6px 14px rgba(220,110,20,.3); }
+.ghost { border: 1px solid #fff; background: linear-gradient(180deg, #fff, rgba(220,240,255,.8)); color: #0d3557; }
+.ghost::before { display: none; }
+.orb { display: grid; place-items: center; flex: none; border-radius: 50%; font-weight: 900; border: 3px solid #fff; }
+.orb.p1 { color: #fff; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #9be0ff 14%, #1e95e3 62%, #0b62b0 100%); box-shadow: 0 8px 16px rgba(10,100,180,.3); }
+.orb.p2 { color: #123d0c; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #dcfbbd 14%, #86d44e 62%, #4f9f24 100%); box-shadow: 0 8px 16px rgba(70,150,30,.3); }
+.orb.sunny { color: #3d1800; background: radial-gradient(circle at 34% 28%, #fff 0 9%, #ffe2c2 14%, #ffa24f 62%, #d9700f 100%); box-shadow: 0 8px 18px rgba(220,110,20,.35); }
+.logo { display: flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 900; }
+.logo small { font-size: 12px; letter-spacing: .2em; color: #0a62ad; }
+.sky { background:
+  radial-gradient(ellipse 18% 9% at 8% 82%, rgba(255,255,255,.95), rgba(255,255,255,0) 70%),
+  radial-gradient(ellipse 14% 7% at 16% 78%, rgba(255,255,255,.9), rgba(255,255,255,0) 70%),
+  radial-gradient(ellipse 22% 10% at 92% 18%, rgba(255,255,255,.9), rgba(255,255,255,0) 70%),
+  radial-gradient(ellipse 30% 12% at 60% 106%, rgba(255,255,255,.95), rgba(255,255,255,0) 70%),
+  linear-gradient(180deg, #1478d4 0%, #3a9ee9 40%, #9fd6fa 80%, #d9f0ff 100%); }
+
+  /* Arcade 2P "Versus": five hand-controlled games for two players on one camera.
+     P1 plays with the left half of the (mirrored) camera, P2 with the right half.
+     Keyboard works too (P1: WASD / 1 2 3, P2: arrows / 8 9 0) so it can be tested without a camera. */
+  body { background: linear-gradient(90deg, rgba(30,149,227,.3), rgba(255,255,255,0) 32%, rgba(255,255,255,0) 68%, rgba(111,207,58,.3)), linear-gradient(180deg, #e3f3ff, #f7fcff 60%, #e8f6ff); }
+  button { font-family: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  /* Same header as club.html: one full-width glass pill, logo + label, camera buttons, controls on the right */
+  header { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 16px 24px 0; padding: 8px 10px 8px 16px; border-radius: 999px; }
+  header .logo { margin-right: 8px; font-size: 25px; color: #0b2f52; text-decoration: none; border-radius: 999px; }
+  header .logo:hover { filter: brightness(1.08); }
+  header .pill { min-height: 40px; padding: 0 20px; font-size: 15px; }
+  header .spacer { flex: 1; }
+  #status { font-size: 13px; color: #2b5a82; }
+  .title { display: flex; align-items: center; gap: 8px; }
+  .title .arrow { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #fff; background: linear-gradient(180deg, #fff, #e3f1fb); color: #0a62ad; font-size: 18px; font-weight: 900; box-shadow: 0 3px 8px rgba(18,92,160,.15); }
+  .title .name { min-width: 330px; text-align: center; line-height: 1.1; }
+  .title .name b { font-size: 19px; font-weight: 900; }
+  .title .name i { font-style: normal; font-size: 19px; font-weight: 900; color: #d9700f; }
+  .dots { display: flex; justify-content: center; gap: 6px; margin-top: 3px; }
+  .dots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(120,180,225,.45); }
+  .dots span.on { background: #1e95e3; width: 22px; border-radius: 4px; }
+
+  main { display: grid; grid-template-columns: 290px 1fr 290px; gap: 20px; padding: 16px 24px; height: calc(100vh - 90px); }
+  .side { border-radius: 28px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .tag { display: flex; align-items: center; gap: 12px; }
+  .tag .orb { width: 52px; height: 52px; font-size: 18px; }
+  .tag b { display: block; font-size: 20px; font-weight: 900; }
+  .tag span { font-size: 13px; color: #2b5a82; }
+  .tag .found { color: #3f8f17; font-weight: 800; }
+  .score { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px; }
+  .score b { font-size: 60px; font-weight: 900; line-height: 1; }
+  .score span { font-size: 13px; font-weight: 800; letter-spacing: .12em; color: #2b5a82; }
+  .s1 .score b { color: #0a6bc0; } .s2 .score b { color: #3f8f17; }
+  .cam { position: relative; aspect-ratio: 16 / 10; border-radius: 18px; overflow: hidden; border: 3px solid #fff; box-shadow: 0 6px 14px rgba(18,92,160,.18); background: #8fb6d2; flex: none; }
+  .cam canvas { width: 100%; height: 100%; display: block; }
+  .cam .live { position: absolute; left: 8px; top: 8px; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.9); font-size: 11px; font-weight: 900; color: #c41d1d; display: none; }
+  body.camera-on .cam .live { display: block; }
+  .widget { flex: 1; display: grid; place-items: center; min-height: 0; }
+  .foot { font-size: 13px; color: #2b5a82; display: flex; justify-content: space-between; }
+  .foot b { color: #0d3557; }
+
+  /* Widgets */
+  .pad { position: relative; width: 168px; height: 168px; }
+  .key { position: absolute; width: 56px; height: 56px; display: grid; place-items: center; border-radius: 16px; font-size: 24px; font-weight: 900; color: #7da6c6;
+    background: linear-gradient(180deg, #fff, #e3f1fb); border: 1px solid #fff; box-shadow: 0 4px 10px rgba(18,92,160,.15), inset 0 -2px 0 rgba(120,180,225,.35); }
+  .pad .u { left: 56px; top: 0; } .pad .d { left: 56px; bottom: 0; } .pad .l { left: 0; top: 56px; } .pad .r { right: 0; top: 56px; }
+  .pad .c { left: 56px; top: 56px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #fff, #d8ecfa); }
+  .s1 .on { color: #fff; background: linear-gradient(180deg, #63cdfc, #1e95e3 49%, #0a6bc0 50%, #1d8fe0); border-color: #0b62a8; }
+  .s2 .on { color: #123d0c; background: linear-gradient(180deg, #d4f8ad, #8fda55 49%, #62b92e 50%, #86d44e); border-color: #4a9a22; }
+  .mini { position: relative; width: 200px; aspect-ratio: 1.6; border-radius: 16px; background: linear-gradient(180deg, #fff, #e3f1fb); border: 1px solid #fff; box-shadow: 0 4px 10px rgba(18,92,160,.15), inset 0 -2px 0 rgba(120,180,225,.35); }
+  .mini .dot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 3px 8px rgba(18,92,160,.3); }
+  .s1 .mini .dot { background: radial-gradient(circle at 34% 28%, #fff 0 9%, #9be0ff 14%, #1e95e3 62%, #0b62b0 100%); }
+  .s2 .mini .dot { background: radial-gradient(circle at 34% 28%, #fff 0 9%, #dcfbbd 14%, #86d44e 62%, #4f9f24 100%); }
+  .height { display: flex; align-items: center; gap: 16px; }
+  .track { position: relative; width: 30px; height: 170px; border-radius: 15px; background: rgba(120,180,225,.25); box-shadow: inset 0 2px 4px rgba(18,92,160,.2); }
+  .knob { position: absolute; left: -9px; width: 48px; height: 48px; border-radius: 50%; border: 3px solid #fff; }
+  .s1 .knob { background: radial-gradient(circle at 34% 28%, #fff 0 9%, #9be0ff 14%, #1e95e3 62%, #0b62b0 100%); }
+  .s2 .knob { background: radial-gradient(circle at 34% 28%, #fff 0 9%, #dcfbbd 14%, #86d44e 62%, #4f9f24 100%); }
+  .height .t { font-size: 13px; color: #2b5a82; } .height .t b { display: block; font-size: 26px; color: #0d3557; }
+  .gest { display: flex; gap: 8px; }
+  .gest .key { position: static; width: 70px; height: 70px; font-size: 34px; flex-direction: column; }
+  .gest .key small { font-size: 10px; font-weight: 800; margin-top: -4px; }
+  .center-note { text-align: center; font-size: 13px; color: #2b5a82; margin-top: 10px; }
+  .center-note b { color: #0d3557; }
+  .ring { width: 140px; height: 140px; border-radius: 50%; display: grid; place-items: center; text-align: center; }
+  .ring div { width: 112px; height: 112px; border-radius: 50%; display: grid; place-content: center; background: radial-gradient(circle at 34% 28%, #fff, #eef8ff 60%, #d4ecfb); }
+  .ring b { font-size: 28px; font-weight: 900; } .ring span { font-size: 12px; color: #2b5a82; }
+
+  .center { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+  .board { position: relative; border-radius: 30px; padding: 10px; flex: 1; min-height: 0; }
+  .board canvas { display: block; width: 100%; height: 100%; border-radius: 22px; }
+  .bottom { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 18px; border-radius: 999px; font-size: 14px; color: #2b5a82; }
+  .bottom .bar { flex: 1; height: 10px; border-radius: 5px; background: rgba(120,180,225,.3); overflow: hidden; }
+  .bottom .bar div { height: 100%; background: linear-gradient(180deg, #ffe2c2, #ffab60 49%, #f5861f 50%); }
+  .bottom b { color: #0d3557; }
+
+  /* Overlay on the board: start, countdown, round and match results */
+  .ic { flex: none; vertical-align: -3px; }
+  .title .arrow { display: grid; place-items: center; padding: 0; }
+  .gorb { display: inline-grid; vertical-align: middle; margin-right: 6px; border-width: 2px; }
+  .cam .live i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; background: #e0302a; box-shadow: 0 0 0 3px rgba(224,48,42,.2); }
+  .tag .found .ic { vertical-align: -2px; margin-right: 2px; }
+  .gest .key .ic { margin-bottom: 2px; }
+  .bottom > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+  .overlay .gorb { margin: 0 auto 12px; display: grid; }
+  .overlay { position: absolute; inset: 10px; border-radius: 22px; display: grid; place-items: center; text-align: center; background: rgba(240,248,255,.72); backdrop-filter: blur(6px); }
+  .overlay[hidden] { display: none; }
+  .overlay h2 { margin: 0; font-size: 46px; font-weight: 900; color: #0b2f52; }
+  .overlay p { margin: 8px auto 0; max-width: 520px; font-size: 17px; line-height: 1.5; color: #2b5a82; }
+  .overlay p b { color: #0b2f52; }
+  .overlay .count { font-size: 140px; font-weight: 900; color: #d9700f; line-height: 1; }
+  .overlay .pill { margin-top: 22px; min-height: 56px; padding: 0 34px; font-size: 20px; }
+  .overlay .keys { margin-top: 14px; font-size: 13px; color: #5a7fa0; }
+</style>
+</head>
+<body>
+<header class="glass">
+  <a class="logo" href="landing.html" title="Back to the home page"><svg width="32" height="32" viewBox="0 0 36 36"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#fff"/><stop offset=".2" stop-color="#9be0ff"/><stop offset=".75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity=".75" transform="rotate(-25 13 10)"/></svg>AirDeck <small>ARCADE</small></a>
+  <button class="pill aqua" id="camBtn" disabled>Loading model…</button>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <div class="title">
+    <button class="arrow" id="prev" aria-label="Previous game" data-ic="left"></button>
+    <div class="name"><span id="title"></span><div class="dots" id="dots"></div></div>
+    <button class="arrow" id="next" aria-label="Next game" data-ic="right"></button>
+  </div>
+  <span class="spacer"></span>
+  <button class="pill ghost" id="musicBtn" aria-pressed="false"></button>
+  <button class="pill ghost" id="pauseBtn"></button>
+  <button class="pill ghost" id="restartBtn" data-ic="restart">Restart</button>
+</header>
+<main>
+  <section class="side s1 glass" id="p1"></section>
+  <div class="center">
+    <div class="board glass">
+      <canvas id="art"></canvas>
+      <div class="overlay" id="overlay"></div>
+    </div>
+    <div class="bottom glass"><span data-ic="clock"><b id="time"></b></span><div class="bar"><div id="timeBar"></div></div><span id="win"></span></div>
+  </div>
+  <section class="side s2 glass" id="p2"></section>
+</main>
+<video id="video" playsinline muted hidden></video>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const $ = (id) => document.getElementById(id);
+
+// ---- Tuning knobs --------------------------------------------------------------
+const POINT_MIN = 0.55;       // index finger length / palm size needed to count as "pointing"
+const HEIGHT_BOTTOM = 0.85;   // palm y (0 top … 1 bottom) that maps to paddle at the bottom
+const HEIGHT_TOP = 0.2;       // … and to the top
+const KEY_HOLD = 1.5;         // seconds a key press overrides the hand
+
+// ---- Input: one entry per player, filled by the hand tracker or the keyboard -------
+// dir: "u" | "d" | "l" | "r" | null · height: 0 (bottom) … 1 (top)
+// tip: index fingertip in board space 0…1 · gesture: "rock" | "paper" | "scissors" | null
+const input = { 1: blankInput(), 2: blankInput() };
+function blankInput() { return { present: false, dir: null, height: 0.5, tip: null, gesture: null, lm: null, keyAt: -99 }; }
+
+// ---- Hand tracking -----------------------------------------------------------------
+const video = $("video");
+let landmarker = null, camOn = false, lastVideoTime = -1;
+
+async function loadModel() {
+  const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
+  const options = (delegate) => ({
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: "VIDEO", numHands: 2,
+    minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.6, minTrackingConfidence: 0.6,
+  });
+  try { landmarker = await HandLandmarker.createFromOptions(fileset, options("GPU")); }
+  catch { landmarker = await HandLandmarker.createFromOptions(fileset, options("CPU")); }
+}
+loadModel().then(() => {
+  $("camBtn").disabled = false; $("camBtn").textContent = "Start camera";
+}).catch(() => {
+  $("camBtn").textContent = "Model failed"; $("status").textContent = "Hand model could not load · keyboard still works";
+});
+
+$("camBtn").onclick = async () => {
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: false });
+    await video.play();
+    camOn = true; document.body.classList.add("camera-on");
+    $("camBtn").textContent = "Camera on"; $("camBtn").classList.replace("aqua", "ghost"); $("camBtn").disabled = true;
+  } catch (e) {
+    $("status").textContent = "Camera blocked: allow it in the address bar";
+  }
+};
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function readHand(lm, p) {
+  // Mirror x so it matches what the players see (like a selfie).
+  const m = lm.map(q => ({ x: 1 - q.x, y: q.y }));
+  const palm = dist(m[0], m[9]) || 1e-3;
+  // Pointing direction: index knuckle → index tip
+  const dx = m[8].x - m[5].x, dy = m[8].y - m[5].y;
+  let dir = null;
+  if (Math.hypot(dx * 16 / 9, dy) / palm > POINT_MIN) dir = Math.abs(dx * 16 / 9) > Math.abs(dy) ? (dx > 0 ? "r" : "l") : (dy > 0 ? "d" : "u");
+  // Height of the palm center
+  const height = Math.min(1, Math.max(0, (HEIGHT_BOTTOM - m[9].y) / (HEIGHT_BOTTOM - HEIGHT_TOP)));
+  // Fingertip mapped from this player's half of the frame to the whole board
+  const hx = p === 1 ? m[8].x / 0.5 : (m[8].x - 0.5) / 0.5;
+  const tip = { x: Math.min(1, Math.max(0, (hx - 0.08) / 0.84)), y: Math.min(1, Math.max(0, (m[8].y - 0.1) / 0.8)) };
+  // Gesture: which fingers are extended (tip farther from the wrist than the middle joint)
+  const ext = [[8, 6], [12, 10], [16, 14], [20, 18]].map(([t, j]) => dist(m[t], m[0]) > dist(m[j], m[0]) * 1.1);
+  const n = ext.filter(Boolean).length;
+  let gesture = null;
+  if (n === 0) gesture = "rock";
+  else if (n >= 4) gesture = "paper";
+  else if (ext[0] && ext[1] && !ext[2] && !ext[3]) gesture = "scissors";
+  return { dir, height, tip, gesture, lm: m };
+}
+
+function track(now) {
+  if (!camOn || !landmarker || video.readyState < 2 || video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+  const res = landmarker.detectForVideo(video, now);
+  const seen = { 1: null, 2: null };
+  for (const lm of res.landmarks) {
+    const p = 1 - lm[0].x < 0.5 ? 1 : 2;   // wrist on the left half of the mirrored frame = P1
+    if (!seen[p]) seen[p] = lm;
+  }
+  for (const p of [1, 2]) {
+    const inp = input[p];
+    inp.present = !!seen[p];
+    inp.lm = null;
+    if (!seen[p]) { if (clock - inp.keyAt >= KEY_HOLD) { inp.tip = null; inp.gesture = null; } continue; }
+    const h = readHand(seen[p], p);
+    inp.lm = h.lm;
+    if (clock - inp.keyAt < KEY_HOLD) continue;   // keyboard has priority for a moment
+    inp.height = inp.height * 0.6 + h.height * 0.4;
+    inp.tip = h.tip;
+    if (h.dir) inp.dir = h.dir;
+    inp.gesture = h.gesture;
+  }
+}
+
+// ---- Keyboard fallback -----------------------------------------------------------
+const KEYS = {
+  w: [1, "u"], s: [1, "d"], a: [1, "l"], d: [1, "r"],
+  arrowup: [2, "u"], arrowdown: [2, "d"], arrowleft: [2, "l"], arrowright: [2, "r"],
+  1: [1, "rock"], 2: [1, "paper"], 3: [1, "scissors"], 8: [2, "rock"], 9: [2, "paper"], 0: [2, "scissors"],
+};
+addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (k === " ") { e.preventDefault(); overlayAction(); return; }
+  const m = KEYS[k]; if (!m) return;
+  e.preventDefault();
+  const [p, v] = m, inp = input[p];
+  inp.keyAt = clock;
+  if (v.length === 1) {
+    inp.dir = v;
+    if (v === "u") inp.height = Math.min(1, inp.height + 0.12);
+    if (v === "d") inp.height = Math.max(0, inp.height - 0.12);
+    const t = inp.tip || { x: 0.5, y: 0.5 };
+    inp.tip = { x: Math.min(1, Math.max(0, t.x + (v === "r" ? .06 : v === "l" ? -.06 : 0))), y: Math.min(1, Math.max(0, t.y + (v === "d" ? .06 : v === "u" ? -.06 : 0))) };
+  } else inp.gesture = v;
+});
+
+// ---- Little sounds -----------------------------------------------------------------
+let actx = null;
+function beep(freq, dur = 0.08, type = "triangle", vol = 0.15) {
+  try {
+    actx = actx || new AudioContext();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+  } catch {}
+}
+
+// ---- Background song --------------------------------------------------------------
+// "Sky Arcade": a short original chiptune made with Web Audio (no audio files, no rights
+// issues). 4 chords (F G Em Am) at 128 BPM: kick, hi-hat, bass, arpeggio and a lead that
+// joins every other loop. It starts with the first Start click (browsers block autoplay).
+const music = {
+  on: true, playing: false, bpm: 128, step: 0, next: 0, timer: null, out: null,
+  CHORDS: [[53, 57, 60], [55, 59, 62], [52, 55, 59], [57, 60, 64]],
+  LEAD: [
+    77, 0, 76, 0, 72, 0, 69, 0, 72, 0, 74, 0, 76, 0, 0, 0,
+    74, 0, 72, 0, 71, 0, 67, 0, 71, 0, 72, 0, 74, 0, 0, 0,
+    76, 0, 79, 0, 76, 0, 71, 0, 74, 0, 76, 0, 79, 0, 0, 0,
+    81, 0, 79, 0, 76, 0, 72, 0, 76, 0, 74, 0, 72, 0, 0, 0,
+  ],
+  start() {
+    if (!this.on || this.playing) return;
+    actx = actx || new AudioContext();
+    actx.resume();
+    if (!this.out) {
+      this.out = actx.createGain(); this.out.gain.value = 0.22; this.out.connect(actx.destination);
+      const n = actx.createBuffer(1, actx.sampleRate * 0.2, actx.sampleRate), d = n.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      this.noise = n;
+    }
+    this.playing = true; this.next = actx.currentTime + 0.05;
+    this.timer = setInterval(() => this.schedule(), 25);
+  },
+  stop() { this.playing = false; clearInterval(this.timer); },
+  hz: (m) => 440 * 2 ** ((m - 69) / 12),
+  tone(t, freq, dur, type, vol, slideTo) {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.out); o.start(t); o.stop(t + dur + 0.02);
+  },
+  hat(t) {
+    const src = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+    src.buffer = this.noise; f.type = "highpass"; f.frequency.value = 7000;
+    g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    src.connect(f).connect(g).connect(this.out); src.start(t); src.stop(t + 0.06);
+  },
+  schedule() {
+    const s16 = 60 / this.bpm / 4;
+    while (this.next < actx.currentTime + 0.12) {
+      const t = this.next, k = this.step % 16, bar = Math.floor(this.step / 16) % 4, loop = Math.floor(this.step / 64);
+      const ch = this.CHORDS[bar];
+      if (k % 4 === 0) this.tone(t, 150, 0.14, "sine", 0.9, 45);                       // kick
+      if (k % 4 === 2) this.hat(t);                                                     // hi-hat
+      if ([0, 3, 6, 8, 11, 14].includes(k)) this.tone(t, this.hz(ch[0] - 12 + (k === 6 || k === 14 ? 7 : 0)), s16 * 1.6, "triangle", 0.35);
+      this.tone(t, this.hz(ch[[0, 1, 2, 1][k % 4]] + 12), s16 * 0.9, "square", 0.035);  // arpeggio
+      const m = this.LEAD[this.step % 64];
+      if (loop % 2 === 1 && m) { this.tone(t, this.hz(m), s16 * 1.8, "square", 0.05); this.tone(t, this.hz(m + 12), s16 * 1.2, "triangle", 0.04); }
+      this.step++; this.next += s16;
+    }
+  },
+};
+
+// ---- Icons -------------------------------------------------------------------------
+// Rounded line icons on a 24×24 grid, used as inline SVG in the UI and as Path2D on the board.
+const circ = (cx, cy, r) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+const ICONS = {
+  apple: ["M12 7c-2-2-6.5-1.5-7 2.5S7.5 20 10.5 20c.8 0 1-.5 1.5-.5s.7.5 1.5.5C16.5 20 19.5 13.5 19 9.5S14 5 12 7z", "M12 7c0-2 1-3.5 3-4"],
+  bubbles: [circ(8, 15, 4), circ(16, 8, 3), circ(17.5, 17, 2)],
+  paddles: ["M5 5v10", "M19 9v10", circ(12, 12, 2)],
+  burst: [circ(12, 12, 4), "M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"],
+  hand: ["M18 11V6a2 2 0 0 0-4 0", "M14 10V4a2 2 0 0 0-4 0v2", "M10 10.5V6a2 2 0 0 0-4 0v8", "M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"],
+  rock: ["M4.5 15.5c-1.2-4 1.8-8.5 7-8.5 4.5 0 8.3 3 7.8 7.3-.4 3.6-3.8 5.2-7.8 5.2s-6.2-1-7-4z", "M8 10.5l2.5 1.5 1.5-2.5", "M14.5 15l2.5-1.5"],
+  paper: ["M7 3h7l4 4v14H7z", "M14 3v4h4", "M10 12h5M10 15h5M10 18h3"],
+  scissors: [circ(6, 6, 3), circ(6, 18, 3), "M8.12 8.12L12 12", "M20 4L8.12 15.88", "M14.8 14.8L20 20"],
+  clock: [circ(12, 12, 9), "M12 7v5l3 2"],
+  pause: ["M9 5v14", "M15 5v14"],
+  play: ["M7 5l12 7-12 7z"],
+  check: ["M5 12.5l4.5 4.5L19 7"],
+  left: ["M15 5l-7 7 7 7"],
+  right: ["M9 5l7 7-7 7"],
+  music: ["M9 18V5l12-2v13", circ(6, 18, 3), circ(18, 16, 3)],
+  mute: ["M9 18V5l12-2v13", circ(6, 18, 3), circ(18, 16, 3), "M3 3l18 18"],
+  restart: ["M4 4v5h5", "M4.6 9A8 8 0 1 1 4 13"],
+};
+const ic = (n, size = 18, sw = 2.2) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n].map(d => `<path d="${d}"/>`).join("")}</svg>`;
+function drawIcon(n, cx, cy, size, color, lw = 2) {
+  g.save(); g.translate(cx - size / 2, cy - size / 2); g.scale(size / 24, size / 24);
+  g.strokeStyle = color; g.lineWidth = lw; g.lineCap = g.lineJoin = "round";
+  for (const d of ICONS[n]) g.stroke(new Path2D(d));
+  g.restore();
+}
+// Glossy orb with the game's icon (same orbs as the landing page cards)
+const orb = (gm, size) => `<span class="orb ${gm.orb} gorb" style="width:${size}px;height:${size}px">${ic(gm.icon, Math.round(size * .56), 2.4)}</span>`;
+
+// ---- Bubble bursts: crashes, points, pops and the winner's bubble rain -----------------
+let FX = [];
+function burst(x, y, color, n = 14, power = 1) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, 6.28), v = rand(.3, 1) * H * .35 * power;
+    FX.push({ kind: "b", x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: rand(.008, .022) * H * power, t: rand(.5, .9), T: 0, color });
+  }
+  FX.push({ kind: "ring", x, y, r: H * .02 * power, t: .6, T: 0, color });
+  FX.push({ kind: "ring", x, y, r: H * .005, t: .8, T: -.1, color });
+}
+function rain(color) {
+  FX.push({ kind: "b", x: rand(0, W), y: -H * .05, vx: rand(-20, 20), vy: H * rand(.15, .35), r: rand(.012, .03) * H, t: 4, T: 0, color, float: true });
+}
+function drawFX(dt) {
+  for (const f of FX) {
+    f.T += dt;
+    if (f.T < 0) continue;
+    const k = Math.min(1, f.T / f.t);
+    if (f.kind === "b") {
+      f.x += f.vx * dt; f.y += f.vy * dt;
+      if (!f.float) { f.vx *= .94; f.vy = f.vy * .94 - H * .02 * dt; }
+      g.globalAlpha = f.float ? 1 : 1 - k; bubble(f.x, f.y, f.r * (f.float ? 1 : 1 - .3 * k), f.color);
+    } else {
+      g.globalAlpha = 1 - k; g.strokeStyle = f.color; g.lineWidth = 6 * (1 - k) + 1;
+      g.beginPath(); g.arc(f.x, f.y, f.r + k * H * .12, 0, 6.28); g.stroke();
+    }
+  }
+  g.globalAlpha = 1;
+  FX = FX.filter(f => f.T < f.t && f.y < H * 1.1);
+}
+
+// ---- Drawing helpers -----------------------------------------------------------------
+const AQUA = ["#9be0ff", "#1e95e3", "#0a6bc0"], LIME = ["#dcfbbd", "#86d44e", "#4f9f24"], WHITE = ["#ffffff", "#eef6fc", "#d8e9f6"];
+const PCOL = { 1: "#1e95e3", 2: "#5cb82c" };
+const canvas = $("art"), g = canvas.getContext("2d");
+let W = 0, H = 0;
+function fit() { W = canvas.width = canvas.clientWidth * 1.5; H = canvas.height = canvas.clientHeight * 1.5; }
+function block(x, y, s, [a, b, c], alpha = 1) {
+  g.globalAlpha = alpha;
+  const gr = g.createLinearGradient(0, y, 0, y + s);
+  gr.addColorStop(0, a); gr.addColorStop(.49, b); gr.addColorStop(.5, c); gr.addColorStop(1, b);
+  g.fillStyle = gr; g.beginPath(); g.roundRect(x + 2, y + 2, s - 4, s - 4, s * .25); g.fill();
+  g.fillStyle = "rgba(255,255,255,.55)"; g.beginPath(); g.roundRect(x + s * .16, y + 4, s * .68, s * .3, s * .12); g.fill();
+  g.globalAlpha = 1;
+}
+function bubble(x, y, r, tint) {
+  const gr = g.createRadialGradient(x - r * .3, y - r * .35, r * .1, x, y, r);
+  gr.addColorStop(0, "rgba(255,255,255,.95)"); gr.addColorStop(.4, tint + "66"); gr.addColorStop(.92, tint + "dd"); gr.addColorStop(1, "#ffffff");
+  g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 6.28); g.fill();
+  g.fillStyle = "#fff"; g.beginPath(); g.ellipse(x - r * .38, y - r * .42, r * .26, r * .13, -.7, 0, 6.28); g.fill();
+}
+function apple(cx, cy, r) {
+  const gr = g.createRadialGradient(cx - r * .35, cy - r * .4, r * .1, cx, cy, r);
+  gr.addColorStop(0, "#ffd0c8"); gr.addColorStop(.25, "#ff5a4a"); gr.addColorStop(1, "#c41d1d");
+  g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r, 0, 6.28); g.fill();
+  g.fillStyle = "#6fcf3a"; g.beginPath(); g.ellipse(cx + r * .4, cy - r * 1.1, r * .35, r * .16, -.5, 0, 6.28); g.fill();
+}
+function eyes(x, y, s, dir) {
+  const [dx, dy] = VEC[dir];
+  for (const k of [-1, 1]) {
+    const ex = x + s / 2 + dx * s * .15 + (dy ? k * s * .18 : 0), ey = y + s / 2 + dy * s * .15 + (dx ? k * s * .18 : 0);
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(ex, ey, s * .14, 0, 6.28); g.fill();
+    g.fillStyle = "#0b2f52"; g.beginPath(); g.arc(ex + dx * s * .05, ey + dy * s * .05, s * .07, 0, 6.28); g.fill();
+  }
+}
+// Grid board: returns cell size and offsets so the grid is centered in the canvas
+function gridBoard(cols, rows) {
+  const s = Math.min(W / cols, H / rows), ox = (W - s * cols) / 2, oy = (H - s * rows) / 2;
+  g.fillStyle = "#e6f3fc"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#f4fbff"; g.fillRect(ox, oy, s * cols, s * rows);
+  g.fillStyle = "rgba(190,225,248,.45)";
+  for (let x = 0; x < cols; x++) for (let y = 0; y < rows; y++) if ((x + y) % 2) g.fillRect(ox + x * s, oy + y * s, s, s);
+  return { s, ox, oy };
+}
+function openBoard() {
+  g.fillStyle = "#f4fbff"; g.fillRect(0, 0, W, H);
+  const s = H / 16;
+  g.fillStyle = "rgba(190,225,248,.45)";
+  for (let x = 0; x * s < W; x++) for (let y = 0; y < 16; y++) if ((x + y) % 2) g.fillRect(x * s, y * s, s, s);
+}
+const VEC = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] };
+const OPP = { u: "d", d: "u", l: "r", r: "l" };
+const rand = (a, b) => a + Math.random() * (b - a);
+
+// ---- Games ---------------------------------------------------------------------------
+// Each game: meta for the UI, init(), update(dt) while playing, draw(), and side-panel info.
+// Snake Battle and Bubble Trails move freely (no grid): the head turns toward the player's
+// index fingertip. Positions are in board units: y 0…1 (top→bottom), x 0…aspect.
+const aspect = () => W / H || 1.6;
+const ANG = { u: -Math.PI / 2, d: Math.PI / 2, l: Math.PI, r: 0 };
+function steer(h, p, dt, rate) {
+  const inp = input[p];
+  let want = null;
+  if (clock - inp.keyAt < KEY_HOLD && inp.dir) want = ANG[inp.dir];
+  else if (inp.tip) {
+    const dx = inp.tip.x * aspect() - h.x, dy = inp.tip.y - h.y;
+    if (Math.hypot(dx, dy) > 0.03) want = Math.atan2(dy, dx);
+  }
+  if (want === null) return;
+  const d = Math.atan2(Math.sin(want - h.a), Math.cos(want - h.a));
+  h.a += Math.max(-rate * dt, Math.min(rate * dt, d));
+}
+function advance(h, dt, speed) {
+  h.x += Math.cos(h.a) * speed * dt; h.y += Math.sin(h.a) * speed * dt;
+  const last = h.pts[h.pts.length - 1];
+  if (!last || Math.hypot(h.x - last.x, h.y - last.y) >= 0.01) h.pts.push({ x: h.x, y: h.y });
+}
+const outside = (h, m = 0.015) => h.x < m || h.y < m || h.x > aspect() - m || h.y > 1 - m;
+// Glossy tube along a path, like the landing's buttons: dark rim, color, white highlight.
+const TUBE = { 1: ["#0a6bc0", "#2aa3ef"], 2: ["#3f8f17", "#74cc3c"] };
+function tube(pts, p, width, alpha = 1) {
+  if (pts.length < 2) return;
+  g.globalAlpha = alpha; g.lineJoin = g.lineCap = "round";
+  const path = (oy = 0) => { g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q.x * H, q.y * H + oy) : g.moveTo(q.x * H, q.y * H + oy)); };
+  path(); g.strokeStyle = TUBE[p][0]; g.lineWidth = width * 1.18; g.stroke();
+  path(); g.strokeStyle = TUBE[p][1]; g.lineWidth = width; g.stroke();
+  path(-width * .2); g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = width * .28; g.stroke();
+  g.globalAlpha = 1;
+}
+function head(h, p, r, alpha = 1) {
+  g.globalAlpha = alpha;
+  const x = h.x * H, y = h.y * H;
+  const gr = g.createRadialGradient(x - r * .3, y - r * .35, r * .1, x, y, r);
+  gr.addColorStop(0, "#fff"); gr.addColorStop(.35, TUBE[p][1]); gr.addColorStop(1, TUBE[p][0]);
+  g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 6.28); g.fill();
+  const ca = Math.cos(h.a), sa = Math.sin(h.a);
+  for (const k of [-1, 1]) {
+    const ex = x + ca * r * .35 - sa * k * r * .42, ey = y + sa * r * .35 + ca * k * r * .42;
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(ex, ey, r * .3, 0, 6.28); g.fill();
+    g.fillStyle = "#0b2f52"; g.beginPath(); g.arc(ex + ca * r * .1, ey + sa * r * .1, r * .15, 0, 6.28); g.fill();
+  }
+  g.globalAlpha = 1;
+}
+// Where each player's fingertip points on the board (alpha < 1 = a soft guide)
+function drawTips(alpha) {
+  g.globalAlpha = alpha; g.textAlign = "center";
+  for (const p of [1, 2]) {
+    const t = input[p].tip; if (!t || clock - input[p].keyAt < KEY_HOLD) continue;
+    g.strokeStyle = PCOL[p]; g.lineWidth = 6; g.beginPath(); g.arc(t.x * W, t.y * H, H * .03, 0, 6.28); g.stroke();
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(t.x * W, t.y * H, H * .011, 0, 6.28); g.fill(); g.stroke();
+    g.fillStyle = PCOL[p]; g.font = `900 ${H * .025}px Nunito`; g.fillText("P" + p, t.x * W, t.y * H - H * .045);
+  }
+  g.globalAlpha = 1;
+}
+function startPos(p) {
+  return p === 1 ? { x: aspect() * .15, y: .72, a: 0, pts: [] } : { x: aspect() * .85, y: .28, a: Math.PI, pts: [] };
+}
+
+const snake = {
+  id: "snake", icon: "apple", orb: "p2", name: "Snake Battle", unit: "APPLES", rule: "Most apples wins the round",
+  help: "Your snake <b>follows your index finger</b>. Eat apples to grow. <b>Hit a wall or the other snake and you lose half your tail.</b> 2 rounds of 20 seconds: most rounds wins, and if it ends 1–1, most apples in total.",
+  rounds: 2, roundTime: 20, speed: 0.3, turn: 4.2, base: 0.3, perApple: 0.05,
+  init() {
+    this.s = { 1: this.spawn(1, 0), 2: this.spawn(2, 0) };
+    this.apples = []; for (let i = 0; i < 4; i++) this.addApple();
+  },
+  spawn(p, eaten) { return Object.assign(startPos(p), { eaten, safe: 1 }); },
+  len(sn) { return this.base + sn.eaten * this.perApple; },
+  addApple() {
+    this.apples.push({ x: rand(.08, aspect() - .08), y: rand(.08, .92) });
+  },
+  trim(sn) {   // keep only the last `len` of the path
+    let d = 0;
+    for (let i = sn.pts.length - 1; i > 0; i--) {
+      d += Math.hypot(sn.pts[i].x - sn.pts[i - 1].x, sn.pts[i].y - sn.pts[i - 1].y);
+      if (d > this.len(sn)) { sn.pts.splice(0, i - 1); return; }
+    }
+  },
+  update(dt) {
+    for (const p of [1, 2]) {
+      const sn = this.s[p];
+      sn.safe = Math.max(0, sn.safe - dt);
+      steer(sn, p, dt, this.turn); advance(sn, dt, this.speed); this.trim(sn);
+      const ai = this.apples.findIndex(a => Math.hypot(a.x - sn.x, a.y - sn.y) < 0.045);
+      if (ai >= 0) { burst(this.apples[ai].x * H, this.apples[ai].y * H, "#ff5a4a", 7, .5); this.apples.splice(ai, 1); this.addApple(); sn.eaten++; state.score[p]++; beep(p === 1 ? 660 : 520); }
+    }
+    const a = this.s[1], b = this.s[2];
+    const headOn = Math.hypot(a.x - b.x, a.y - b.y) < 0.04;
+    for (const p of [1, 2]) {
+      const sn = this.s[p], o = this.s[p === 1 ? 2 : 1];
+      if (sn.safe > 0) continue;
+      const hitBody = o.safe <= 0 && o.pts.some(q => Math.hypot(q.x - sn.x, q.y - sn.y) < 0.03);
+      if (outside(sn) || hitBody || (headOn && o.safe <= 0)) this.crash(p);
+    }
+  },
+  crash(p) {
+    beep(140, 0.25, "sawtooth", 0.12);
+    burst(this.s[p].x * H, this.s[p].y * H, PCOL[p]);
+    this.s[p] = this.spawn(p, Math.floor(this.s[p].eaten / 2));
+    this.s[p].safe = 1.5;
+  },
+  draw() {
+    openBoard();
+    for (const a of this.apples) apple(a.x * H, a.y * H, H * .028);
+    for (const p of [1, 2]) {
+      const sn = this.s[p], al = sn.safe > 0 && Math.floor(clock * 8) % 2 ? .35 : 1;
+      tube(sn.pts.concat([{ x: sn.x, y: sn.y }]), p, H * .045, al);
+      head(sn, p, H * .033, al);
+    }
+    drawTips(.55);
+  },
+  foot(p) { return [["Length", this.s ? Math.round(this.len(this.s[p]) * 20) : 6], ["Rounds", state.rounds[p]]]; },
+  widget: "pointer",
+};
+
+const trails = {
+  id: "trails", icon: "bubbles", orb: "p1", name: "Bubble Trails", unit: "POINTS", rule: "Hit a wall or a trail and you lose the round",
+  help: "Your bubble <b>follows your index finger</b> and leaves a trail that stays. <b>Hit a wall or any trail and the other player scores.</b> First to 3 wins.",
+  target: 3, speed: 0.25, turn: 4.5,
+  init() { this.t = { 1: startPos(1), 2: startPos(2) }; this.over = 0; this.age = 0; },
+  update(dt) {
+    if (this.over > 0) { this.over -= dt; if (this.over <= 0) this.init(); return; }
+    this.age += dt;
+    for (const p of [1, 2]) { const h = this.t[p]; steer(h, p, dt, this.turn); advance(h, dt, this.speed); }
+    const dead = {};
+    for (const p of [1, 2]) {
+      const h = this.t[p];
+      dead[p] = outside(h) || [1, 2].some(q => {
+        const pts = this.t[q].pts, end = q === p ? pts.length - 8 : pts.length;   // skip your own newest bit
+        for (let i = 0; i < end; i++) if (Math.hypot(pts[i].x - h.x, pts[i].y - h.y) < 0.022) return true;
+        return false;
+      });
+    }
+    if (Math.hypot(this.t[1].x - this.t[2].x, this.t[1].y - this.t[2].y) < 0.035) dead[1] = dead[2] = true;
+    if (dead[1] || dead[2]) {
+      beep(140, 0.3, "sawtooth", 0.12);
+      if (dead[1] && !dead[2]) state.score[2]++;
+      if (dead[2] && !dead[1]) state.score[1]++;
+      const h = dead[1] ? this.t[1] : this.t[2];
+      for (const q of [1, 2]) if (dead[q]) burst(this.t[q].x * H, this.t[q].y * H, PCOL[q], 18, 1.2);
+      this.over = 1.4;
+      if (Math.max(state.score[1], state.score[2]) >= this.target) endMatch();
+    }
+  },
+  draw() {
+    openBoard();
+    for (const p of [1, 2]) {
+      const h = this.t[p];
+      tube(h.pts.concat([{ x: h.x, y: h.y }]), p, H * .03);
+      // bubbles along the trail
+      for (let i = 0; i < h.pts.length; i += 4) bubble(h.pts[i].x * H, h.pts[i].y * H, H * .012, "#ffffff");
+      head(h, p, H * .026);
+    }
+    drawTips(.55);
+
+  },
+  foot(p) { return [["Trail", this.t ? Math.round(this.t[p].pts.length / 10) : 0], ["Goal", this.target]]; },
+  widget: "pointer",
+};
+
+const pong = {
+  id: "pong", icon: "paddles", orb: "sunny", name: "Air Pong", unit: "POINTS", rule: "The ball speeds up with every hit",
+  help: "<b>Raise or lower your hand</b> to move your paddle. Miss the ball and the other player scores. <b>First to 3 wins.</b>",
+  target: 3,
+  init() { this.pad = { 1: 0.5, 2: 0.5 }; this.serve(Math.random() < .5 ? 1 : -1); this.rally = 0; this.best = this.best || 0; },
+  serve(dirX) { this.ball = { x: 0.5, y: 0.5, vx: 0.45 * dirX, vy: rand(-.3, .3) }; this.wait = 0.8; this.rally = 0; },
+  update(dt) {
+    for (const p of [1, 2]) this.pad[p] += ((1 - input[p].height) - this.pad[p]) * Math.min(1, dt * 12);
+    if (this.wait > 0) { this.wait -= dt; return; }
+    const A = W / H, b = this.ball, ph = 0.22, px = 0.045;
+    b.x += b.vx * dt / A; b.y += b.vy * dt;
+    if (b.y < 0.03 || b.y > 0.97) { b.vy *= -1; b.y = Math.min(.97, Math.max(.03, b.y)); }
+    for (const p of [1, 2]) {
+      const x = p === 1 ? px : 1 - px, side = p === 1 ? b.vx < 0 : b.vx > 0;
+      if (side && Math.abs(b.x - x) < 0.02 && Math.abs(b.y - this.pad[p]) < ph / 2 + 0.03) {
+        b.vx = -b.vx * 1.07; b.vy = (b.y - this.pad[p]) / (ph / 2) * 0.6;
+        this.rally++; this.best = Math.max(this.best, this.rally); beep(p === 1 ? 700 : 560);
+      }
+    }
+    if (b.x < -0.02 || b.x > 1.02) {
+      const scorer = b.x < 0 ? 2 : 1; state.score[scorer]++; beep(200, 0.25, "square", 0.08);
+      burst(Math.min(1, Math.max(0, b.x)) * W, b.y * H, PCOL[scorer], 16);
+      if (state.score[scorer] >= this.target) return endMatch();
+      this.serve(scorer === 1 ? 1 : -1);
+    }
+  },
+  draw() {
+    openBoard();
+    const s = H / 16;
+    for (let y = 0.5; y < 16; y += 2) block(W / 2 - s / 2, y * s, s, WHITE, .8);
+    g.fillStyle = "rgba(11,47,82,.85)"; g.font = `900 ${s * 2.4}px Nunito`; g.textAlign = "center";
+    g.fillText(state.score[1], W / 2 - s * 3, s * 3); g.fillText(state.score[2], W / 2 + s * 3, s * 3);
+    for (const p of [1, 2]) {
+      const n = 4, top = this.pad[p] * H - n * s / 2, x = p === 1 ? W * .045 - s / 2 : W * (1 - .045) - s / 2;
+      for (let i = 0; i < n; i++) block(x, top + i * s, s, p === 1 ? AQUA : LIME);
+    }
+    if (this.ball) bubble(this.ball.x * W, this.ball.y * H, s * .6, "#ff9a3c");
+  },
+  foot(p) { return [["Rally", this.rally || 0], ["Best rally", this.best || 0]]; },
+  widget: "height",
+};
+
+const pop = {
+  id: "pop", icon: "burst", orb: "p1", name: "Bubble Pop", unit: "POPS", rule: "Pop your color · wrong color = −1",
+  help: "<b>Touch bubbles of your color</b> with your index fingertip. P1 pops <b>aqua</b>, P2 pops <b>lime</b>. Golden = +2, wrong color = −1. 3 rounds of 15 seconds.",
+  rounds: 3, roundTime: 15,
+  init() { this.b = []; this.spawnT = 0; this.combo = { 1: 0, 2: 0 }; this.lastPop = { 1: -9, 2: -9 }; this.fx = []; },
+  update(dt) {
+    this.spawnT -= dt;
+    if (this.spawnT <= 0) {
+      this.spawnT = 0.45;
+      const k = Math.random();
+      this.b.push({ x: rand(.06, .94), y: 1.08, r: rand(.045, .075), vy: rand(.1, .18), kind: k < .08 ? 0 : k < .54 ? 1 : 2, ph: rand(0, 6) });
+    }
+    for (const b of this.b) { b.y -= b.vy * dt; b.x += Math.sin(clock * 1.5 + b.ph) * 0.02 * dt; }
+    this.b = this.b.filter(b => b.y > -0.1);
+    const A = W / H;
+    for (const p of [1, 2]) {
+      const t = input[p].tip; if (!t) continue;
+      for (let i = this.b.length - 1; i >= 0; i--) {
+        const b = this.b[i];
+        if (Math.hypot((t.x - b.x) * A, t.y - b.y) < b.r * 1.15) {
+          this.b.splice(i, 1);
+          let pts = b.kind === 0 ? 2 : b.kind === p ? 1 : -1;
+          if (pts > 0) { this.combo[p] = clock - this.lastPop[p] < 1.5 ? this.combo[p] + 1 : 1; this.lastPop[p] = clock; beep(500 + this.combo[p] * 60); }
+          else { this.combo[p] = 0; beep(180, 0.15, "square", 0.08); }
+          state.score[p] = Math.max(0, state.score[p] + pts);
+          this.fx.push({ x: b.x, y: b.y, t: 0.7, txt: (pts > 0 ? "+" : "") + pts, p });
+          burst(b.x * W, b.y * H, b.kind === 0 ? "#ffad1f" : PCOL[b.kind], 8, .6);
+        }
+      }
+    }
+    for (const f of this.fx) f.t -= dt;
+    this.fx = this.fx.filter(f => f.t > 0);
+  },
+  draw() {
+    openBoard();
+    const A = W / H;
+    for (const b of this.b) bubble(b.x * W, b.y * H, b.r * H, b.kind === 0 ? "#ffad1f" : PCOL[b.kind]);
+    g.textAlign = "center"; g.font = `900 ${H * .04}px Nunito`;
+    for (const f of this.fx) { g.globalAlpha = f.t / .7; g.fillStyle = f.txt[0] === "+" ? PCOL[f.p] : "#c41d1d"; g.fillText(f.txt, f.x * W, (f.y - (.7 - f.t) * .1) * H); }
+    g.globalAlpha = 1;
+    drawTips(1);
+  },
+  foot(p) { return [["Combo", this.combo ? this.combo[p] : 0], ["Rounds", state.rounds[p]]]; },
+  widget: "combo",
+};
+
+const duel = {
+  id: "duel", icon: "hand", orb: "sunny", name: "Hand Duel", unit: "WINS", rule: "Rock, paper or scissors on beat 4",
+  help: "Count along: 1, 2, 3… and <b>show rock, paper or scissors on 4</b>. Hold it still for a moment. <b>First to 3 wins.</b>",
+  target: 3, beat: 0.6,
+  init() { this.t = 0; this.lastBeat = -1; this.shown = null; this.result = ""; this.draws = this.draws || 0; },
+  update(dt) {
+    this.t += dt;
+    const b = Math.floor(this.t / this.beat);
+    if (b !== this.lastBeat && b < 4) beep(b === 3 ? 880 : 440, 0.1); this.lastBeat = b;
+    if (!this.shown && this.t >= this.beat * 4.5) {    // read the hands half a beat after "4"
+      const a = input[1].gesture, c = input[2].gesture;
+      this.shown = { 1: a, 2: c };
+      this.photo = { 1: handPhoto(1), 2: handPhoto(2) };
+      const beats = { rock: "scissors", paper: "rock", scissors: "paper" };
+      let w = 0;
+      if (a && !c) w = 1; else if (c && !a) w = 2;
+      else if (a && c && a !== c) w = beats[a] === c ? 1 : 2;
+      if (w) { state.score[w]++; this.result = `Player ${w} wins the throw!`; beep(w === 1 ? 760 : 600, 0.3); burst((w === 1 ? .27 : .73) * W, H * .45, PCOL[w], 22, 1.4); }
+      else { this.draws++; this.result = a ? "Draw! Again…" : "No hands seen… again"; }
+    }
+    if (this.shown && this.t >= this.beat * 4.5 + 2) {
+      if (Math.max(state.score[1], state.score[2]) >= this.target) return endMatch();
+      this.init();
+    }
+  },
+  draw() {
+    openBoard();
+    const b = Math.min(4, Math.floor(this.t / this.beat) + 1);
+    for (let i = 1; i <= 4; i++) {
+      const x = W / 2 + (i - 2.5) * H * .12, y = H * .1;
+      bubble(x, y, H * .04 * (i === b && !this.shown ? 1.25 : 1), i <= b ? (i === 4 ? "#ff9a3c" : "#1e95e3") : "#cfe3f2");
+      g.fillStyle = "#fff"; g.font = `900 ${H * .035}px Nunito`; g.textAlign = "center"; g.fillText(i, x, y + H * .013);
+    }
+    const card = (x, p) => {
+      const pick = this.shown ? this.shown[p] : null;
+      g.fillStyle = "rgba(255,255,255,.92)"; g.beginPath(); g.roundRect(x - W * .15, H * .2, W * .3, H * .52, 34); g.fill();
+      g.strokeStyle = PCOL[p]; g.lineWidth = 8; g.stroke();
+      g.textAlign = "center";
+      const ph = this.shown && this.photo && this.photo[p], sz = Math.min(W * .25, H * .34), top = H * .24;
+      if (ph) {
+        g.save(); g.beginPath(); g.roundRect(x - sz / 2, top, sz, sz, 24); g.clip(); g.drawImage(ph, x - sz / 2, top, sz, sz); g.restore();
+        g.strokeStyle = "#fff"; g.lineWidth = 6; g.beginPath(); g.roundRect(x - sz / 2, top, sz, sz, 24); g.stroke();
+      } else if (this.shown && pick) drawIcon(pick, x, top + sz / 2, sz * .8, PCOL[p], 1.6);
+      else if (this.shown) { g.font = `900 ${H * .2}px Nunito`; g.fillStyle = "#cfe3f2"; g.fillText("?", x, top + sz * .72); }
+      else drawIcon("hand", x, top + sz / 2, sz * .7, "#cfe3f2", 1.6);
+      g.font = `900 ${H * .045}px Nunito`; g.fillStyle = PCOL[p];
+      g.fillText(this.shown ? (pick || "no hand").toUpperCase() : `PLAYER ${p}`, x, H * .66);
+    };
+    card(W * .27, 1); card(W * .73, 2);
+    g.font = `900 ${H * .07}px Nunito`; g.fillStyle = "#d9700f"; g.textAlign = "center"; g.fillText("VS", W / 2, H * .5);
+    g.fillStyle = "#0b2f52"; g.font = `900 ${H * .06}px Nunito`;
+    g.fillText(this.shown ? this.result : b < 4 ? `${b}…` : "Show it now!", W / 2, H * .86);
+  },
+  foot(p) { return [["Draws", this.draws || 0], ["Goal", this.target]]; },
+  widget: "gesture",
+};
+
+function handPhoto(p) {
+  const lm = input[p].lm;
+  if (!camOn || !lm || !video.videoWidth) return null;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const q of lm) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y); }
+  const cx = (x0 + x1) / 2 * vw, cy = (y0 + y1) / 2 * vh, size = Math.max((x1 - x0) * vw, (y1 - y0) * vh) * 1.35;
+  const c = document.createElement("canvas"); c.width = c.height = 320;
+  const cg = c.getContext("2d");
+  cg.translate(320, 0); cg.scale(-1, 1);   // lm is mirrored, so the raw frame center is vw - cx
+  cg.drawImage(video, vw - cx - size / 2, cy - size / 2, size, size, 0, 0, 320, 320);
+  return c;
+}
+
+// AirMix: the one-player game, on its own page (ai-dj.html: its own tracking, song
+// library and screens). Here it's a stop on the carousel, with a preview and a link.
+const airmix = {
+  id: "airmix", icon: "music", orb: "sunny", name: "AirMix", unit: "SOLO", rule: "1 player · play a DJ set on the beat",
+  help: "Pick your songs, then <b>put your thumbs and index fingers on the dots</b> as they land on the beat. Slide to mix into the next song. <b>1 player</b>, both hands.",
+  link: "ai-dj.html",
+  init() { this.t = 0; },
+  update(dt) { this.t += dt; },
+  draw() {
+    openBoard();
+    // A shape like the game's: two hands' fingertip dots, numbered, rings closing in.
+    const t = (this.t ?? 0) + performance.now() / 1000, beat = 0.5;
+    const close = 1 - ((t / beat) % 2) / 2;
+    for (const [x, col] of [[W * .36, "#1e95e3"], [W * .64, "#6fcf3a"]]) {
+      const y = H * .5, r = H * .055;
+      g.strokeStyle = col; g.lineWidth = 6; g.setLineDash([14, 10]);
+      g.beginPath(); g.arc(x, y, r * 2.2 * (1 + 1.2 * close), 0, 6.28); g.stroke(); g.setLineDash([]);
+      g.lineWidth = r * .3; g.beginPath(); g.moveTo(x, y + r * 1.1); g.lineTo(x, y - r * 1.1); g.stroke();
+      for (const [dy, filled] of [[r * 1.1, false], [-r * 1.1, true]]) {
+        g.fillStyle = filled ? col : "#fff"; g.beginPath(); g.arc(x, y + dy, r, 0, 6.28); g.fill();
+        g.strokeStyle = col; g.lineWidth = r * .28; g.stroke();
+        g.fillStyle = filled ? "#fff" : col; g.font = `900 italic ${r * 1.1}px Nunito`; g.textAlign = "center"; g.fillText("1", x, y + dy + r * .38);
+      }
+    }
+    g.strokeStyle = "rgba(11,47,82,.35)"; g.lineWidth = 3; g.setLineDash([10, 10]);
+    g.beginPath(); g.moveTo(W * .36 + H * .07, H * .5); g.lineTo(W * .64 - H * .07, H * .5); g.stroke(); g.setLineDash([]);
+  },
+  foot(p) { return p === 1 ? [["Players", 1], ["Songs", "2–5"]] : [["Players", 1], ["Hands", 2]]; },
+  widget: "solo",
+};
+
+const GAMES = [snake, trails, pong, pop, duel, airmix];
+
+// ---- Match flow: idle → countdown → playing → (round over) → match over ----------------
+let clock = 0, paused = false;
+const state = { game: snake, phase: "idle", score: { 1: 0, 2: 0 }, rounds: { 1: 0, 2: 0 }, round: 1, timeLeft: 0, count: 0, winner: 0 };
+
+function selectGame(i) {
+  FX = [];
+  state.game = GAMES[(i + GAMES.length) % GAMES.length];
+  history.replaceState(null, "", "#" + state.game.id);
+  resetMatch();
+}
+function resetMatch() {
+  Object.assign(state, { phase: "idle", score: { 1: 0, 2: 0 }, rounds: { 1: 0, 2: 0 }, totals: { 1: 0, 2: 0 }, round: 1, winner: 0 });
+  state.game.best = 0; state.game.draws = 0;
+  state.game.init(); state.timeLeft = state.game.roundTime || 0;
+  buildSides(); showOverlay();
+}
+function startRound() {
+  music.start();
+  state.score = { 1: 0, 2: 0 }; state.game.init(); state.timeLeft = state.game.roundTime || 0;
+  state.phase = "countdown"; state.count = 3; beep(440);
+  showOverlay();
+}
+function endRound() {
+  const s = state.score, w = s[1] > s[2] ? 1 : s[2] > s[1] ? 2 : 0;
+  if (w) state.rounds[w]++;
+  state.totals[1] += s[1]; state.totals[2] += s[2];
+  const need = Math.floor(state.game.rounds / 2) + 1;   // 2 rounds → play both; 3 rounds → best of 3
+  if (state.rounds[1] >= need || state.rounds[2] >= need || state.round >= state.game.rounds) {
+    const r = state.rounds, tt = state.totals;
+    state.winner = r[1] !== r[2] ? (r[1] > r[2] ? 1 : 2) : tt[1] !== tt[2] ? (tt[1] > tt[2] ? 1 : 2) : 0;   // tied rounds → total points
+    state.phase = "matchover";
+  } else { state.phase = "roundover"; state.roundWinner = w; state.round++; }
+  beep(w ? 880 : 300, 0.4); showOverlay();
+}
+function endMatch() {
+  state.winner = state.score[1] > state.score[2] ? 1 : 2;
+  state.phase = "matchover"; beep(990, 0.5); showOverlay();
+}
+function overlayAction() {
+  if (state.game.link) { location.href = state.game.link; return; }
+  if (state.phase === "idle" || state.phase === "roundover") startRound();
+  else if (state.phase === "matchover") { resetMatch(); startRound(); }
+}
+
+function showOverlay() {
+  const o = $("overlay"), gm = state.game;
+  o.hidden = state.phase === "playing";
+  if (gm.link) o.innerHTML = `<div>${orb(gm, 76)}<h2>${gm.name}</h2><p>${gm.help}</p>
+    <a class="pill lime" id="go" href="${gm.link}" style="text-decoration:none">${ic("play", 18, 2.6)} Play AirMix</a>
+    <div class="keys">Its own page: pick your songs, check the camera, then 3, 2, 1. Space = go.</div></div>`;
+  else if (state.phase === "idle") o.innerHTML = `<div>${orb(gm, 76)}<h2>${gm.name}</h2><p>${gm.help}</p>
+    <button class="pill lime" id="go">${ic("play", 18, 2.6)} Start</button>
+    <div class="keys">No camera? P1 uses <b>W A S D</b> (and 1 2 3), P2 uses the <b>arrows</b> (and 8 9 0). Space = start.</div></div>`;
+  else if (state.phase === "countdown") o.innerHTML = `<div><div class="count">${state.count}</div><p>P1 on the left · P2 on the right</p></div>`;
+  else if (state.phase === "roundover") o.innerHTML = `<div><h2>${state.roundWinner ? `Player ${state.roundWinner} takes the round!` : "Round tied!"}</h2>
+    <p>Rounds · P1 <b>${state.rounds[1]}</b> – <b>${state.rounds[2]}</b> P2</p><button class="pill lime" id="go">Next round</button></div>`;
+  else if (state.phase === "matchover") o.innerHTML = `<div>${state.winner ? `<span class="orb p${state.winner} gorb" style="width:76px;height:76px;font-size:26px">P${state.winner}</span>` : ""}<h2>${state.winner ? `Player ${state.winner} wins!` : "It's a tie!"}</h2>
+    <p>${gm.rounds ? `Rounds · P1 <b>${state.rounds[1]}</b> – <b>${state.rounds[2]}</b> P2${state.rounds[1] === state.rounds[2] ? `<br>Total ${gm.unit.toLowerCase()} · P1 <b>${state.totals[1]}</b> – <b>${state.totals[2]}</b> P2` : ""}` : `Final score · P1 <b>${state.score[1]}</b> – <b>${state.score[2]}</b> P2`}</p>
+    <button class="pill lime" id="go">Play again</button></div>`;
+  const go = $("go"); if (go) go.onclick = overlayAction;
+  updateTitle();
+}
+function updateTitle() {
+  const gm = state.game, i = GAMES.indexOf(gm);
+  const sub = gm.link ? "1 player" : gm.rounds ? `Round ${state.round} of ${gm.rounds}` : `First to ${gm.target}`;
+  $("title").innerHTML = `${orb(gm, 30)}<b>${gm.name}</b> <i>· ${sub}</i>`;
+  $("dots").innerHTML = GAMES.map((_, k) => `<span class="${k === i ? "on" : ""}"></span>`).join("");
+  $("win").textContent = gm.rule;
+}
+
+// ---- Side panels ---------------------------------------------------------------------
+function buildSides() {
+  for (const p of [1, 2]) {
+    $("p" + p).innerHTML = `
+      <div class="tag"><span class="orb p${p}">P${p}</span><div><b>Player ${p}</b><span id="hand${p}">${p === 1 ? "Left" : "Right"} half of the camera</span></div></div>
+      <div class="score"><span>${state.game.unit}</span><b id="score${p}">0</b></div>
+      <div class="cam"><canvas id="cam${p}" width="320" height="200"></canvas><span class="live"><i></i>LIVE</span></div>
+      <div class="widget" id="widget${p}"></div>
+      <div class="foot" id="foot${p}"></div>`;
+  }
+}
+const lastHTML = {};
+function setHTML(id, html) { if (lastHTML[id] !== html) { lastHTML[id] = html; $(id).innerHTML = html; } }
+function widgetHTML(p) {
+  const inp = input[p], gm = state.game;
+  if (gm.widget === "solo") {
+    return `<div><p class="center-note">${p === 1 ? "AirMix is <b>one player</b>, with <b>both hands</b>" : "Your <b>right hand</b> plays the filter: <b>how open your pinch</b> is"}</p></div>`;
+  }
+  if (gm.widget === "pointer") {
+    const t = inp.tip, keys = clock - inp.keyAt < KEY_HOLD;
+    return `<div><div class="mini">${t && !keys ? `<span class="dot" style="left:${6 + t.x * 88}%;top:${8 + t.y * 84}%"></span>` : ""}</div>
+      <p class="center-note">${keys ? "Steering with the <b>keyboard</b>" : t ? "It <b>follows your finger</b>" : "Point with your <b>index finger</b>"}</p></div>`;
+  }
+  if (gm.widget === "dpad") {
+    const k = (c, t) => `<span class="key ${c}${inp.dir === c ? " on" : ""}">${t}</span>`;
+    return `<div><div class="pad">${k("u", "↑")}${k("l", "←")}<span class="key c"></span>${k("r", "→")}${k("d", "↓")}</div>
+      <p class="center-note">${inp.dir ? `Pointing <b>${{ u: "up", d: "down", l: "left", r: "right" }[inp.dir]}</b>` : "Point with your index finger"}</p></div>`;
+  }
+  if (gm.widget === "height") {
+    const pct = Math.round(inp.height * 100);
+    return `<div class="height"><div class="track"><span class="knob" style="bottom:calc(${pct}% - 24px)"></span></div>
+      <div class="t">Hand height<b>${pct}%</b>Raise or lower<br>your hand</div></div>`;
+  }
+  if (gm.widget === "combo") {
+    const c = gm.combo ? gm.combo[p] : 0, col = p === 1 ? "#1e95e3" : "#6fcf3a";
+    return `<div><div class="ring" style="background:conic-gradient(${col} 0 ${Math.min(100, c * 12)}%, rgba(120,180,225,.25) 0)"><div><b>×${c}</b><span>combo</span></div></div>
+      <p class="center-note"><b>Index finger</b> pops ${p === 1 ? "aqua" : "lime"} bubbles</p></div>`;
+  }
+  return `<div><div class="gest">${["rock", "paper", "scissors"].map(n => `<span class="key${n === inp.gesture ? " on" : ""}">${ic(n, 30, 2)}<small>${n}</small></span>`).join("")}</div>
+    <p class="center-note">${inp.gesture ? `Showing <b>${inp.gesture}</b>` : "Show your hand"}</p></div>`;
+}
+function updateSides() {
+  for (const p of [1, 2]) {
+    setHTML("score" + p, state.game.link ? "–" : String(state.score[p]));
+    setHTML("widget" + p, widgetHTML(p));
+    setHTML("foot" + p, state.game.foot(p).map(([l, v]) => `<span>${l} <b>${v}</b></span>`).join(""));
+    setHTML("hand" + p, camOn ? (input[p].present ? `<span class="found">${ic("check", 14, 3)}Hand found</span>` : `Raise your hand on the ${p === 1 ? "left" : "right"}`) : `${p === 1 ? "Left" : "Right"} half of the camera`);
+  }
+  const gm = state.game;
+  if (gm.roundTime) {
+    $("time").textContent = `0:${String(Math.ceil(state.timeLeft)).padStart(2, "0")} left`;
+    $("timeBar").style.width = (state.timeLeft / gm.roundTime * 100) + "%";
+  } else {
+    $("time").textContent = `P1 ${state.score[1]} – ${state.score[2]} P2`;
+    $("timeBar").style.width = (Math.max(state.score[1], state.score[2]) / gm.target * 100) + "%";
+  }
+}
+
+// ---- Camera panels: each player's half of the mirrored frame, with their hand drawn on top --
+const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
+function drawCams() {
+  for (const p of [1, 2]) {
+    const c = $("cam" + p); if (!c) continue;
+    const cg = c.getContext("2d"), cw = c.width, ch = c.height;
+    if (camOn && video.videoWidth) {
+      const vw = video.videoWidth, vh = video.videoHeight, half = vw / 2;
+      const sh = Math.min(vh, half * ch / cw), sy = (vh - sh) / 2;
+      cg.save(); cg.translate(cw, 0); cg.scale(-1, 1);
+      cg.drawImage(video, p === 1 ? half : 0, sy, half, sh, 0, 0, cw, ch);   // mirrored: left of screen = right of raw frame
+      cg.restore();
+      cg.fillStyle = p === 1 ? "rgba(30,149,227,.12)" : "rgba(111,207,58,.12)"; cg.fillRect(0, 0, cw, ch);
+      const lm = input[p].lm;
+      if (lm) {
+        const X = (q) => ((p === 1 ? q.x : q.x - 0.5) / 0.5) * cw, Y = (q) => (q.y * vh - sy) / sh * ch;
+        cg.strokeStyle = PCOL[p]; cg.lineWidth = 3; cg.lineCap = "round";
+        cg.beginPath(); for (const [a, b] of BONES) { cg.moveTo(X(lm[a]), Y(lm[a])); cg.lineTo(X(lm[b]), Y(lm[b])); } cg.stroke();
+        cg.fillStyle = "#fff"; cg.beginPath(); cg.arc(X(lm[8]), Y(lm[8]), 5, 0, 6.28); cg.fill(); cg.stroke();
+      }
+    } else {
+      cg.fillStyle = "#8fb6d2"; cg.fillRect(0, 0, cw, ch);
+      cg.fillStyle = p === 1 ? "rgba(30,149,227,.15)" : "rgba(111,207,58,.15)"; cg.fillRect(0, 0, cw, ch);
+      cg.fillStyle = "#5d86a6"; cg.beginPath(); cg.arc(cw * .55, ch * .45, 32, 0, 6.28); cg.fill();
+      cg.beginPath(); cg.ellipse(cw * .55, ch * 1.15, 80, 90, 0, 0, 6.28); cg.fill();
+      cg.fillStyle = "#fff"; cg.font = "800 15px Nunito"; cg.textAlign = "center"; cg.fillText("Start the camera to play", cw / 2, ch - 14);
+    }
+  }
+}
+
+// ---- Main loop ---------------------------------------------------------------------------
+let last = performance.now();
+const schedule = requestAnimationFrame;
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  track(now);
+  if (!paused) {
+    clock += dt;
+    if (state.phase === "countdown") {
+      const before = Math.ceil(state.count); state.count -= dt;
+      if (state.count <= 0) { state.phase = "playing"; beep(880, 0.15); showOverlay(); }
+      else if (Math.ceil(state.count) !== before) { beep(440); $("overlay").querySelector(".count").textContent = Math.ceil(state.count); }
+    } else if (state.phase === "playing") {
+      state.game.update(dt);
+      if (state.game.roundTime && state.phase === "playing") { state.timeLeft -= dt; if (state.timeLeft <= 0) { state.timeLeft = 0; endRound(); } }
+    }
+  }
+  state.game.draw();
+  if (state.phase === "matchover" && state.winner && Math.random() < .35) rain(PCOL[state.winner]);
+  drawFX(paused ? 0 : dt);
+  drawCams();
+  updateSides();
+  schedule(loop);
+}
+
+$("prev").onclick = () => selectGame(GAMES.indexOf(state.game) - 1);
+$("next").onclick = () => selectGame(GAMES.indexOf(state.game) + 1);
+$("restartBtn").onclick = () => resetMatch();
+const pauseLabel = () => { $("pauseBtn").innerHTML = paused ? `${ic("play", 16, 2.6)} Resume` : `${ic("pause", 16, 2.6)} Pause`; };
+$("pauseBtn").onclick = () => { paused = !paused; pauseLabel(); if (paused) music.stop(); else music.start(); };
+const musicLabel = () => {
+  $("musicBtn").innerHTML = music.on ? `${ic("music", 16, 2.4)} Music on` : `${ic("mute", 16, 2.4)} Music off`;
+  $("musicBtn").setAttribute("aria-pressed", music.on);
+};
+$("musicBtn").onclick = () => { music.on = !music.on; if (music.on) music.start(); else music.stop(); musicLabel(); };
+musicLabel();
+pauseLabel();
+for (const el of document.querySelectorAll("[data-ic]")) el.insertAdjacentHTML("afterbegin", ic(el.dataset.ic, 18, 2.6));
+addEventListener("resize", fit);
+
+fit();
+selectGame(Math.max(0, GAMES.findIndex(gm => gm.id === location.hash.slice(1))));
+document.fonts.ready.then(fit);
+schedule(loop);
+
+</script>
+</body>
+</html>
