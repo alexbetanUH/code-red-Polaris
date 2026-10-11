@@ -836,13 +836,12 @@ function drawTrackingDebug(left, right, now) {
 }
 
 // ---- Easter eggs (temporary, for fun) ------------------------------------------
-// On/off button in the header; off by default, and a click is remembered.
+// On/off button in the header; every visit starts with them off (a click lasts until the page reloads).
 let eggsOn = false;
-try { eggsOn = localStorage.getItem("airdeck-eggs-v2") === "on"; } catch {}
-function setEggs(on, save = true) {
+try { localStorage.removeItem("airdeck-eggs"); localStorage.removeItem("airdeck-eggs-v2"); } catch {}   // drop older saved choices
+function setEggs(on) {
   eggsOn = on;
   $("eggsBtn").textContent = `Easter eggs: ${on ? "on" : "off"}`;
-  if (save) try { localStorage.setItem("airdeck-eggs-v2", on ? "on" : "off"); } catch {}
   if (!on) { cinemaSince = null; six7.count = 0; six7.higher = null; hideCinema(); }
 }
 $("eggsBtn").addEventListener("click", () => setEggs(!eggsOn));
@@ -891,7 +890,7 @@ const SIX7_SWAP = 0.035;       // one palm must be this much higher (fraction of
 const SIX7_GAP_MS = 1300;      // swaps further apart than this end the streak
 const SIX7_SHOW_MS = 2500;     // keep showing the final count this long
 const six7 = { higher: null, count: 0, lastSwap: -Infinity };
-setEggs(eggsOn, false);
+setEggs(eggsOn);
 
 function check67(left, right, now) {
   if (now - six7.lastSwap > SIX7_GAP_MS) { six7.higher = null; if (now - six7.lastSwap > SIX7_SHOW_MS) six7.count = 0; }
