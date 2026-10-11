@@ -95,7 +95,9 @@ how (blend or echo out); DJ Deck shows Up next in its sidebar.
 
 AirMix (`ai-dj.html`, part of the Arcade: the **♪ AirMix** button in the Arcade's top bar) is a single-player rhythm game in the style of
 osu!: you play a DJ set with your hands. It opens on **Pick your set**: tick 2–5 songs from the library in the
-order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Then, the
+order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Uncached
+songs download when you press Play; a failed load offers Try again or New set. Run `python prefetch.py` before a demo
+to make every song ready locally. Then, the
 first time, how to play in three pictures, the camera and a check that it sees both hands; the set loads while
 you do that, then 3, 2, 1.
 
@@ -129,7 +131,8 @@ The AI doesn't pick anything in AirMix; it only talks: with an ElevenLabs key, a
 genre switches and your result. Without a key it stays quiet.
 
 It needs API keys. The easy way: copy `.env.example` to `.env` and put your keys in it; `server.py` reads it every
-time it starts (`.env` is gitignored, so the keys never get pushed). Or set them in the terminal before starting the
+time it starts (`.env` is gitignored, so the keys never get pushed, and the server blocks browser requests for it).
+Or set them in the terminal before starting the
 server, which only lasts for that window (either way they stay on your machine and never reach the browser):
 
 ```bash

@@ -710,15 +710,18 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
     // Resolves once the library has loaded (and checked which songs are in music/).
     async libraryReady() {
-      while (!library.length || library.some((song) => song.available === null)) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      await libraryReady;
+      if (!library.length) {
+        libraryReady = loadLibrary();
+        await libraryReady;
       }
+      if (!library.length) throw new Error("The song library could not load. Check the local server and try again.");
     },
 
     // Resolves once the DJ's first song is picked and decoded, so it can start instantly.
     async readyToStart() {
       while (!items.length) await new Promise((resolve) => setTimeout(resolve, 200));
-      await decode(items[0]).catch(() => null);
+      await decode(items[0]);
     },
 
     // Starts the set the DJ prepared with startDj(vibe, { wait: true }).
@@ -926,7 +929,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       topUpDj();
     },
   };
-  const libraryReady = loadLibrary();
+  let libraryReady = loadLibrary();
   return queue;
 }
 

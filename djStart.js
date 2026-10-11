@@ -97,9 +97,15 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
   async function setSelect() {
     const mine = ++run;
     show(`<div class="djStart-panel"><p class="djStart-status">Loading the songs…</p></div>`);
-    const songs = await library();
+    let songs;
+    try {
+      songs = await library();
+    } catch (error) {
+      if (mine === run) showLoadError(error, setSelect);
+      return;
+    }
     if (mine !== run) return; // another screen came up meanwhile
-    const known = new Set(songs.filter((song) => song.available !== false).map((song) => song.id));
+    const known = new Set(songs.map((song) => song.id));
     let picked = (lastSet.length ? lastSet : savedSet()).filter((id) => known.has(id)).slice(0, setSize.max);
 
     show(`
@@ -110,10 +116,10 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
           ${songs
             .map(
               (song) => `
-            <li><button type="button" role="option" data-id="${escape(song.id)}" aria-label="${escape(`${song.title} by ${song.artist}${song.bpm ? `, ${Math.round(song.bpm)} BPM` : ""}`)}" ${song.available === false ? "disabled" : ""}>
+            <li><button type="button" role="option" data-id="${escape(song.id)}" aria-label="${escape(`${song.title} by ${song.artist}${song.bpm ? `, ${Math.round(song.bpm)} BPM` : ""}`)}">
               <span class="djStart-order"></span>
               <span class="djStart-song"><b>${escape(song.title)}</b><small>${escape(song.artist)}${song.genre ? ` · ${escape(song.genre)}` : ""}</small></span>
-              <span class="djStart-bpm">${song.available === false ? "not downloaded" : song.bpm ? `${Math.round(song.bpm)} BPM` : ""}</span>
+              <span class="djStart-bpm">${song.available === false ? "downloads on play" : song.bpm ? `${Math.round(song.bpm)} BPM` : ""}</span>
             </button></li>`,
             )
             .join("")}
@@ -159,7 +165,7 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
       () => {
         lastSet = picked;
         saveSet(picked);
-        loading = prepare(picked); // the songs load while you read and get the camera going
+        prepareSet(picked); // the songs load while you read and get the camera going
         if (cameraReady) ready();
         else intro();
       },
@@ -232,9 +238,36 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
   }
 
   // ---- the set loads, 3, 2, 1
+  function prepareSet(ids) {
+    // Handle rejection immediately, even while the player reads the intro.
+    try {
+      loading = Promise.resolve(prepare(ids)).then(
+        () => null,
+        (error) => error || new Error("The songs could not load."),
+      );
+    } catch (error) {
+      loading = Promise.resolve(error || new Error("The songs could not load."));
+    }
+  }
+
+  function showLoadError(error, retry) {
+    show(`<div class="djStart-panel"><h1>Music couldn't load</h1>
+      <p>${escape(error?.message || "Try another set or check the local server.")}</p>
+      <div class="djStart-row"><button type="button" class="secondary" data-new>New set</button>
+      <button type="button" class="lime" data-retry>Try again</button></div></div>`);
+    root.querySelector("[data-new]").addEventListener("click", setSelect, { once: true });
+    root.querySelector("[data-retry]").addEventListener("click", retry, { once: true });
+  }
+
   async function ready() {
+    const mine = ++run;
     show(`<div class="djStart-panel"><p class="djStart-status">Getting the music ready…</p></div>`);
-    await loading;
+    const error = await loading;
+    if (mine !== run) return;
+    if (error) {
+      showLoadError(error, replay);
+      return;
+    }
     countdown();
   }
 
@@ -276,7 +309,7 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
 
   function replay() {
     run += 1;
-    loading = prepare(lastSet);
+    prepareSet(lastSet);
     ready();
   }
 

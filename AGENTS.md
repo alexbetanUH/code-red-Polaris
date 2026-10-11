@@ -4,7 +4,7 @@
 
 - Inspect Git status/diffs before editing this shared checkout; preserve unrelated work.
 - Use the user's current instructions to determine scope. Prefer focused changes and verify the result.
-- Current working branch is `merge-main`. Do not commit or push directly to `main`; preserve `virtual-effects` as fallback.
+- Current working branch is `merge-main`. Only publish to `main` when the user explicitly asks; preserve `virtual-effects` as fallback.
 - Commit/push or create a PR when the user asks. Exclude the personal untracked `HANDOFF.md` from every commit.
 - Give short, plain progress updates and describe actual verification limits.
 
@@ -31,6 +31,8 @@
 - `server.py`: local serving/downloads, Gemini picks, ElevenLabs speech; loads a gitignored `.env` at startup.
 - `FEATURES_PLAN.md` is historical, not the current product specification.
 
-Run relevant regression suites: `node tests/tracking.cjs`, `node tests/effects.cjs`, `node tests/queue-default.cjs`, `node tests/queue-selection.cjs`, `node tests/hand-blend.cjs`, `node tests/bubble-particles.cjs`; run `git diff --check`. Browser checks matter for rendering and fullscreen. Stub tests do not replace real webcam/listening validation.
+Run relevant regression suites: `node tests/tracking.cjs`, `node tests/effects.cjs`, `node tests/queue-default.cjs`, `node tests/queue-selection.cjs`, `node tests/hand-blend.cjs`, `node tests/bubble-particles.cjs`, `node tests/queue-airmix.cjs`, `python3 tests/server-static.py`; run `git diff --check`. Browser checks matter for rendering and fullscreen. Stub tests do not replace real webcam/listening validation.
+
+AirMix may select uncached library songs; they download on Play. Loading failures must show retry/new-set controls. The server must never serve dotfiles (including `.env` and `.git`) or directory listings.
 
 Run `python3 server.py 8001` after checking for an existing listener. Keys are server environment variables (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`); never reveal or commit secrets. Do not claim APIs are active just because integration exists. Check runtime configuration/logs.
