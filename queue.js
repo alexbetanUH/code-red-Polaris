@@ -429,48 +429,84 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
 }
 
 const styles = `
+/* Uses the page's theme variables (--panel, --border, --text, --muted, --bg, --left,
+   --right, --between, --violet), so it follows the neon UI or any later restyle. */
 .queuePanel {
-  position: fixed; top: 64px; right: 16px; z-index: 50;
+  position: fixed; top: 72px; right: 20px; z-index: 50;
   display: flex; flex-direction: column; gap: 10px;
-  width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 80px);
-  padding: 14px; border-radius: 14px;
+  width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 92px);
+  padding: 16px; border-radius: 18px;
   background: var(--panel); color: var(--text);
-  border: 1px solid var(--border); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 0 0 1px rgba(25, 230, 255, 0.22), -14px 0 44px -14px var(--left), 14px 0 44px -14px var(--right),
+    0 24px 60px rgba(0, 0, 0, 0.6);
 }
 .queuePanel[hidden] { display: none; }
-.queuePanel button { padding: 5px 10px; font-size: 13px; }
+.queuePanel button { padding: 5px 12px; font-size: 13px; flex: none; white-space: nowrap; }
+.queuePanel .queuePanel-close { width: 32px; height: 32px; padding: 0; }
 .queuePanel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.queuePanel-header h2 { margin: 0; font-size: 16px; }
-.queuePanel-header p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
-.queuePanel-add, .queuePanel-dj { display: flex; gap: 6px; }
-.queuePanel-dj { padding: 8px; border-radius: 10px; border: 1px dashed var(--between); }
-.queuePanel-dj.on { border-style: solid; }
-.queuePanel-djLabel { align-self: center; font-size: 12px; font-weight: 700; color: var(--between); white-space: nowrap; }
+.queuePanel-header h2 {
+  margin: 0; font: 900 20px/1.1 "Segoe UI Black", "Arial Black", system-ui, sans-serif; letter-spacing: 0.12em;
+  background: linear-gradient(90deg, var(--left), var(--right)); -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+}
+.queuePanel-header p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.queuePanel-add, .queuePanel-dj { display: flex; gap: 6px; align-items: center; }
 .queuePanel-add input[type="text"], .queuePanel-dj input[type="text"] {
-  flex: 1; min-width: 0; padding: 7px 10px; font: inherit; font-size: 13px;
-  color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  flex: 1; min-width: 0; padding: 8px 12px; font: inherit; font-size: 13px; color: var(--text);
+  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px;
+}
+.queuePanel-add input[type="text"]:focus, .queuePanel-dj input[type="text"]:focus {
+  outline: none; border-color: var(--left); box-shadow: 0 0 12px rgba(25, 230, 255, 0.35);
 }
 .queuePanel-add input[type="file"] { display: none; }
+.queuePanel-dj {
+  padding: 8px 8px 8px 12px; border-radius: 14px;
+  border: 1px dashed var(--violet, var(--between)); background: rgba(155, 92, 255, 0.06);
+}
+.queuePanel-dj.on {
+  border-style: solid; background: rgba(155, 92, 255, 0.14);
+  box-shadow: 0 0 18px rgba(155, 92, 255, 0.45), inset 0 0 14px rgba(155, 92, 255, 0.18);
+}
+.queuePanel-djLabel {
+  font-size: 12px; font-weight: 900; letter-spacing: 0.14em; white-space: nowrap;
+  color: var(--violet, var(--between)); text-shadow: 0 0 10px var(--violet, var(--between));
+}
+.queuePanel-dj.on .queuePanel-djLabel { animation: queuePanel-pulse 1.6s ease-in-out infinite; }
+@keyframes queuePanel-pulse { 50% { opacity: 0.55; } }
 .queuePanel-status { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .queuePanel-status.error { color: #ff7b7b; }
-.queuePanel-list { margin: 0; padding: 0; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.queuePanel-row {
-  display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 10px; cursor: grab;
-  background: var(--bg); border: 1px solid var(--border);
+.queuePanel-list {
+  margin: 0; padding: 2px; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
 }
-.queuePanel-row.current { border-color: var(--between); }
+.queuePanel-row {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px;
+  border-radius: 12px; cursor: grab; background: rgba(0, 0, 0, 0.32); border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.queuePanel-row:hover { border-color: rgba(25, 230, 255, 0.45); }
+.queuePanel-row.fromDj::before {
+  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px;
+  background: var(--violet, var(--between)); box-shadow: 0 0 8px var(--violet, var(--between));
+}
+.queuePanel-row.current {
+  border-color: var(--between); background: rgba(255, 210, 63, 0.08);
+  box-shadow: 0 0 16px rgba(255, 210, 63, 0.35), inset 0 0 12px rgba(255, 210, 63, 0.08);
+}
 .queuePanel-row.dragging { opacity: 0.35; }
-.queuePanel-row.dropBefore { box-shadow: inset 0 3px 0 var(--between); }
-.queuePanel-row.dropAfter { box-shadow: inset 0 -3px 0 var(--between); }
+.queuePanel-row.dropBefore { box-shadow: inset 0 3px 0 var(--left), 0 -4px 12px -4px var(--left); }
+.queuePanel-row.dropAfter { box-shadow: inset 0 -3px 0 var(--left), 0 4px 12px -4px var(--left); }
 .queuePanel-handle { color: var(--muted); letter-spacing: -2px; user-select: none; }
 .queuePanel-number { width: 18px; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .queuePanel-track { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .queuePanel-track strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queuePanel-track small { font-size: 11px; color: var(--muted); }
-.queuePanel-row.current small { color: var(--between); font-weight: 600; }
-.queuePanel-row.fromDj small::before { content: "✦ "; color: var(--between); }
+.queuePanel-track small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queuePanel-row.current small { color: var(--between); font-weight: 700; text-shadow: 0 0 8px rgba(255, 210, 63, 0.5); }
+.queuePanel-row.fromDj small::before { content: "✦ "; color: var(--violet, var(--between)); }
 .queuePanel-actions { display: flex; gap: 4px; }
-.queuePanel-empty { margin: 0; font-size: 13px; text-align: center; color: var(--muted); }
+.queuePanel-row .queuePanel-actions button { width: 30px; height: 30px; padding: 0; }
+.queuePanel-empty { margin: 0; padding: 14px 0; font-size: 13px; text-align: center; color: var(--muted); }
 `;
 
 function element(tag, attributes = {}, children = []) {
@@ -533,12 +569,19 @@ export function createQueuePanel(queue, deck) {
   });
 
   const panel = element("section", { className: "queuePanel", role: "dialog", "aria-label": "Queue", hidden: "" }, [
-    element("header", { className: "queuePanel-header" }, [
+    // A div, not <header>: pages often style every header element.
+    element("div", { className: "queuePanel-header" }, [
       element("div", {}, [
         element("h2", { text: "Queue" }),
         element("p", { text: "Drag to reorder. ▶ plays a song, Next goes down the list. The AI DJ picks songs for you." }),
       ]),
-      element("button", { type: "button", className: "secondary", "aria-label": "Close queue", text: "✕", onClick: () => controls.close() }),
+      element("button", {
+        type: "button",
+        className: "secondary queuePanel-close",
+        "aria-label": "Close queue",
+        text: "✕",
+        onClick: () => controls.close(),
+      }),
     ]),
     element("div", { className: "queuePanel-add" }, [
       input,
