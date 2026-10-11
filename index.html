@@ -720,12 +720,29 @@ function processHand(side, det, now) {
   if (calib) calib.samples.push(pinchRaw);
 }
 
+// Tracks follow a hand across a crossing, but when the two hands overlap (the volume gesture) they can
+// come apart swapped and stay that way, so the zones and controls answer to the wrong hand. If the
+// "left" hand stays clearly right of the "right" hand for a moment, the two swap back.
+const SIDE_SWAP_GAP = 0.15;     // share of the frame width
+const SIDE_SWAP_MS = 1500;
+let swappedSince = null;
+function unswapSides(now) {
+  const L = sides.left, R = sides.right;
+  const both = L.track && R.track && now - L.lastSeen < HOLD_MS && now - R.lastSeen < HOLD_MS;
+  if (!both || L.track.x - R.track.x < SIDE_SWAP_GAP) { swappedSince = null; return; }
+  swappedSince ??= now;
+  if (now - swappedSince < SIDE_SWAP_MS) return;
+  sides.left = R; sides.right = L;
+  swappedSince = null;
+}
+
 function update(result, now) {
   const assigned = assignSides(result, now);
   for (const side of ["left", "right"]) {
     if (assigned[side]) processHand(side, assigned[side], now);
   }
-  const live = (side) => (now - sides[side].lastSeen < HOLD_MS ? sides[side].hand : null);
+  unswapSides(now);
+  const live =(side) => (now - sides[side].lastSeen < HOLD_MS ? sides[side].hand : null);
   const left = live("left"), right = live("right");
 
   let between = null;

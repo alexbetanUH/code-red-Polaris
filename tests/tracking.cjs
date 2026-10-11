@@ -73,6 +73,12 @@ e=boot(path);start(e);const before=e.internal.sides.left.lastSeen;let bad=pair()
 // Assignment without handedness, reversed result order, and a single moving hand.
 e=boot(path);for(let i=0;i<91;i++){let a=hand(.2+.6*i/90,.62),b=hand(.8-.6*i/90,.68);a.label=b.label=null;feed(e,i%2?[b,a]:[a,b],1000+i*1000/30);assert(Math.abs(e.internal.sides.left.hand.wristX-(1-a.l[0].x))<1e-6)}
 e=boot(path);for(let i=0;i<91;i++)feed(e,[hand(.2+.6*i/90)],1000+i*1000/30);assert(e.internal.sides.left.hand.wristX>.7);assert.equal(e.internal.sides.right.hand,null);
+// Hands that end up on the wrong sides swap back after a moment (not during a quick crossing).
+{const t0=1000+91*1000/30;for(let i=0;i<30;i++)feed(e,[hand(.8),hand(.25,.65,{label:'Right'})],t0+i*1000/30);
+ assert(e.internal.sides.left.hand.wristX>.7,'swapped sides held briefly');
+ for(let i=30;i<60;i++)feed(e,[hand(.8),hand(.25,.65,{label:'Right'})],t0+i*1000/30);
+ assert(e.internal.sides.left.hand.wristX<.3&&e.internal.sides.right.hand.wristX>.7,'swapped sides return to screen order');}
+e=boot(path);for(let i=0;i<91;i++)feed(e,[hand(.2+.6*i/90)],1000+i*1000/30);
 // A newly acquired hand cannot inherit old filters after the hold expires.
 feed(e,[hand(.8)],6000);assert.equal(e.internal.sides.right.hand.pts[0].x,.8*1280);
 // All original keyboard mode entries still work, and D toggles diagnostics.
