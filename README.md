@@ -23,7 +23,7 @@ python3 server.py
 
 If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
 
-Open http://localhost:8000 in Chrome (the landing page) and pick **AI DJ**, or go straight to http://localhost:8000/index.html. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
+Open http://localhost:8000 in Chrome (the landing page) and pick **AI DJ**, or go straight to http://localhost:8000/ai-dj.html. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
 songs from the **Library** (▶ plays one now, + adds it, **Add all** queues them all), or let the AI DJ choose. Drag
 songs to reorder them. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to
 jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
@@ -87,12 +87,15 @@ python3 server.py
 
 The server prints whether the DJ is on. Without an ElevenLabs key the browser's built-in voice is used. Optional:
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
-The landing page's **Talk to the AI DJ** opens `index.html#ai-dj`, which shows the queue with the DJ ready.
+The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ**), which opens with the DJ ready.
+`index.html` is the plain hand tracker, with the same queue as its music source.
 
 ### Files
 
-- `index.html`: hand tracking, gesture smoothing, hand → audio mapping, drawing
-- `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform)
+- `index.html`: the hand tracker: hand tracking, gesture smoothing, hand → audio mapping, drawing
+- `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform)
+- `ai-dj.html`, `aiDeck.js`: the AI DJ page, with the same hand tracking and a frozen copy of `audio.js`, so
+  changes to `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
 - `djCoach.js`: the move track and the hand moves that perform the AI DJ's mixes

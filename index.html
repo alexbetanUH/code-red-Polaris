@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AirDeck · AI DJ</title>
+<title>AirDeck · Hand Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="aero.css">
@@ -102,7 +102,7 @@
 <body class="world-sunset">
 <header class="topbar glass">
   <a class="brand" href="landing.html" title="Back to the home page"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>AirDeck</a>
-  <nav class="modes" aria-label="Modes"><a class="dj" href="mix.html">DJ Deck</a><a class="arcade" href="arcade.html">Arcade · 2P</a><a class="ai" href="index.html#ai-dj" aria-current="page">AI DJ</a></nav>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="mix.html">DJ Deck</a><a class="arcade" href="arcade.html">Arcade · 2P</a><a class="ai" href="ai-dj.html">AI DJ</a></nav>
   <button id="start" disabled>Loading model…</button>
   <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
   <span class="note" id="calibMsg"></span>
@@ -140,8 +140,7 @@
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./audio.js";
-import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js";
-import { createDjCoach } from "./djCoach.js";
+import { createQueue, createQueuePanel, createTransport } from "./queue.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -508,7 +507,6 @@ function update(result, now) {
   }
   const live = (side) => (now - sides[side].lastSeen < HOLD_MS ? sides[side].hand : null);
   const left = live("left"), right = live("right");
-  djCoach.update({ left, right }, now); // the hands perform the AI DJ's mixes (djCoach.js)
 
   let between = null;
   if (left && right) {
@@ -760,21 +758,13 @@ const queue = createQueue(deck);
 const queuePanel = createQueuePanel(queue, deck);
 $("transport").append(createTransport(queue, deck));
 
-// What the DJ does next, on the camera view, and the coach that cues the moves for
-// your hands to perform its mixes (djCoach.js).
-const upNext = createUpNext(queue);
-document.querySelector(".stage").append(upNext.element);
-const djCoach = createDjCoach(queue, upNext);
-
 $("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it
   queuePanel.toggle();
 });
 
-// landing.html's "Talk to the AI DJ" links here as index.html#ai-dj: open the queue at the DJ.
-const openDjFromLink = () => location.hash === "#ai-dj" && queuePanel.openDj();
-window.addEventListener("hashchange", openDjFromLink);
-openDjFromLink();
+// The AI DJ moved to its own page; old index.html#ai-dj links go there.
+if (location.hash === "#ai-dj") location.replace("ai-dj.html");
 
 // Keep the song card's count and status line in step with the queue.
 function updateSongCard() {

@@ -14,7 +14,7 @@
 // down first. Miss a cue by more than a bar, or stall, and the AI does that part for you. Hitting
 // moves within a beat of the cue counts as PERFECT, within two as GOOD.
 //
-// The page calls update() every camera frame with its hands (index.html's hand objects:
+// The page calls update() every camera frame with its hands (ai-dj.html's hand objects:
 // height 0 at the bottom to 1 at the top, open 0 fist to 1 flat, pinched). Pinching hands never trigger moves, so the pinch controls
 // (filter, and speed between mixes) keep working. While the hands perform a mix the master
 // volume and the speed hold still (lowering an open left hand would otherwise speed it up).

@@ -458,7 +458,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def home_is_landing(self):
-        # The landing page is the home page (index.html is the AI DJ page).
+        # The landing page is the home page (index.html is the hand tracker, ai-dj.html the AI DJ).
         parts = urlparse(self.path)
         if parts.path == "/":
             self.path = "/landing.html" + (f"?{parts.query}" if parts.query else "")
