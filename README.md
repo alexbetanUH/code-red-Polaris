@@ -9,7 +9,7 @@ DJ with your hands in the browser, using your webcam (MediaPipe hand tracking + 
 |---|---|
 | Left hand pinch (thumb ↔ index) | Speed, 0.9× – 1.1× |
 | Right hand pinch | Low-pass filter, 150 Hz – 10 kHz (fully open = off) |
-| Distance between hands | Volume |
+| Distance between hands | Volume (full at 42% of frame width) |
 
 The line between your hands is the live audio waveform.
 
@@ -17,13 +17,13 @@ More gestures, on the hand tracker page `index.html` (**DJ Deck** in the top bar
 
 | Gesture | Controls |
 |---|---|
-| Right fist in the **right-side zone** (above the visuals corner), then fingers on the left hand | Songs from the queue: **1** = next song, **2** = previous song, **3+** = nothing. It applies when the fist leaves the zone. An empty queue loads the default library and starts its first track for either Next or Previous. If the deck is idle or paused, the selected queued song starts immediately (Previous at the beginning starts the first song). With music playing and **Hand blend** on, "next" is beat-matched in on a downbeat and you mix it: **left hand height** = crossfade, **right hand up** = old song out faster; no left hand for 4 s and it finishes by itself. Songs whose tempos can't be matched echo out instead |
+| Right fist in the **right-side zone** (above the visuals corner), then fingers on the left hand | Songs from the queue: **1** = next song, **2** = previous song, **3+** = nothing. It applies when the fist leaves the zone. An empty queue loads the default library and starts its first track for either Next or Previous. If the deck is idle or paused, the selected queued song starts immediately (Previous at the beginning starts the first song). With music playing and **Hand blend** on, "next" starts a manual blend for any song pair, without tempo matching, beat waits or bass cuts: **left palm height** = crossfade, **right palm up** = old song out faster. The full range is near the bottom of the frame (88% down = old song, 70% down = new song); no left hand for 4 s and it finishes by itself |
 | Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; raise/lower the right hand to set strength (85% down = subtle, 40% down = maximum, below the top lock zone). This also works after leaving effect selection; the last value holds in the lock zone |
 | Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: 1 Portal (swirling lens), 2 Color filter (neon palette), 3 Kaleidoscope, 4 Bubble Aero (floating glass bubbles), 5 all off |
-| **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
+| **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual inside it; it stretches and moves with your fingers. Bubble Aero also emits bubbles that escape the shape and float away |
 | A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
 
-Songs come from the same queue and library as the AI DJ page (**Queue** button; the up-next strip on the camera view shows what the AI DJ plays next).
+Songs come from the shared queue and library. DJ Deck keeps Song, Queue, Library and Up next visible in a sidebar beside the camera, including fullscreen. AI DJ/import tools expand on demand.
 
 Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` finish blend, `F` effects mode, `V` visuals mode, `1`–`5` pick, `↑↓` effect amount, `L` frame, `K` lock, `Esc` leave a mode.
 
@@ -37,7 +37,7 @@ python3 server.py
 
 If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
 
-Open http://localhost:8000 in Chrome (the landing page) and pick **AI DJ**, or go straight to http://localhost:8000/ai-dj.html. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
+Open http://localhost:8000 in Chrome and choose **DJ Deck**. Click **Start camera**; **Show controls & help** contains calibration and advanced controls. Pick
 songs from the **Library** (▶ plays one now, + adds it, **Add all** queues them all), or let the AI DJ choose. Drag
 songs to reorder them. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to
 jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
@@ -74,10 +74,10 @@ BPM. The browser console logs each mix.
 
 **Short mixes** (on by default, a checkbox under the DJ) bring each song in where it first gets going (skipping a
 quiet intro) and mix it out after about 20 s, in whole phrases, with shorter blends: a one-minute demo hears several
-transitions. The camera view shows what's up next, when the DJ mixes into it and
-how (blend or echo out).
+transitions. The AI DJ page shows what's up next, when the DJ mixes into it and
+how (blend or echo out); DJ Deck shows Up next in its sidebar.
 
-**You do the mixes** (with the camera on): the DJ picks the next song, keeps it beat-synced and decides where the mix
+**AI DJ page coach** (`ai-dj.html`, distinct from DJ Deck's unrestricted manual blend): the DJ picks the next song, keeps it beat-synced and decides where the mix
 belongs, and a move track above the strip shows what your hands do, timed to the beat like a rhythm game. Your
 **left hand is the song playing now, your right hand is the one coming in**:
 
@@ -104,8 +104,7 @@ library songs by genre and tempo, and says so. The server prints whether Gemini 
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
 The server only answers this computer, so nobody on the venue Wi-Fi can spend your API credits (set
 `AIRDECK_HOST=0.0.0.0` to open it up), and only AirDeck's own pages may call its API.
-The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ**), which opens with the DJ ready.
-`index.html` is the plain hand tracker, with the same queue as its music source.
+The AI DJ has its own page at `ai-dj.html`. DJ Deck (`index.html`) also exposes AI DJ tools through **AI DJ & import** in its sidebar.
 
 ### Files
 
@@ -113,6 +112,7 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
   modes (fist zones for effects and visuals; lock zone; easter eggs)
 - `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform, effects)
 - `frame.js`: WebGL visual inside the shape between both hands' thumb and index tips
+- `bubble-particles.js`: bubbles emitted from the portal, floating outside its edges
 - `ai-dj.html`, `aiDeck.js`: the AI DJ page, with the same hand tracking and a frozen copy of `audio.js`, so
   changes to `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
@@ -121,7 +121,8 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 - `tests/tracking.cjs`: `node tests/tracking.cjs` runs the hand tracking / gesture mode tests
-- `FEATURES_PLAN.md`: the plan the gesture modes were built from
+- `FEATURES_PLAN.md`: historical implementation plan
+- `AGENTS.md`: current guidance for coding agents
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
 
@@ -149,4 +150,4 @@ If grabbing feels unreliable, click **Calibrate pinch** once (it's saved). No ca
 
 ## DJ Deck view
 
-The Song/Queue card stays visible. **Show controls & help** reveals effects, visuals, calibration, tracking details and advanced switches. **Full screen** expands the camera stage, keeps the song card and queue accessible, and exits with its button or Escape. The idle screen remains clear; only the explicit L test shape or synthetic hands enable the plain test preview. Arcade links are unavailable until the teammate’s game branch is integrated.
+The Song/Queue card and expanded Library stay visible in the right sidebar, with Up next above the queue. **Show controls & help** reveals effects, visuals, calibration, tracking details and advanced switches. **Full screen** expands the camera workspace with a separate sidebar, keeps the camera unobstructed, and exits with its button or Escape. The idle screen remains clear; only the explicit L test shape or synthetic hands enable the plain test preview. Arcade links are unavailable until the teammate’s game branch is integrated.

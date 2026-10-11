@@ -1,7 +1,6 @@
 # AirDeck: gesture modes plan
 
-Plan for the next build session (Sun Oct 11). The handoff is in `HANDOFF.md`.
-Build the phases in order. Each phase should be demoable on its own.
+Historical plan retained for context. It contains superseded designs (including song slots and header controls). Do not use it as the current implementation checklist; see README.md and AGENTS.md for current behavior, and the local untracked HANDOFF.md for session context.
 
 ## Phase 0: Basic controls switch and modes framework
 
