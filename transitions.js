@@ -217,9 +217,9 @@ export function createTransitions(deck) {
   function glideHome() {
     stopGlide();
     const from = nudge;
-    const started = performance.now();
+    const started = deck.ctx.currentTime;
     glide = setInterval(() => {
-      const done = Math.min(1, (performance.now() - started) / (glideSeconds * 1000));
+      const done = Math.min(1, (deck.ctx.currentTime - started) / glideSeconds);
       setNudge(from + (1 - from) * done);
       if (done === 1) stopGlide();
     }, 250);
@@ -230,7 +230,7 @@ export function createTransitions(deck) {
     if (!tail) return;
     const { source, nodes, incoming, timer, watch } = tail;
     tail = null;
-    clearTimeout(timer);
+    clearInterval(timer);
     clearInterval(watch);
     try {
       source.stop();
@@ -243,6 +243,17 @@ export function createTransitions(deck) {
       incoming.disconnect();
       incoming.connect(deck.filter);
     }
+  }
+
+  // Audio time freezes when AirMix pauses. Wall timers only poll the deadline.
+  function finishAt(audioTime, blend) {
+    const active = tail;
+    clearInterval(active.timer);
+    active.timer = setInterval(() => {
+      if (tail !== active || deck.ctx.currentTime < audioTime) return;
+      finish();
+      if (blend) glideHome();
+    }, 50);
   }
 
   function filterNode(type, hz) {
@@ -444,6 +455,7 @@ export function createTransitions(deck) {
       const inGain = gainNode(0);
       const inFilter = filterNode("highpass", blend && !manual ? bassCutHz : openHz);
       incoming.connect(inGain).connect(inFilter).connect(deck.filter);
+      nodes.push(inGain, inFilter);
       incoming.start(when, offset);
       Object.assign(deck, { buffer: next, source: incoming, offset, anchorTime: when, rate, playing: true });
 
@@ -531,11 +543,7 @@ export function createTransitions(deck) {
               param.setValueAtTime(param.value, from);
               param.linearRampToValueAtTime(to, from + seconds);
             }
-            clearTimeout(tail.timer);
-            tail.timer = setTimeout(() => {
-              finish();
-              if (blend) glideHome();
-            }, (from + seconds - ctx.currentTime) * 1000 + 50);
+            finishAt(from + seconds, blend);
           },
         };
       } else if (blend) {
@@ -573,18 +581,13 @@ export function createTransitions(deck) {
         nodes,
         incoming,
         nudge: outNudge,
-        timer:
-          ends === null
-            ? null
-            : setTimeout(() => {
-                finish();
-                if (blend) glideHome();
-              }, (ends - ctx.currentTime) * 1000 + 50),
+        timer: null,
         // A skip, seek or pause replaces or stops the new song: drop the tail with it.
         watch: setInterval(() => {
           if (deck.source !== incoming) finish();
         }, 100),
       };
+      if (ends !== null) finishAt(ends, blend);
       const round = (value) => Math.round(value * 100) / 100;
       return {
         style: hands ? controls.style : blend ? "blend" : "echo",

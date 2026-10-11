@@ -339,7 +339,7 @@ def bpm(song):
     """A library song's BPM as a whole number, or None."""
     try:
         return round(float(song.get("bpm"))) if song and song.get("bpm") else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -561,7 +561,13 @@ class Handler(SimpleHTTPRequestHandler):
         # Read the whole body first: on a kept-open connection, unread bytes would be
         # taken for the start of the next request.
         try:
-            raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            length = int(self.headers.get("Content-Length", 0))
+            if length < 0 or self.headers.get("Transfer-Encoding"):
+                raise ValueError
+            if length > 1024 * 1024:
+                self.close_connection = True
+                return self.send_json(413, {"error": "request body too large"})
+            raw = self.rfile.read(length)
         except ValueError:
             self.close_connection = True
             return self.send_json(400, {"error": "invalid request body"})
@@ -601,6 +607,19 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json(502, {"error": error})
 
     def pick(self, body):
+        # JSON syntax alone does not validate the list/numeric fields the picker uses.
+        try:
+            count = body.get("count")
+            if count is not None:
+                body["count"] = int(count)
+            for field in ("queued", "played"):
+                if field in body and (not isinstance(body[field], list) or
+                                      any(not isinstance(value, str) for value in body[field])):
+                    raise ValueError
+            if "library" in body and not isinstance(body["library"], list):
+                raise ValueError
+        except (ValueError, TypeError, OverflowError):
+            return self.send_json(400, {"error": "invalid DJ request fields"})
         try:
             picks, offline = dj_pick(body)
         except DjError as error:

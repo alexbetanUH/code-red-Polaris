@@ -1,0 +1,26 @@
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const code = fs.readFileSync(__dirname + '/../queue.js', 'utf8').replace(/^import .*$/mg, '').replace(/^export /mg, '');
+let release;
+const slow = new Promise(resolve => release = resolve), starts = [];
+const deck = {playing: false, buffer: null, offset: 0, setVolume() {}, setFrequency() {}, ensureContext() {}, stopSource() {this.playing = false;}, play() {this.playing = true; starts.push(this.buffer.label);}, toggle() {this.playing = !this.playing;}, position: () => 0};
+const box = {console, Date, Math, performance, Promise, setInterval() {}, clearInterval() {}, setTimeout, clearTimeout, createTransitions: () => ({prepare() {}, cancel() {}}), OfflineAudioContext: class {decodeAudioData(label) {return label === 'B' ? slow : Promise.resolve({duration: 10, label});}}, fetch: async () => ({ok: true, json: async () => ({songs: []})})};
+vm.createContext(box); vm.runInContext(code + '\nglobalThis.createQueue = createQueue;', box);
+(async () => {
+  const queue = box.createQueue(deck);
+  queue.addFile({name: 'A.wav', arrayBuffer: async () => 'A'});
+  await queue.play(queue.getState().items[0].id);
+  queue.addFile({name: 'B.wav', arrayBuffer: async () => 'B'});
+  const pending = queue.play(queue.getState().items[1].id);
+  await new Promise(setImmediate);
+  queue.togglePlay();
+  assert(!deck.playing);
+  release({duration: 10, label: 'B'});
+  await pending;
+  assert(!deck.playing, 'pausing must cancel pending playback selection');
+  assert.deepEqual(starts, ['A']);
+  const ending = queue.endSet(8);
+  await queue.play(queue.getState().items[0].id);
+  await ending;
+  assert(deck.playing, 'an old end-set fade must not stop newer playback');
+  console.log('PASS: pause cancels late autoplay and stale set endings preserve new playback');
+})().catch(error => {console.error(error); process.exitCode = 1;});

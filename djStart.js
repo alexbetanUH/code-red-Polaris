@@ -194,8 +194,12 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
   }
 
   async function cameraStep() {
+    const mine = ++run;
     show(`<div class="djStart-panel"><p class="djStart-status">Starting the camera…</p></div>`);
-    if (!(await startCamera())) {
+    let started = false;
+    try { started = await startCamera(); } catch { /* show the retry screen */ }
+    if (mine !== run) return;
+    if (!started) {
       show(`
         <div class="djStart-panel">
           <p class="djStart-status">The camera didn't start. Allow camera access for this page, then try again.</p>
@@ -209,6 +213,7 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
 
   // Both hands in view for a moment, each lighting up as it's seen.
   function handCheck() {
+    const mine = ++run;
     show(`
       <div class="djStart-panel">
         <p class="djStart-status">Hold both hands up so the camera can see them</p>
@@ -218,14 +223,14 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
     let bothSince = 0;
     let done = false;
     const finish = () => {
-      if (done) return;
+      if (done || mine !== run) return;
       done = true;
       cameraReady = true;
       ready();
     };
     root.querySelector(".djStart-skip").addEventListener("click", finish, { once: true });
     const check = () => {
-      if (done) return;
+      if (done || mine !== run) return;
       const now = performance.now();
       let both = true;
       for (const side of ["left", "right"]) {
@@ -324,6 +329,7 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
 
   // ---- results
   function results({ score, perfect, good, miss, best, accuracy }) {
+    run += 1;
     const grade = accuracy >= 0.95 ? "S" : accuracy >= 0.85 ? "A" : accuracy >= 0.7 ? "B" : accuracy >= 0.5 ? "C" : "D";
     show(`
       <div class="djStart-panel">
@@ -348,6 +354,7 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
 
   setSelect();
   return {
+    cancel() { run += 1; root?.remove(); },
     results,
     paused,
     countIn: (onGo) => countdown(onGo, 700),

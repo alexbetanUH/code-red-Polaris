@@ -154,6 +154,7 @@ class Landing {
 
   // ---- Hand control: sweep an open hand left/right to turn the cabinet ----------
   async toggleHand() {
+    const run = this.handRun = (this.handRun || 0) + 1;
     const btn = document.getElementById("handBtn"), note = document.getElementById("handNote");
     const status = document.getElementById("handStatus"), cam = document.getElementById("handCam");
     if (this.handOn) {
@@ -176,13 +177,16 @@ class Landing {
         try { this.landmarker = await HandLandmarker.createFromOptions(fileset, opts("GPU")); }
         catch { this.landmarker = await HandLandmarker.createFromOptions(fileset, opts("CPU")); }
       }
-      if (!this.handOn) return;
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
-      cam.srcObject = this.stream; await cam.play();
+      if (run !== this.handRun || !this.handOn) return;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+      if (run !== this.handRun || !this.handOn) { stream.getTracks().forEach(t => t.stop()); return; }
+      this.stream = stream;
+      cam.srcObject = stream; await cam.play();
+      if (run !== this.handRun || !this.handOn) return;
       status.textContent = "Show an open hand and sweep it left or right";
       let lastTime = -1;
       const tick = () => {
-        if (!this.handOn) return;
+        if (run !== this.handRun || !this.handOn) return;
         if (cam.currentTime !== lastTime) {
           lastTime = cam.currentTime;
           const res = this.landmarker.detectForVideo(cam, performance.now());
@@ -192,6 +196,10 @@ class Landing {
       };
       tick();
     } catch (err) {
+      if (run !== this.handRun) return;
+      this.stream?.getTracks().forEach(t => t.stop());
+      this.stream = null; cam.srcObject = null; this.handOn = false;
+      btn.setAttribute("aria-pressed", "false"); document.getElementById("handLabel").textContent = "Use your hand";
       status.textContent = "Camera unavailable: " + err.message;
     }
   }
