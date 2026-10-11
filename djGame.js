@@ -180,11 +180,16 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       const downbeat = grid.first + k * bar;
       if (downbeat < playback.position) continue;
       const energy = queue.energyAt(downbeat);
-      const beats = energy < 0.45 ? [] : energy < 1.15 ? [0] : [0, 2];
+      // A circle every 2 beats (hands taking turns), every beat in loud parts unless
+      // the song is too fast for that, one a bar in quiet parts: never long waits.
+      const beatSeconds = 60 / grid.bpm / playback.rate;
+      const beats = energy < 0.35 ? [0] : energy < 1.15 || beatSeconds < 0.42 ? [0, 2] : [0, 1, 2, 3];
       beats.forEach((beat, index) => {
         const time = downbeat + (beat * bar) / 4;
         const hand = (k + index) % 2 === 0 ? "left" : "right";
         if (quiet(time, hand)) return; // the choice and the mix have their own circles
+        // Every circle gets its whole approach (a new song's first ones too, after a mix).
+        if (((time - playback.position) / playback.rate) * 1000 < approachMs(beatSeconds * 1000)) return;
         // Each hand wanders around its half of the frame, a step at a time.
         const [x0, y0] = lastSpot[hand];
         const angle = random() * Math.PI * 2;
@@ -462,6 +467,28 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     if (now < when) approachRing(p, color, progress, fadeIn);
   }
 
+  // A dotted trail between two circles, showing up as the second one does.
+  function followPoints(fromSpot, toSpot, color, when, now, beatMs) {
+    const leadMs = approachMs(beatMs);
+    if (when - now > leadMs) return;
+    const a = point(fromSpot);
+    const b = point(toSpot);
+    const gap = distance(a, b);
+    const r = radius() * 1.15;
+    if (gap < r * 2.2) return;
+    const dots = Math.floor((gap - r * 2) / (radius() * 0.45));
+    context.save();
+    context.globalAlpha = clamp01((1 - (when - now) / leadMs) * 4) * 0.8;
+    context.fillStyle = color;
+    for (let i = 1; i < dots; i += 1) {
+      const p = lerp(a, b, (r + ((gap - r * 2) * i) / dots) / gap);
+      context.beginPath();
+      context.arc(p.x, p.y, radius() * 0.07, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  }
+
   function slider(path, color, ball, following, alpha) {
     const a = point(path[0]);
     const b = point(path[1]);
@@ -578,8 +605,13 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
     // Later notes underneath earlier ones.
     const taps = [...notes.values()].filter((note) => note.kind === "tap" && note.song === playback.songId && !note.verdict);
-    taps.sort((a, b) => b.time - a.time);
-    for (const note of taps) drawNote(note.spot, colors[note.hand], realAt(note.time), now, beatMs);
+    taps.sort((a, b) => a.time - b.time);
+    // Follow points: each hand's next circle is joined to the one before, so you see where to go.
+    for (const hand of ["left", "right"]) {
+      const path = taps.filter((note) => note.hand === hand);
+      for (let i = 1; i < path.length; i += 1) followPoints(path[i - 1].spot, path[i].spot, colors[hand], realAt(path[i].time), now, beatMs);
+    }
+    for (const note of [...taps].reverse()) drawNote(note.spot, colors[note.hand], realAt(note.time), now, beatMs);
 
     if (mix?.choices && !mix.chosen) {
       const when = realAt(mix.chooseAt);
@@ -597,6 +629,17 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
           approachRing(point(note.spot), colors.accent, clamp01(1 - (when - now) / approachMs(beatMs)), shown);
         }
       });
+    }
+    if (mix && (mix.state === "planned" || mix.state === "starting")) {
+      // The mix's first circles, drawn from the plan with their whole approach (the mix
+      // itself is only set up just before its downbeat).
+      const when = realAt(mix.cue);
+      if (queue.getUpNext()?.style === "echo") {
+        for (const hand of ["left", "right"]) drawNote(cutSpots[hand], colors[hand], when, now, beatMs);
+      } else if (when - now <= approachMs(beatMs)) {
+        slider(inPath, colors.right, null, false, clamp01((1 - (when - now) / approachMs(beatMs)) * 4) * 0.8);
+        drawNote(inPath[0], colors.right, when, now, beatMs);
+      }
     }
     if (mix?.heads?.length) {
       if (mix.state === "blend" || mix.state === "landing") {
