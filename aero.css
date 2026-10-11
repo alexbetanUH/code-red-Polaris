@@ -170,6 +170,7 @@ button.sun:hover:not(:disabled), .btn.sun:hover { color: #3d1800; }
 .modes a.dj[aria-current="page"] { color: #fff; border-color: #0b62a8; background: linear-gradient(180deg, #63cdfc 0%, #1e95e3 49%, #0a6bc0 50%, #1d8fe0 100%); text-shadow: 0 1px 1px rgba(0,50,110,.55); }
 .modes a.arcade[aria-current="page"] { color: #123d0c; border-color: #4a9a22; background: linear-gradient(180deg, #d4f8ad 0%, #8fda55 49%, #62b92e 50%, #86d44e 100%); }
 .modes a.ai[aria-current="page"] { color: #3d1800; border-color: #cf6a12; background: linear-gradient(180deg, #ffe2c2 0%, #ffab60 49%, #f5861f 50%, #ffa24f 100%); }
+.modes a.fx[aria-current="page"] { color: #fff; border-color: #7a3fc4; background: linear-gradient(180deg, #e3c8ff 0%, #a970f0 49%, #8546d6 50%, #a46ae8 100%); text-shadow: 0 1px 1px rgba(60,20,110,.5); }
 .topbar .status { color: var(--ink-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
 .topbar .note { color: #b8590a; font-weight: 800; }
 .spacer { margin-left: auto; }

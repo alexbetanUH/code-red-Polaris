@@ -13,6 +13,20 @@ DJ with your hands in the browser, using your webcam (MediaPipe hand tracking + 
 
 The line between your hands is the live audio waveform.
 
+More gestures, on the hand tracker page `index.html` (**Hand FX** in the top bar; turn the basic controls off with the **Basic controls** button if you only want these):
+
+| Gesture | Controls |
+|---|---|
+| Right fist in the **right-side zone** (above the visuals corner), then fingers on the left hand | Songs from the queue: **1** = next song, **2** = previous song, **3+** = nothing. It applies when the fist leaves the zone. With **Hand blend** on, "next" is beat-matched in on a downbeat and you mix it: **left hand height** = crossfade, **right hand up** = old song out faster; no left hand for 4 s and it finishes by itself. Songs whose tempos can't be matched echo out instead |
+| Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; hand height sets the amount |
+| Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: 1 Portal (swirling lens), 2 Color filter (neon palette), 3 Kaleidoscope, 4 8-bit, 5 all off |
+| **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
+| A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
+
+Songs come from the same queue and library as the AI DJ page (**Queue** button; the up-next strip on the camera view shows what the AI DJ plays next).
+
+Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` finish blend, `F` effects mode, `V` visuals mode, `1`–`5` pick, `↑↓` effect amount, `L` frame, `K` lock, `Esc` leave a mode.
+
 ### Run it
 
 Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp` or `pip install -U "yt-dlp[default]"`), Chrome. ffmpeg is optional (one extra download fallback). On Windows, run `python server.py`.
@@ -103,8 +117,10 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
 
 ### Files
 
-- `index.html`: the hand tracker: hand tracking, gesture smoothing, hand → audio mapping, drawing
-- `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform)
+- `index.html`: the hand tracker: hand tracking, gesture smoothing, hand → audio mapping, drawing, and the gesture
+  modes (fist zones for effects and visuals; lock zone; easter eggs)
+- `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform, effects)
+- `frame.js`: WebGL visual inside the shape between both hands' thumb and index tips
 - `ai-dj.html`, `aiDeck.js`: the AI DJ page, with the same hand tracking and a frozen copy of `audio.js`, so
   changes to `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
@@ -113,6 +129,8 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
 - `djStart.js`: the AI DJ's start screen: how to play, camera and hand check, loading, 3-2-1
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
+- `tests/tracking.cjs`: `node tests/tracking.cjs` runs the hand tracking / gesture mode tests
+- `FEATURES_PLAN.md`: the plan the gesture modes were built from
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
 

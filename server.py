@@ -501,6 +501,11 @@ class Handler(SimpleHTTPRequestHandler):
         if parts.path == "/":
             self.path = "/landing.html" + (f"?{parts.query}" if parts.query else "")
 
+    def end_headers(self):
+        # Always revalidate files, so edits show up on a normal reload (no stale cached scripts)
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_HEAD(self):
         self.home_is_landing()
         super().do_HEAD()
