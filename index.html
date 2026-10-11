@@ -803,8 +803,8 @@ const FX_NAMES = ["reverb", "echo", "bitcrush", "flanger"];
 const FX_LABELS = { reverb: "Reverb", echo: "Echo", bitcrush: "Bitcrush", flanger: "Flanger" };
 // Visual effects for the finger-point shape (right fist in the bottom-right corner, then 1-5 fingers)
 const VIS_COLOR = "#a78bfa";
-const VIS_NAMES = ["portal", "color", "glitch", "kaleido", "pixel8"];
-const VIS_LABELS = { portal: "Portal", color: "Color filter", glitch: "Glitch", kaleido: "Kaleidoscope", pixel8: "8-bit" };
+const VIS_NAMES = ["portal", "color", "kaleido", "pixel8", "off"];   // 1-4 = effects, 5 = all off
+const VIS_LABELS = { portal: "Portal", color: "Color filter", kaleido: "Kaleidoscope", pixel8: "8-bit", off: "All off" };
 let visualFx = "portal";
 try { const v = localStorage.getItem("airdeck-visual"); if (VIS_NAMES.includes(v)) visualFx = v; } catch {}
 function setVisual(name) {
@@ -903,7 +903,7 @@ function pick(n) {
     flash(ok ? `♪ ${n}: ${slotTitles[n - 1] || "song " + n}` : `Slot ${n} is empty`);
   } else if (modes.current === "vis") {
     setVisual(VIS_NAMES[n - 1]);
-    flash(`✨ ${VIS_LABELS[VIS_NAMES[n - 1]]}`);
+    flash(VIS_NAMES[n - 1] === "off" ? "Visuals off" : `✨ ${VIS_LABELS[VIS_NAMES[n - 1]]}`);
   } else if (modes.current === "fx") {
     if (n === 5) { deck.clearEffects?.(); lastFx = null; flash("All effects off"); return; }
     const name = FX_NAMES[n - 1];
@@ -1141,6 +1141,7 @@ function drawFrame(now) {
   const dt = Math.min(100, now - lastFxT);
   lastFxT = now;
   let target;
+  if (visualFx === "off") { shownCorners = null; frameFx.clear(); showFx(false); return; }   // visuals switched off (5)
   if (frame.forced) {   // test key: a slowly turning, skewed shape
     const cx = canvas.width * 0.5, cy = canvas.height * 0.5, t = now / 1400;
     target = [[-0.22, -0.2], [0.2, -0.28], [0.26, 0.22], [-0.18, 0.28]].map(([x, y]) => ({
