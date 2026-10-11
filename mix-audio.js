@@ -1,17 +1,12 @@
-// AirDeck two-deck mixer: audio graph, tempo detection, build/drop FX, demo loops.
+// AirDeck two-deck mixer: audio graph, tempo detection, demo loops.
 //
 // engine (AudioWorklet: playback, sync, scratch — see mix-worklet.js)
-//   → per deck: high-pass → low-pass → fader → level meter ┐
-//                                                          ├→ bus → build high-pass → cut → limiter → analyser → speakers
-//   riser noise, snare roll, drop impact ──────────────────────────────────────────────┘ (enter at the limiter)
+//   → per deck: high-pass → low-pass → fader → level meter → bus → limiter → analyser → speakers
 
 const RAMP = 0.03;               // seconds; smooths parameter changes so they never click
 const LPF_MIN = 200;             // filter knob fully left (Hz)
 const HPF_MAX = 4000;            // filter knob fully right (Hz)
 const FILTER_Q = 1.4;            // a little resonance, like a DJ mixer filter
-const BUILD_BEATS = 16;          // beats for the build-up to reach full intensity
-const BUILD_AUTO_DROP = 24;      // if nobody drops, drop anyway after this many beats
-const BUILD_HPF_MAX = 1800;      // master high-pass at the top of the build (Hz)
 
 export class Mixer {
   constructor() {
@@ -22,8 +17,6 @@ export class Mixer {
     }));
     this.masterBpm = 0;
     this.clock = { beat: 0, time: 0 };
-    this.build = null;           // active build-up, see startBuild()
-    this.lastDrop = -Infinity;   // ctx time of the most recent drop
   }
 
   // Must be called from a click handler the first time (browser autoplay rules).
@@ -38,8 +31,6 @@ export class Mixer {
       this.engine.port.onmessage = (e) => this.onEngine(e.data);
 
       this.bus = ctx.createGain();
-      this.buildHpf = biquad(ctx, "highpass", 20, 0.9);
-      this.cut = ctx.createGain();
       this.limiter = ctx.createDynamicsCompressor();
       this.limiter.threshold.value = -6;
       this.limiter.knee.value = 6;
@@ -49,11 +40,8 @@ export class Mixer {
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.5;
-      this.bus.connect(this.buildHpf).connect(this.cut).connect(this.limiter).connect(this.analyser).connect(ctx.destination);
-      this.fx = ctx.createGain();
-      this.fx.connect(this.limiter);
+      this.bus.connect(this.limiter).connect(this.analyser).connect(ctx.destination);
       this.freq = new Uint8Array(this.analyser.frequencyBinCount);
-      this.noise = noiseBuffer(ctx, 2);
 
       this.decks.forEach((d, k) => {
         d.hpf = biquad(ctx, "highpass", 20, FILTER_Q);
@@ -167,105 +155,6 @@ export class Mixer {
       return Math.min(1, Math.sqrt(s / d.meterData.length) * 5);
     });
   }
-
-  // ---- Build-up and drop ----------------------------------------------------------
-  // A build sweeps a high-pass up the master, raises a noise riser and plays a
-  // snare roll that speeds up (quarters → eighths → sixteenths → thirty-seconds).
-  startBuild() {
-    if (!this.ctx || this.build) return;
-    const ctx = this.ctx;
-    const startBeat = Math.ceil(this.beatAt(ctx.currentTime) + 0.05);
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.loop = true;
-    const bp = biquad(ctx, "bandpass", 400, 1.2);
-    const g = ctx.createGain();
-    g.gain.value = 0;
-    src.connect(bp).connect(g).connect(this.fx);
-    src.start();
-    this.build = { startBeat, src, bp, g, nextHit: startBeat, dropBeat: null, dropTime: null };
-  }
-
-  cancelBuild() {
-    const b = this.build;
-    if (!b || b.dropBeat !== null) return;
-    const t = this.ctx.currentTime;
-    this.buildHpf.frequency.cancelScheduledValues(t);
-    this.buildHpf.frequency.setTargetAtTime(20, t, 0.15);
-    b.g.gain.cancelScheduledValues(t);
-    b.g.gain.setTargetAtTime(0, t, 0.1);
-    b.src.stop(t + 0.6);
-    this.build = null;
-  }
-
-  // Call every frame. Returns the build state for drawing, or null.
-  updateBuild() {
-    const b = this.build;
-    if (!b || !this.masterBpm) return null;
-    const t = this.ctx.currentTime;
-    const beat = this.beatAt(t);
-    const progress = Math.min(1, Math.max(0, (beat - b.startBeat) / BUILD_BEATS));
-
-    if (b.dropBeat === null) {
-      if (beat - b.startBeat >= BUILD_AUTO_DROP) this.drop();
-      else {
-        this.buildHpf.frequency.setTargetAtTime(20 * Math.pow(BUILD_HPF_MAX / 20, progress ** 1.5), t, 0.05);
-        b.bp.frequency.setTargetAtTime(400 * Math.pow(15, progress), t, 0.05);
-        b.g.gain.setTargetAtTime(0.02 + 0.22 * progress, t, 0.05);
-      }
-    }
-
-    // Snare roll, scheduled a little ahead on the beat grid
-    const horizon = t + 0.12;
-    const stopBeat = b.dropBeat === null ? Infinity : b.dropBeat - 0.5;
-    while (b.nextHit < stopBeat) {
-      const at = this.timeOfBeat(b.nextHit);
-      if (at > horizon) break;
-      const since = b.nextHit - b.startBeat;
-      if (at >= t - 0.01) snare(this.ctx, this.fx, Math.max(at, t), this.noise, 0.12 + 0.45 * Math.min(1, since / BUILD_BEATS));
-      b.nextHit += since < 4 ? 1 : since < 8 ? 0.5 : since < 12 ? 0.25 : 0.125;
-    }
-
-    if (b.dropTime !== null && t > b.dropTime + 0.05) {
-      this.build = null;
-      return null;
-    }
-    return { progress, dropBeat: b.dropBeat, beat };
-  }
-
-  // Drop on the next downbeat (bar line). Half a beat of silence before it,
-  // then everything slams back with an impact. Returns the drop time.
-  drop() {
-    if (!this.ctx) return null;
-    if (!this.masterBpm) { this.lastDrop = this.ctx.currentTime; impact(this.ctx, this.fx, this.lastDrop, this.noise); return this.lastDrop; }
-    if (!this.build) this.startBuild();
-    const b = this.build;
-    if (b.dropBeat !== null) return b.dropTime;
-    const t = this.ctx.currentTime;
-    const dropBeat = Math.ceil((this.beatAt(t) + 0.3) / 4) * 4;
-    const tDrop = this.timeOfBeat(dropBeat);
-    const half = 30 / this.masterBpm;
-    const gapStart = tDrop - half;
-    Object.assign(b, { dropBeat, dropTime: tDrop });
-
-    const hpf = this.buildHpf.frequency, cut = this.cut.gain, rg = b.g.gain;
-    for (const p of [hpf, cut, rg]) { p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); }
-    if (gapStart > t + 0.02) {
-      hpf.exponentialRampToValueAtTime(BUILD_HPF_MAX * 1.4, gapStart);
-      rg.linearRampToValueAtTime(0.3, gapStart);
-      rg.linearRampToValueAtTime(0, gapStart + 0.01);
-      cut.setValueAtTime(1, gapStart);
-      cut.linearRampToValueAtTime(0, gapStart + 0.015);
-      cut.setValueAtTime(0, tDrop - 0.003);
-      cut.linearRampToValueAtTime(1, tDrop);
-    }
-    hpf.setValueAtTime(20, tDrop);
-    rg.setValueAtTime(0, tDrop);
-    b.src.stop(tDrop + 0.05);
-    impact(this.ctx, this.fx, tDrop, this.noise);
-    this.lastDrop = tDrop;
-    return tDrop;
-  }
 }
 
 // ---- Helpers -----------------------------------------------------------------------
@@ -313,20 +202,8 @@ function noiseHit(ctx, dest, t, noise, { type, freq, q = 1, vel, decay }) {
 }
 
 const hat = (ctx, dest, t, noise, vel = 0.25) => noiseHit(ctx, dest, t, noise, { type: "highpass", freq: 8000, vel, decay: 0.04 });
-const snare = (ctx, dest, t, noise, vel = 0.4) => noiseHit(ctx, dest, t, noise, { type: "bandpass", freq: 1800, q: 0.8, vel, decay: 0.12 });
 function clap(ctx, dest, t, noise, vel = 0.5) {
   for (let i = 0; i < 3; i++) noiseHit(ctx, dest, t + i * 0.011, noise, { type: "bandpass", freq: 1400, q: 1.5, vel: vel * (i === 2 ? 1 : 0.6), decay: i === 2 ? 0.16 : 0.02 });
-}
-
-// Drop impact: a deep pitch-falling boom plus a long crash.
-function impact(ctx, dest, t, noise) {
-  const o = ctx.createOscillator(), g = ctx.createGain();
-  o.frequency.setValueAtTime(110, t);
-  o.frequency.exponentialRampToValueAtTime(32, t + 0.6);
-  env(g.gain, t, 1.1, 1.2);
-  o.connect(g).connect(dest);
-  o.start(t); o.stop(t + 1.3);
-  noiseHit(ctx, dest, t, noise, { type: "highpass", freq: 3500, vel: 0.35, decay: 1.8 });
 }
 
 function tone(ctx, dest, t, freq, dur, { type = "sawtooth", cutoff = 1200, vel = 0.15, attack = 0.005 } = {}) {

@@ -33,19 +33,20 @@ Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of th
 
 ## AirDeck Mix (two decks): `mix.html`
 
-Open http://localhost:8000/mix.html. Left hand = deck A, right hand = deck B. Both decks are beat-synced to deck A's tempo (detected automatically).
+Open http://localhost:8000/mix.html. Each deck has an on-screen **volume fader** and **filter knob** (deck A on the left, deck B on the right). Both decks are beat-synced to deck A's tempo (detected automatically).
+
+The point between your thumb and index finger is your cursor. Either hand can use any control.
 
 | Gesture | Does |
 |---|---|
-| Pinch + move hand up/down | Grab that deck's channel fader (volume) |
-| Pinch + twist wrist | Filter knob: twist left = low-pass, right = high-pass, centre = off |
-| Fist + slide left/right | Scratch (hand on the record; still fist = record stopped). Slip mode: on release the track jumps back in sync |
-| Both open hands up high | Build-up: high-pass sweep, noise riser, accelerating snare roll |
-| …then two fists | Drop on the next bar line |
+| Move your cursor onto a fader or knob | It lights up gold |
+| Pinch, then move up/down | Fader: volume |
+| Pinch, then circle around the knob | Filter: clockwise = high-pass (thin), counter-clockwise = low-pass (muffled), centre = off |
+| Open your fingers | Let go (the control keeps its value) |
 | Both open hands held low (~1 s) | Pause / resume hand tracking (music keeps playing) |
 
-No camera? Keys: Space play/pause, 1/2 toggle deck, B build, D drop, P pause tracking, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
+If grabbing feels unreliable, click **Calibrate pinch** once (it's saved). No camera? Keys: Space play/pause, 1/2 toggle deck, P pause tracking, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
 
-- `mix-worklet.js`: audio-thread engine (variable-rate/reverse playback, master beat clock, phase lock, slip mode, bar-aligned loops)
-- `mix-audio.js`: graph, filters, faders, build/drop FX, tempo detection, demo loops
-- `mix.html`: hand tracking, gestures, stage visuals. Tuning values are at the top of its script.
+- `mix-worklet.js`: audio-thread engine (variable-rate playback, master beat clock, phase lock, bar-aligned loops; also supports scratching, currently unused)
+- `mix-audio.js`: graph, filters, faders, tempo detection, demo loops
+- `mix.html`: hand tracking, on-screen controls, stage visuals. Tuning values are at the top of its script.
