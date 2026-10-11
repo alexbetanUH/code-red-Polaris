@@ -190,7 +190,7 @@
     <div id="deckDetails" hidden>
       <div class="detail-actions">
   <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
-  <button id="eggsBtn" class="secondary">Easter eggs: on</button>
+  <button id="eggsBtn" class="secondary">Easter eggs: off</button>
   <button id="blendBtn" class="secondary">Hand blend: on</button>
   <button id="basicBtn" class="secondary">Basic controls: on</button>
       </div>
@@ -836,13 +836,13 @@ function drawTrackingDebug(left, right, now) {
 }
 
 // ---- Easter eggs (temporary, for fun) ------------------------------------------
-// On/off button in the header; the choice is remembered.
-let eggsOn = true;
-try { eggsOn = localStorage.getItem("airdeck-eggs") !== "off"; } catch {}
-function setEggs(on) {
+// On/off button in the header; off by default, and a click is remembered.
+let eggsOn = false;
+try { eggsOn = localStorage.getItem("airdeck-eggs-v2") === "on"; } catch {}
+function setEggs(on, save = true) {
   eggsOn = on;
   $("eggsBtn").textContent = `Easter eggs: ${on ? "on" : "off"}`;
-  try { localStorage.setItem("airdeck-eggs", on ? "on" : "off"); } catch {}
+  if (save) try { localStorage.setItem("airdeck-eggs-v2", on ? "on" : "off"); } catch {}
   if (!on) { cinemaSince = null; six7.count = 0; six7.higher = null; hideCinema(); }
 }
 $("eggsBtn").addEventListener("click", () => setEggs(!eggsOn));
@@ -891,7 +891,7 @@ const SIX7_SWAP = 0.035;       // one palm must be this much higher (fraction of
 const SIX7_GAP_MS = 1300;      // swaps further apart than this end the streak
 const SIX7_SHOW_MS = 2500;     // keep showing the final count this long
 const six7 = { higher: null, count: 0, lastSwap: -Infinity };
-setEggs(eggsOn);
+setEggs(eggsOn, false);
 
 function check67(left, right, now) {
   if (now - six7.lastSwap > SIX7_GAP_MS) { six7.higher = null; if (now - six7.lastSwap > SIX7_SHOW_MS) six7.count = 0; }
