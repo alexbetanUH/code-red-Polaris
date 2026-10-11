@@ -773,7 +773,7 @@ function updateSongCard() {
   const { items, downloads, status, dj } = queue.getState();
   $("queueCount").textContent = items.length;
   const active = downloads.filter((download) => download.stage !== "failed");
-  const idle = items.length ? "" : "Open the queue to add a YouTube link, song name or file.";
+  const idle = items.length ? "" : "Open the queue to pick songs from the library or start the AI DJ.";
   songStatus.textContent =
     status?.message ??
     (dj.talking ? "🎙 The DJ is on the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
