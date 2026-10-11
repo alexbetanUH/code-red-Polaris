@@ -1,6 +1,6 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 // Expose the real finale callback only inside the VM so its asynchronous lifecycle is testable.
-const source = fs.readFileSync(__dirname + '/../djGame.js', 'utf8').replace(/^import .*$/mg, '').replace(/^export /mg, '').replace('  return {\n    update,', '  return {\n    finishSet,\n    update,');
+const source = fs.readFileSync(__dirname + '/../djGame.js', 'utf8').replace(/\r\n/g, '\n').replace(/^import .*$/mg, '').replace(/^export /mg, '').replace('  return {\n    update,', '  return {\n    finishSet,\n    update,');
 const element = () => ({append() {}, appendChild(node) {return node;}, setAttribute() {}, getContext: () => ({}), classList: {toggle() {}}});
 const box = {console, performance, requestAnimationFrame() {}, document: {createElement: element, getElementById: () => ({})}};
 vm.createContext(box); vm.runInContext(source + '\nglobalThis.createDjGame = createDjGame;', box);
