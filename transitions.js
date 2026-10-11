@@ -273,6 +273,17 @@ export function createTransitions(deck) {
       return Math.max(0, end - (style === "echo" ? barOf(beats) : blendLength(beats, short)));
     },
 
+    // The next downbeat (seconds into the song) after `position`, on the beat grid the song
+    // gets mixed out on.
+    nextDownbeat(buffer, short, position) {
+      return downbeatAfter(gridBefore(buffer, mixOutPoint(buffer, short)), position);
+    },
+
+    // Seconds per beat of the playing song where it gets mixed out (at the current speed).
+    beatSeconds(buffer, short = false) {
+      return 60 / gridBefore(buffer, mixOutPoint(buffer, short)).bpm / (handSpeed * nudge);
+    },
+
     // How the playing song would mix into `next` (an AudioBuffer): "blend" or "echo".
     styleInto(next, { mixOutAt, fromBpm, toBpm, short = false } = {}) {
       if (!deck.buffer) return null;
@@ -293,10 +304,11 @@ export function createTransitions(deck) {
     // gone by mixOutAt (seconds into it; its fading ending by default, 0 = right away,
     // on the next downbeat). fromBpm/toBpm are the library's tempos, to sanity-check
     // detection. short: short mixes (shorter blends, the next song comes in where it gets
-    // going). Once the new song is on the deck, resolves with what it did
-    // ({ style: "blend" | "echo", ... }), or with null if stillWanted() turned false (or
-    // the music stopped) while waiting for the right beat.
-    async mixInto(next, { mixOutAt, fromBpm, toBpm, short = false, stillWanted = () => true } = {}) {
+    // going). hands: for a blend, schedule nothing and hand back live controls instead
+    // (result.hands, see below), for the hands to perform it. Once the new song is on the
+    // deck, resolves with what it did ({ style: "blend" | "echo", hands, ... }), or with
+    // null if stillWanted() turned false (or the music stopped) while waiting for the right beat.
+    async mixInto(next, { mixOutAt, fromBpm, toBpm, short = false, hands = false, stillWanted = () => true } = {}) {
       finish();
       stopGlide();
       const { ctx } = deck;
@@ -315,7 +327,9 @@ export function createTransitions(deck) {
         const earliest = now() + scheduleAhead * 2;
         if (blend) {
           length = blendLength(beatsOut, short);
-          at = downbeatAfter(beatsOut, Math.max(earliest, outBy - length));
+          // A move made just after the downbeat (hands) still counts for that downbeat.
+          const from = hands ? now() - 60 / beatsOut.bpm : earliest;
+          at = downbeatAfter(beatsOut, Math.max(from, outBy - length));
           // Late (e.g. a skip near the end)? A shorter blend, down to one bar, else echo out.
           const room = Math.floor((current.duration - 0.05 - at) / barOf(beatsOut)) * barOf(beatsOut);
           length = Math.min(length, room);
@@ -341,7 +355,11 @@ export function createTransitions(deck) {
       }
       if ((at - now()) / speed() < scheduleAhead / 2) plan(); // woke up late (e.g. a background tab)
 
-      const when = ctx.currentTime + (at - now()) / speed();
+      // A downbeat that just passed (a move made a little late): start now, with the next
+      // song jumped ahead by as much, so the beats still line up.
+      const startsAt = Math.max(at, now() + scheduleAhead);
+      const late = startsAt - at;
+      const when = ctx.currentTime + (startsAt - now()) / speed();
       const outNudge = nudge;
       // The current song becomes the tail. It's the same source, so not a sample is skipped.
       const source = deck.source;
@@ -355,9 +373,11 @@ export function createTransitions(deck) {
 
       // The next song, scheduled on the downbeat: what Deck.play() does, with a start time.
       const comesIn = entry(next, short).at;
-      const offset = blend ? downbeatAfter(beatsIn, Math.max(0, comesIn - 0.05)) % next.duration : comesIn;
       nudge = blend ? outNudge * ratio : 1;
       const rate = handSpeed * nudge;
+      const offset = blend
+        ? (downbeatAfter(beatsIn, Math.max(0, comesIn - 0.05)) + (late / (handSpeed * outNudge)) * rate) % next.duration
+        : comesIn;
       const incoming = ctx.createBufferSource();
       incoming.buffer = next;
       incoming.loop = true;
@@ -368,8 +388,61 @@ export function createTransitions(deck) {
       incoming.start(when, offset);
       Object.assign(deck, { buffer: next, source: incoming, offset, anchorTime: when, rate, playing: true });
 
-      let ends;
-      if (blend) {
+      let ends = null;
+      let controls = null;
+      if (blend && hands) {
+        // The hands perform it: live levels for both songs, the bass swap on a downbeat,
+        // and finish() for when they're done (or the AI takes over).
+        const bar = 4 * beat;
+        const live = () => tail?.incoming === incoming;
+        const nextDownbeat = () => when + Math.max(0, Math.ceil((ctx.currentTime + scheduleAhead - when) / bar)) * bar;
+        const setLevel = (param, value) =>
+          param.setTargetAtTime(Math.max(0, Math.min(1, value)), Math.max(ctx.currentTime, when), 0.06);
+        let swapAt = null;
+        let closing = false;
+        controls = {
+          barSeconds: bar,
+          get startsIn() {
+            return when - ctx.currentTime; // seconds until the next song comes in (on a downbeat)
+          },
+          get done() {
+            return !live();
+          },
+          setIncoming(level) {
+            if (live() && !closing) setLevel(inGain.gain, level);
+          },
+          setOutgoing(level) {
+            if (live() && !closing) setLevel(tailGain.gain, level);
+          },
+          // Only one bass line at a time: the old song's goes, the new one's comes in.
+          swapBass() {
+            if (!live() || swapAt !== null) return swapAt;
+            swapAt = nextDownbeat();
+            tailFilter.frequency.setValueAtTime(openHz, Math.max(ctx.currentTime, swapAt - beat));
+            tailFilter.frequency.exponentialRampToValueAtTime(bassCutHz, swapAt);
+            inFilter.frequency.setValueAtTime(bassCutHz, Math.max(ctx.currentTime, swapAt - beat));
+            inFilter.frequency.exponentialRampToValueAtTime(openHz, swapAt);
+            return swapAt;
+          },
+          // Eases the new song to full and the old one out over `seconds`, then ends the mix.
+          finish(seconds = bar) {
+            if (!live() || closing) return;
+            closing = true;
+            controls.swapBass();
+            const from = Math.max(ctx.currentTime, when);
+            for (const [param, to] of [[inGain.gain, 1], [tailGain.gain, 0]]) {
+              param.cancelScheduledValues(from);
+              param.setValueAtTime(param.value, from);
+              param.linearRampToValueAtTime(to, from + seconds);
+            }
+            clearTimeout(tail.timer);
+            tail.timer = setTimeout(() => {
+              finish();
+              glideHome();
+            }, (from + seconds - ctx.currentTime) * 1000 + 50);
+          },
+        };
+      } else if (blend) {
         // In over the first half, bass lines swap on the middle downbeat, out over the second half.
         const half = when + length / 2 / (handSpeed * outNudge);
         ends = when + length / (handSpeed * outNudge);
@@ -404,10 +477,13 @@ export function createTransitions(deck) {
         nodes,
         incoming,
         nudge: outNudge,
-        timer: setTimeout(() => {
-          finish();
-          if (blend) glideHome();
-        }, (ends - ctx.currentTime) * 1000 + 50),
+        timer:
+          ends === null
+            ? null
+            : setTimeout(() => {
+                finish();
+                if (blend) glideHome();
+              }, (ends - ctx.currentTime) * 1000 + 50),
         // A skip, seek or pause replaces or stops the new song: drop the tail with it.
         watch: setInterval(() => {
           if (deck.source !== incoming) finish();
@@ -416,7 +492,8 @@ export function createTransitions(deck) {
       const round = (value) => Math.round(value * 100) / 100;
       return {
         style: blend ? "blend" : "echo",
-        seconds: round(ends - when),
+        hands: controls,
+        seconds: ends === null ? null : round(ends - when),
         from: { bpm: beatsOut.bpm, trusted: knownOut, mixAt: round(at) },
         to: { bpm: beatsIn.bpm, trusted: trusted(beatsIn.bpm, toBpm), startsAt: round(offset), speed: round(nudge) },
       };
