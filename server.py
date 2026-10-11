@@ -50,23 +50,28 @@ def to_target(text):
     return f"ytsearch1:{text}"
 
 
+# yt-dlp needs a JavaScript runtime to see all of YouTube's formats, and only
+# looks for Deno by default. Without one, downloads fail with "Requested format
+# is not available". Use Node when Deno isn't installed.
+JS_RUNTIME = [] if shutil.which("deno") or not shutil.which("node") else ["--js-runtimes", "node"]
+
 # YouTube often answers 403 Forbidden for one download method but not another,
-# so try several in order. The first keeps the original audio file (m4a/webm
-# decode natively in the browser); the fallbacks may get a video file, so they
-# extract the audio to m4a with ffmpeg.
-TO_M4A = ["-x", "--audio-format", "m4a"]
+# so try several in order. The first two keep the original audio file (m4a/webm
+# decode natively in the browser). The last gets a video file and extracts the
+# audio with ffmpeg, so it's only tried when ffmpeg is installed.
+AUDIO_ONLY = ["-f", "bestaudio[ext=m4a]/bestaudio"]
 STRATEGIES = [
-    ("default", ["-f", "bestaudio[ext=m4a]/bestaudio"]),
-    ("alt clients", ["-f", "bestaudio/best", *TO_M4A,
-                     "--extractor-args", "youtube:player_client=tv,web_safari,mweb"]),
-    ("convert", ["-f", "best", *TO_M4A]),
+    ("default", AUDIO_ONLY),
+    ("alt clients", [*AUDIO_ONLY, "--extractor-args", "youtube:player_client=tv,web_safari,mweb"]),
 ]
+if shutil.which("ffmpeg"):
+    STRATEGIES.append(("convert", ["-f", "best", "-x", "--audio-format", "m4a"]))
 
 
 def download(url, extra):
     """Run yt-dlp once. Returns ((title, path), None) or (None, error message)."""
     cmd = [
-        *YTDLP, *extra,
+        *YTDLP, *JS_RUNTIME, *extra,
         "--no-playlist",
         # Never more than one file, even if the target turns out to be a list.
         "--max-downloads", "1",
@@ -108,7 +113,7 @@ class Handler(SimpleHTTPRequestHandler):
         url = target
 
         DOWNLOADS.mkdir(exist_ok=True)
-        err = "download failed"
+        errors = []
         for name, extra in STRATEGIES:
             print(f"[youtube] trying {name}: {url}", flush=True)
             result, err = download(url, extra)
@@ -117,7 +122,9 @@ class Handler(SimpleHTTPRequestHandler):
                 print(f"[youtube] ok via {name}: {title}", flush=True)
                 return self.send_json(200, {"file": filepath.relative_to(ROOT).as_posix(), "title": title})
             print(f"[youtube] {name} failed: {err}", flush=True)
-        return self.send_json(502, {"error": err})
+            errors.append(err)
+        # The first method's error is the real one; later fallbacks fail for their own reasons.
+        return self.send_json(502, {"error": errors[0] if errors else "download failed"})
 
     def send_json(self, status, body):
         data = json.dumps(body).encode()
@@ -129,5 +136,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"AirDeck running at http://localhost:{PORT} (yt-dlp: {' '.join(YTDLP)})")
+    print(f"AirDeck running at http://localhost:{PORT} (yt-dlp: {' '.join(YTDLP + JS_RUNTIME)})")
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
