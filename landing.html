@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AirDeck</title>
-<meta name="description" content="Hand-tracked music and games in your browser: a two-player arcade battle, a turntable you remix by pinching the air, and an AI DJ powered by Gemini.">
+<meta name="description" content="Hand-tracked music and games in your browser: a gesture-controlled DJ deck and a two-player arcade battle.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -103,6 +103,18 @@
   footer .glass { max-width: 1180px; margin: 0 auto; border-radius: 24px; padding: 18px 26px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; font-size: 15px; color: #2b5a82; }
   footer b { font-weight: 800; color: #0b2f52; }
   @media (max-width: 600px) { .intro { padding: 26px; } .card { padding: 24px; } }
+  /* Compact background music in the header. */
+  nav .beat { margin-left: auto; padding: 0; border: 0; gap: 8px; max-width: 310px; min-width: 0; }
+  nav #play, nav #skip { width: 34px; height: 34px; min-height: 34px; }
+  nav #play svg, nav #skip svg { width: 15px; height: 15px; }
+  nav .beat-text b { font-size: 12px; }
+  nav .beat-text span { font-size: 11px; }
+  .row [data-preview] { transition: transform .2s; }
+  .row [data-preview]:hover { transform: translateY(-3px); }
+  @media (max-width: 600px) {
+    nav { border-radius: 24px; gap: 8px; }
+    nav .beat { max-width: 100%; flex: 1 1 180px; }
+  }
 </style>
 </head>
 <body>
@@ -116,24 +128,6 @@
         <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>
         AirDeck
       </a>
-      <a class="link" href="#dj">DJ Deck</a>
-      <a class="link" href="#arcade">Arcade</a>
-      <a class="link" href="#ai">AI DJ</a>
-      <a class="link" href="#how">How it works</a>
-      <a class="aqua" href="#modes" style="margin-left: auto; min-height: 48px">Launch</a>
-    </nav>
-  </div>
-
-  <div class="hero-body">
-    <div class="intro glass">
-      <p class="eyebrow">Hand-tracked music &amp; games</p>
-      <h1>Turn it around.<br>Play it with your hands.</h1>
-      <p class="lede">AirDeck reads both of your hands through a webcam. Spin the cabinet to pick a side: a two-player arcade battle, a turntable you remix by pinching the air, or an AI DJ that takes your requests.</p>
-      <div class="row">
-        <a class="aqua" href="#dj">Start DJ Deck</a>
-        <a class="gbtn" href="#arcade">Start Arcade</a>
-        <a class="sun" href="#ai">Talk to the AI DJ</a>
-      </div>
       <div class="beat">
         <button class="lime" id="play" aria-label="Play music" aria-pressed="false">
           <svg id="iconPause" hidden width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></svg>
@@ -147,40 +141,22 @@
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.6v12.8a1 1 0 0 0 1.53.85L15 13.9V18a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v4.1L6.53 4.75A1 1 0 0 0 5 5.6z" fill="currentColor"/></svg>
         </button>
       </div>
+    </nav>
+  </div>
+
+  <div class="hero-body">
+    <div class="intro glass">
+      <p class="eyebrow">Hand-tracked music &amp; games</p>
+      <h1>Turn it around.<br>Play it with your hands.</h1>
+      <p class="lede">AirDeck reads both of your hands through a webcam. Mix songs, effects and visuals in the air, or challenge a friend to an arcade battle. Pick your stage and let your hands take over.</p>
+      <div class="row">
+        <a class="aqua" data-preview="dj" href="index.html">DJ Deck</a>
+        <a class="lime" data-preview="arcade" href="arcade.html">Arcade</a>
+      </div>
+
     </div>
 
-    <div id="stage">
-      <div class="stage-ui">
-        <div class="switch glass" role="group" aria-label="Choose a side">
-          <button class="seg on" data-mode="arcade" aria-pressed="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h4M8 9v4"/><path d="M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-3.95 3.4l-.9 6.2a2.5 2.5 0 0 0 4.35 2.3L8.5 14.5h7l2.3 2.4a2.5 2.5 0 0 0 4.35-2.3l-.9-6.2A4 4 0 0 0 17.3 5z"/></svg>
-            Arcade · 2P
-          </button>
-          <button class="seg" data-mode="dj" aria-pressed="false">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
-            DJ Deck
-          </button>
-          <button class="seg" data-mode="ai" aria-pressed="false">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
-            AI DJ
-          </button>
-        </div>
-        <div class="hint">
-          <span>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
-            Drag to turn it
-          </span>
-          <button class="gbtn" id="handBtn" aria-pressed="false">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg>
-            <span id="handLabel">Use your hand</span>
-          </button>
-        </div>
-        <div class="hand-note glass" id="handNote" hidden>
-          <video id="handCam" playsinline muted></video>
-          <span id="handStatus" aria-live="polite">Loading hand tracking…</span>
-        </div>
-      </div>
-    </div>
+    <div id="stage" aria-label="Animated arcade cabinet, turntable and headphones"></div>
   </div>
 
   <canvas id="front" aria-hidden="true"></canvas>
@@ -189,24 +165,22 @@
 <section id="modes">
   <div class="wrap">
     <div class="head">
-      <h2>One cabinet. Three sides.</h2>
-      <p>All three run on the same hand tracking, right in the browser. Nothing to hold, nothing to plug in.</p>
-      <p><a href="index.html">Hand FX</a>: effects and visuals, picked with hand signs, on top of the AI DJ's songs.</p>
+      <h2>Two ways to play.</h2>
+      <p>Music and games, powered by your hands, right in the browser. Nothing to hold, nothing to plug in.</p>
     </div>
     <div class="cards">
 
       <article id="dj" class="card glass">
         <div class="card-top">
           <span class="orb" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3a9 9 0 0 1 9 9"/></svg></span>
-          <div><h3>DJ Deck</h3><p>Two decks, mixed in the air.</p></div>
+          <div><h3>DJ Deck</h3><p>Songs, effects and visuals, mixed in the air.</p></div>
         </div>
         <div class="gestures">
-          <div><b>Fingertips on a control</b><span>It lights up</span></div>
-          <div><b>Pinch, drag a fader</b><span>Volume of that deck</span></div>
-          <div><b>Pinch, circle a knob</b><span>Filter: low-pass or high-pass</span></div>
+          <div><b>Pinch with either hand</b><span>Speed and filter</span></div>
+          <div><b>Move your hands apart</b><span>Turn up the volume</span></div>
+          <div><b>Fist in an edge zone</b><span>Pick songs, effects and visuals</span></div>
         </div>
-        <p class="note">Both decks stay beat-synced to deck A's tempo.</p>
-        <a class="aqua" href="mix.html">Open the deck</a>
+        <p class="note">Build a queue, blend into the next song, and shape the visuals between your hands.</p>
       </article>
 
       <article id="arcade" class="card glass">
@@ -220,22 +194,8 @@
           <div><b>Right half of the frame</b><span>Player 2</span></div>
         </div>
         <p class="note">Bubble Trails: don't hit a wall or a trail. First to 5 points wins.</p>
-        <a class="lime" href="arcade.html">Start a battle</a>
       </article>
 
-      <article id="ai" class="card glass">
-        <div class="card-top">
-          <span class="orb warm" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
-          <div><h3>AI DJ · Gemini</h3><p>A DJ you can talk to.</p></div>
-        </div>
-        <div class="gestures">
-          <div><b>Pick a genre</b><span>20 hand-picked songs each</span></div>
-          <div><b>Talk to it</b><span>More energy, slow it down, play a request</span></div>
-          <div><b>Gemini mixes</b><span>Picks the next track and blends it in</span></div>
-        </div>
-        <p class="note">[GENRES] · [VOICE OR TEXT CHAT]</p>
-        <a class="sun" href="ai-dj.html">Talk to the AI DJ</a>
-      </article>
 
     </div>
   </div>
@@ -267,7 +227,7 @@
 <footer>
   <div class="glass">
     <b>AirDeck · Team Polaris · CodeRED: Orion 2026</b>
-    <span>MediaPipe hand tracking · Web Audio · Gemini API</span>
+    <span>MediaPipe hand tracking · Web Audio · Gemini API · ElevenLabs voice</span>
   </div>
 </footer>
 

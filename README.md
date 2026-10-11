@@ -13,7 +13,7 @@ DJ with your hands in the browser, using your webcam (MediaPipe hand tracking + 
 
 The line between your hands is the live audio waveform.
 
-More gestures, on the hand tracker page `index.html` (**Hand FX** in the top bar; turn the basic controls off with the **Basic controls** button if you only want these):
+More gestures, on the hand tracker page `index.html` (**DJ Deck** in the top bar; turn the basic controls off with the **Basic controls** button if you only want these):
 
 | Gesture | Controls |
 |---|---|
@@ -125,7 +125,9 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
 
-## AirDeck Mix (two decks): `mix.html`
+## Archived two-deck implementation
+
+`index.html` is now DJ Deck. `mix.html` redirects there; the former two-deck source remains in Git history. The notes below describe that former implementation.
 
 Open http://localhost:8000/mix.html. Each deck has an on-screen **volume fader** and **filter knob** (deck A on the left, deck B on the right). Both decks are beat-synced to deck A's tempo (detected automatically).
 
