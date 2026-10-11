@@ -28,6 +28,26 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).parent
+
+
+def load_env_file(path):
+    """Settings from a local .env file (KEY=value per line, # for comments), so the API
+    keys survive restarts and new windows. Anything already set in the environment wins.
+    The file is gitignored: keys never get committed."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(ROOT / ".env")
 DOWNLOADS = ROOT / "downloads"
 VOICES = DOWNLOADS / "voice"
 # Searches and links already downloaded, so asking again (e.g. in a rehearsed demo) skips yt-dlp.

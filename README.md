@@ -100,8 +100,9 @@ filter and volume stay live (the volume holds still only during a mix's slides);
 as a miss. Untick **Play the set** in the Set card for plain pinch controls; without the camera the DJ mixes by itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
 
-It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
-machine and never reach the browser):
+It needs API keys. The easy way: copy `.env.example` to `.env` and put your keys in it; `server.py` reads it every
+time it starts (`.env` is gitignored, so the keys never get pushed). Or set them in the terminal before starting the
+server, which only lasts for that window (either way they stay on your machine and never reach the browser):
 
 ```bash
 export GEMINI_API_KEY="..." ELEVENLABS_API_KEY="..."   # PowerShell: $env:GEMINI_API_KEY="..."; $env:ELEVENLABS_API_KEY="..."
