@@ -1,6 +1,8 @@
 # code-red-Polaris
 Hackathon repo for Code Red 2026 for team Polaris
 
+**Live: [airdeck.design](https://airdeck.design)**
+
 ## AirDeck
 
 DJ with your hands in the browser, using your webcam (MediaPipe hand tracking + Web Audio).
