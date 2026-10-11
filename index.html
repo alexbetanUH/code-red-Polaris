@@ -119,10 +119,10 @@
   .fxbar > div { height: 100%; background: var(--left); width: 0; }
   .keyhelp { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   /* Easter eggs (temporary) */
-  #cinema { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center;
+  #cinema { position: fixed; inset: 0; z-index: 5000; background: #000;
             opacity: 0; pointer-events: none; transition: opacity 0.3s; }
   #cinema.show { opacity: 1; pointer-events: auto; }
-  #cinema img { width: 100%; height: 100%; object-fit: contain; }
+  #cinema img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   [hidden] { display: none !important; }
   .songQueue { display: grid; grid-template-columns: 1fr; padding: 0 !important; overflow: hidden; }
   #queueMount { min-width: 0; border-top: 1px solid var(--border); }
@@ -288,7 +288,8 @@ const FIST_EXIT_MS = 350;       // fist must be out of its zone this long before
 const FIST_ENTER_GRACE_MS = 150; // a fist that flickers away for less than this doesn't restart the 'hold to enter' timer
 const PENDING_CLEAR_MS = 250;   // a closed fist (0 fingers) must last this long to cancel the chosen count
 const BLEND_SLEW = 1.2;         // hand-driven crossfade can move at most this much (0–1) per second
-const BLEND_BOTTOM = 0.88, BLEND_TOP = 0.70; // palm Y: short travel near the bottom, far below the lock zone
+const BLEND_BOTTOM = 0.90, BLEND_TOP = 0.55; // palm Y: a long, forgiving travel that still stays well below the lock zone
+const BLEND_FINISH_HOLD_MS = 800; // the blend only completes after staying at 100% this long, so overshooting can be undone
 const BLEND_ARM_MS = 600;       // ignore the hands this long after a blend opens (the hand that just picked is still up)
 const BLEND_SNAP = 0.1;         // within this of the top/bottom the blend snaps to fully new / fully old
 const BLEND_IDLE_MS = 4000;     // no left hand for this long → the blend finishes by itself
@@ -852,6 +853,9 @@ function checkCinema(left, right, now) {
 }
 
 function playCinema() {
+  // In full screen only the workspace is visible, so the overlay has to live inside it
+  const host = document.fullscreenElement || document.body;
+  if (cinemaEl.parentElement !== host) host.appendChild(cinemaEl);
   cinemaEl.classList.add("show");
   cinemaSound.currentTime = 0;
   cinemaSound.play().catch(() => {});
@@ -864,16 +868,18 @@ cinemaEl.addEventListener("click", hideCinema);
 // "6-7" (2025 meme from Skrilla's "Doot Doot (6 7)"): palms up, hands bobbing
 // up and down in turn like a see-saw. Each time the hands swap which one is
 // higher counts as one. Stop for a second and the streak ends.
-const SIX7_SWAP = 0.06;        // one hand must be this much higher (0–1) to count
-const SIX7_GAP_MS = 900;       // swaps further apart than this end the streak
+// Uses the raw palm position (not the smoothed, clamped control height) so quick,
+// small bobs anywhere in the frame still register.
+const SIX7_SWAP = 0.035;       // one palm must be this much higher (fraction of frame) to count
+const SIX7_GAP_MS = 1300;      // swaps further apart than this end the streak
 const SIX7_SHOW_MS = 2500;     // keep showing the final count this long
 const six7 = { higher: null, count: 0, lastSwap: -Infinity };
 setEggs(eggsOn);
 
 function check67(left, right, now) {
   if (now - six7.lastSwap > SIX7_GAP_MS) { six7.higher = null; if (now - six7.lastSwap > SIX7_SHOW_MS) six7.count = 0; }
-  if (!left || !right) return;
-  const diff = left.height - right.height;
+  if (!left || !right) return;   // a hand briefly lost keeps the streak alive
+  const diff = right.palmY - left.palmY;   // y grows downward: positive = left is higher
   const higher = diff > SIX7_SWAP ? "left" : diff < -SIX7_SWAP ? "right" : null;
   if (!higher || higher === six7.higher) return;
   if (six7.higher) {   // a real swap, not the first tilt
@@ -1166,7 +1172,7 @@ async function nextSong() {
   }
   const now = performance.now();
   queue.holdControls(true);              // volume + speed stay put while your hands mix
-  Object.assign(blend, { active: true, p: 0, sweep: 0, since: now, lastInput: now, last: now, waiting: true, finishing: false, controls,
+  Object.assign(blend, { active: true, fullSince: null, p: 0, sweep: 0, since: now, lastInput: now, last: now, waiting: true, finishing: false, controls,
     from: songTitle(items.find((item) => item.id === currentId)), to: songTitle(next) });
   controls.setIncoming(0);
   controls.setOutgoing(1);
@@ -1191,6 +1197,8 @@ function updateBlend(left, right, now) {
   const free = (h) => h && modes.current === "normal" && modes.hold === 0 && h.pose !== "✊ fist" && now - blend.since > BLEND_ARM_MS;
   if (!free(left)) left = null;
   if (!free(right)) right = null;
+  blend.leftY = left ? left.palmY : null;     // for the HUD hand markers
+  blend.rightY = right ? right.palmY : null;
   if (left) {
     const step = BLEND_SLEW * dt;
     const h = remap(left.palmY, BLEND_BOTTOM, BLEND_TOP);
@@ -1202,8 +1210,12 @@ function updateBlend(left, right, now) {
   c.setIncoming(blend.p);
   c.setOutgoing((1 - blend.p) * (1 - blend.sweep));
   if (blend.p >= 0.5) c.swapBass();     // retained for the shared transition controls
-  if (blend.p >= 1) finishBlend(1);
-  else if (now - blend.lastInput > BLEND_IDLE_MS) finishBlend();
+  if (blend.p >= 1) {
+    blend.fullSince ??= now;
+    if (now - blend.fullSince >= BLEND_FINISH_HOLD_MS) finishBlend(1);
+  } else blend.fullSince = null;
+  if (blend.finishing) return;
+  if (now - blend.lastInput > BLEND_IDLE_MS) finishBlend();
 }
 
 // Compact glass captions stay inside the center lane, clear of meters and zones.
@@ -1218,25 +1230,79 @@ function hudText(text, x, y, maxW, size = 14, weight = 600) {
 }
 function hudCaption(title, hint, y = 56) {
   const w = Math.min(460, canvas.width * (1-2*FIST_ZONE_W)-40), x = (canvas.width-w)/2;
-  aeroGlass(x,y,w,hint ? 60 : 36,16);
-  ctx.fillStyle="#174e6b";hudText(title,canvas.width/2,y+19,w-24,17,700);
-  if(hint) {ctx.fillStyle="#38657b";hudText(hint,canvas.width/2,y+42,w-24,13,500);}
+  aeroGlass(x,y,w,hint ? 84 : 50,18);
+  ctx.fillStyle="#0d3550";hudText(title,canvas.width/2,y+26,w-28,26,800);
+  if(hint) {ctx.fillStyle="#2c5a70";hudText(hint,canvas.width/2,y+60,w-28,18,600);}
 }
 function hudChip(text,x,y,w=120) {
-  aeroGlass(x-w/2,y-15,w,30,15);ctx.fillStyle="#174e6b";hudText(text,x,y,w-16,12);
+  aeroGlass(x-w/2,y-18,w,36,18);ctx.fillStyle="#0d3550";hudText(text,x,y,w-16,16,700);
 }
 function drawBlend(now) {
   if (!blend.active) return;
   const W=canvas.width,H=canvas.height;
   ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";
-  const title = blend.finishing ? "Finishing blend" : blend.waiting ? "Starting blend" : `Blend ${Math.round(blend.p*100)}%`;
-  hudCaption(title, blend.finishing ? "Moving to the new song" : "Left: blend · Right: fade out");
-  const top=H*BLEND_TOP,bottom=H*BLEND_BOTTOM;
-  for(const [x,value,color,label] of [[W*.32,blend.p,COLORS.left,"New song"],[W*.68,blend.sweep,COLORS.right,"Fade old"]]) {
-    aeroGlass(x-14,top-4,28,bottom-top+8,14);
-    aeroMeter(x-8,top,16,bottom-top,value,color,true);
-    hudChip(label,x,top-24,94);
+  const title = blend.finishing ? "Finishing blend" : blend.waiting ? "Starting blend" : blend.fullSince !== null ? "Hold to finish…" : `Blend ${Math.round(blend.p*100)}%`;
+  hudCaption(title, blend.finishing ? `Moving to ${blend.to}` : "Raise left hand: new song · Raise right: fade old", 40);
+  const top=H*BLEND_TOP,bottom=H*BLEND_BOTTOM,tw=46;
+  for(const [x,value,color,label,handY] of [[W*.34,blend.p,COLORS.left,"New song",blend.leftY],[W*.66,blend.sweep,COLORS.right,"Fade old",blend.rightY]]) {
+    // wide glass track with a bright fill
+    aeroGlass(x-tw/2,top-10,tw,bottom-top+20,22);
+    aeroMeter(x-tw/2+8,top,tw-16,bottom-top,value,color,true);
+    ctx.strokeStyle=color;ctx.lineWidth=4;ctx.beginPath();ctx.roundRect(x-tw/2,top-10,tw,bottom-top+20,22);ctx.stroke();
+    // label + big percentage beside the track
+    const side=x<W/2?-1:1,lx=x+side*(tw/2+70);
+    const my=(top+bottom)/2;
+    aeroGlass(lx-62,my-52,124,100,18);
+    ctx.fillStyle=color;ctx.font="900 44px system-ui, sans-serif";ctx.fillText(`${Math.round(value*100)}%`,lx,my-12);
+    ctx.fillStyle="#0d3550";ctx.font="800 20px system-ui, sans-serif";ctx.fillText(label,lx,my+28);
+    // where the hand is right now
+    if(handY!=null){
+      const y=Math.max(top-30,Math.min(bottom+30,handY*H));
+      ctx.beginPath();ctx.arc(x,y,18,0,Math.PI*2);ctx.fillStyle="#fff";ctx.fill();
+      ctx.lineWidth=6;ctx.strokeStyle=color;ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x-tw/2-22,y);ctx.lineTo(x-tw/2-6,y);ctx.moveTo(x+tw/2+6,y);ctx.lineTo(x+tw/2+22,y);ctx.lineWidth=4;ctx.stroke();
+    }
   }
+  // hold-to-finish ring over the new-song track
+  if(blend.fullSince!==null && !blend.finishing){
+    const k=clamp01((now-blend.fullSince)/BLEND_FINISH_HOLD_MS),x=W*.34,y=top-44;
+    ctx.lineWidth=8;ctx.strokeStyle="rgba(255,255,255,.7)";ctx.beginPath();ctx.arc(x,y,24,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=COLORS.left;ctx.beginPath();ctx.arc(x,y,24,-Math.PI/2,-Math.PI/2+k*Math.PI*2);ctx.stroke();
+  }
+  ctx.restore();
+}
+// One big picker button. States: idle glass · picking (blue fills up from the bottom while
+// the finger count is held) · chosen (solid blue, ✓) · on (green rim, already active).
+function drawPickChip(x,y,w,h,num,label,{chosen=false,fill=0,on=false,dim=false}={}) {
+  ctx.save();
+  const lift=chosen?8:fill>0?4:0;y-=lift;
+  ctx.globalAlpha=dim?.55:1;
+  aeroGlass(x,y,w,h,18);
+  if(fill>0) {   // blue glass rising from the bottom
+    ctx.save();ctx.beginPath();ctx.roundRect(x,y,w,h,18);ctx.clip();
+    const fh=h*fill,g=ctx.createLinearGradient(x,y+h-fh,x,y+h);
+    g.addColorStop(0,"#7fd0ff");g.addColorStop(.5,"#1e95e3");g.addColorStop(1,"#0b62b0");
+    ctx.fillStyle=g;ctx.fillRect(x,y+h-fh,w,fh);
+    if(chosen){ctx.fillStyle="rgba(255,255,255,.45)";ctx.beginPath();ctx.roundRect(x+6,y+4,w-12,h*.38,14);ctx.fill();}
+    ctx.restore();
+  }
+  const rim=chosen||fill>0?"#0b62b0":on?COLORS.right:null;
+  if(rim){ctx.shadowColor=rim;ctx.shadowBlur=chosen?22:10;ctx.strokeStyle=rim;ctx.lineWidth=chosen?6:4;
+    ctx.beginPath();ctx.roundRect(x,y,w,h,18);ctx.stroke();ctx.shadowBlur=0;}
+  // number badge
+  const bx=x+w/2,by=y+38,light=chosen||fill>.3;
+  ctx.beginPath();ctx.arc(bx,by,25,0,Math.PI*2);
+  ctx.fillStyle=chosen?"#fff":on?COLORS.right:"#1e95e3";ctx.fill();
+  ctx.strokeStyle="rgba(255,255,255,.9)";ctx.lineWidth=2.5;ctx.stroke();
+  ctx.fillStyle=chosen?"#0b62b0":"#fff";ctx.font="900 28px system-ui, sans-serif";
+  ctx.fillText(chosen?"✓":num,bx,by+1);
+  ctx.fillStyle=light?"#fff":"#0d3550";
+  if(light){ctx.shadowColor="rgba(0,40,80,.6)";ctx.shadowBlur=4;}
+  fillFit(label,bx,y+h-30,22,800,w-14);
+  ctx.shadowBlur=0;
+  if(on&&!chosen){ctx.font="800 14px system-ui, sans-serif";const tw=46;
+    ctx.fillStyle=COLORS.right;ctx.beginPath();ctx.roundRect(x+w-tw-6,y+6,tw,22,11);ctx.fill();
+    ctx.fillStyle="#fff";ctx.fillText("ON",x+w-tw/2-6,y+18);}
   ctx.restore();
 }
 function drawModes(now) {
@@ -1249,18 +1315,19 @@ function drawModes(now) {
   if(modes.current !== "normal") {
     const title = {song:"Choose song",fx:"Choose effect",vis:"Choose visual"}[modes.current];
     hudCaption(title,`${modes.current === "fx" ? "Right" : "Left"} fingers choose · Move fist out to apply`);
-    const n=names.length,gap=8,w=Math.min(150,(W*(1-2*FIST_ZONE_W)-40-(n-1)*gap)/n),x0=cx-(n*w+(n-1)*gap)/2,y=H-54;
+    const n=names.length,gap=14,w=Math.min(190,(W*(1-2*FIST_ZONE_W)-40-(n-1)*gap)/n),h=118,x0=cx-(n*w+(n-1)*gap)/2,y=H-h-22;
     const state=deck.effectState?.()??{},chip=c=>modes.current === "song" ? songChoice(c) : c;
+    const chosen=chip(modes.pending),hover=chip(modes.count);
     for(let i=0;i<n;i++) {
-      const x=x0+i*(w+gap),active=modes.current === "vis" ? visualFx===VIS_NAMES[i] : modes.current === "fx" && i<4 && state[FX_NAMES[i]]?.on;
-      aeroGlass(x,y-20,w,40,12);
-      const fill=chip(modes.pending)===i+1?1:chip(modes.count)===i+1?modes.pick:0;
-      if(fill>0 || active) aeroMeter(x+8,y+10,w-16,4,fill||1,COLORS.left);
-      ctx.fillStyle="#174e6b";hudText(names[i],x+w/2,y-2,w-12,13);
+      const on=modes.current === "vis" ? visualFx===VIS_NAMES[i] : modes.current === "fx" && i<4 && !!state[FX_NAMES[i]]?.on;
+      const [num,...rest]=names[i].split(" ");
+      drawPickChip(x0+i*(w+gap),y,w,h,num,rest.join(" "),{
+        chosen:chosen===i+1, fill:chosen===i+1?1:hover===i+1?modes.pick:0, on, dim:!!(chosen||hover)&&chosen!==i+1&&hover!==i+1,
+      });
     }
   } else if(modes.hold>0) {
     hudCaption("Hold fist",`Open ${{song:"songs",fx:"effects",vis:"visuals"}[modes.fistSide] ?? "controls"}`);
-    aeroMeter(cx-90,105,180,4,modes.hold,COLORS.left);
+    aeroMeter(cx-140,150,280,12,modes.hold,COLORS.left);
   }
   if(now<toast.until && !blend.active && modes.current === "normal" && modes.hold === 0) {
     ctx.globalAlpha=clamp01((toast.until-now)/400);
@@ -1449,13 +1516,14 @@ function drawZones(now) {
       ctx.quadraticCurveTo(innerX,y,innerX,y+dy*9);ctx.lineTo(innerX,y+dy*20);ctx.stroke();
     }
     ctx.globalAlpha = active ? 1 : .8;
-    const cy = z.y + z.h / 2, badgeW = Math.min(160, z.w - 20), bx = z.x + (z.w-badgeW)/2;
-    aeroGlass(bx,cy-30,badgeW,64,16);
-    aeroIcon(z.mode,bx+12,cy-18,20,z.color);
-    ctx.fillStyle = "#174e6b";
-    fillFit(z.label,bx+badgeW*.6,cy-7,17,700,badgeW-48);
-    ctx.fillStyle = "#38657b";
-    fillFit(z.sub,z.x+z.w/2,cy+16,12,500,badgeW-16);
+    const cy = z.y + z.h / 2, badgeW = Math.min(220, z.w - 16), bx = z.x + (z.w-badgeW)/2;
+    aeroGlass(bx,cy-40,badgeW,84,18);
+    if (active) { ctx.strokeStyle = z.color; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(bx,cy-40,badgeW,84,18); ctx.stroke(); }
+    aeroIcon(z.mode,bx+12,cy-28,28,z.color);
+    ctx.fillStyle = "#0d3550";
+    fillFit(z.label,bx+badgeW*.58,cy-12,24,800,badgeW-56);
+    ctx.fillStyle = "#2c5a70";
+    fillFit(z.sub,z.x+z.w/2,cy+22,16,600,badgeW-16);
   }
   ctx.restore();
 }

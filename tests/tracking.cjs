@@ -171,19 +171,29 @@ const rng=seed();
 for(let i=0;i<1000;i++){const q=Array.from({length:4},()=>({x:rng(),y:rng()}));e.box.geometry=q;verify(e.run('orderByAngle(geometry)'));}
 console.log('PASS: open-palm activation, simultaneous controls, same-height crossing/rotation, concave triangulation in both windings (1000 random layouts)');
 
-// Manual blend reaches both endpoints with palms in the bottom third of the frame.
+// Manual blend reaches both endpoints over a long travel that stays well below the lock zone.
 {
  const e=boot(path);
- e.run(`Object.assign(blend,{active:true,since:0,last:1000,lastInput:1000,p:0,sweep:0,finishing:false,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){}}});
- for(let i=1;i<=40;i++) updateBlend({palmY:.70,pose:'open'}, {palmY:.70,pose:'open'}, 1000+i*34);`);
- assert(e.api.blend.p>=.999,'full blend at palm Y .70, well below the lock zone');
- assert(e.api.blend.sweep>.99,'outgoing fade also reachable at .70');
- e.run(`Object.assign(blend,{p:1,sweep:1,finishing:false,last:3000,since:0});
- for(let i=1;i<=40;i++) updateBlend({palmY:.88,pose:'open'}, {palmY:.88,pose:'open'}, 3000+i*34);`);
+ e.run(`Object.assign(blend,{active:true,since:0,last:1000,lastInput:1000,p:0,sweep:0,finishing:false,fullSince:null,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){}}});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.55,pose:'open'}, {palmY:.55,pose:'open'}, 1000+i*34);`);
+ assert(e.api.blend.p>=.999,'full blend at palm Y .55, well below the lock zone');
+ assert(e.api.blend.sweep>.99,'outgoing fade also reachable at .55');
+ e.run(`Object.assign(blend,{p:.5,sweep:1,finishing:false,fullSince:null,last:3000,since:0});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.70,pose:'open'}, {palmY:.70,pose:'open'}, 3000+i*34);`);
+ assert(e.api.blend.p>.3 && e.api.blend.p<.8,'palm Y .70 is mid-blend, not the end');
+ e.run(`Object.assign(blend,{p:1,sweep:1,finishing:false,fullSince:null,last:5000,since:0});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.90,pose:'open'}, {palmY:.90,pose:'open'}, 5000+i*34);`);
  assert(e.api.blend.p<.001,'low palm returns to outgoing song');
  assert(e.api.blend.sweep<.001,'low palm restores outgoing level');
+ // overshooting to the top briefly does not finish the blend; holding there does
+ e.run(`Object.assign(blend,{p:.9,finishing:false,fullSince:null,last:7000,since:0,lastInput:7000});
+ for(let i=1;i<=12;i++) updateBlend({palmY:.50,pose:'open'}, null, 7000+i*34);
+ for(let i=13;i<=40;i++) updateBlend({palmY:.75,pose:'open'}, null, 7000+i*34);`);
+ assert(!e.api.blend.finishing,'a brief overshoot can be pulled back');
+ e.run(`for(let i=1;i<=40;i++) updateBlend({palmY:.50,pose:'open'}, null, 9000+i*34);`);
+ assert(e.api.blend.finishing,'holding at the top finishes the blend');
 }
-console.log('PASS: comfortable bottom-third hand blend endpoints');
+console.log('PASS: long hand blend travel, overshoot forgiveness, hold-to-finish');
 
 // Full volume requires only 42% of frame width, clear of the side gesture zones.
 {

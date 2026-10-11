@@ -15,7 +15,7 @@
 - DJ Deck Song, Queue, Library and Up next belong in the sidebar, outside camera pixels, including fullscreen. Mobile may stack them below the camera.
 - Other controls/help are hidden behind a toggle. Preserve the site's Aero styling.
 - Manual hand blends accept all tempos without beat alignment, speed matching or automatic bass cuts. Keep automatic AI DJ behavior distinct.
-- Comfortable hand ranges: blend palm Y .88→.70, effect palm Y .85→.40, volume distance .04→.42 of canvas width. Keep controls clear of the top lock zone (.32).
+- Comfortable hand ranges: blend palm Y .90→.55, effect palm Y .85→.40, volume distance .04→.42 of canvas width. Keep controls clear of the top lock zone (.32).
 - Bubble Aero includes particles escaping the polygon. Clear them when switching visual; keep emission bounded.
 - Do not restore the colorful startup test pattern. Synthetic preview is explicit (L or fake hands).
 
