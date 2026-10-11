@@ -87,6 +87,8 @@ python3 server.py
 
 The server prints whether the DJ is on. Without an ElevenLabs key the browser's built-in voice is used. Optional:
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
+The server only answers this computer, so nobody on the venue Wi-Fi can spend your API credits (set
+`AIRDECK_HOST=0.0.0.0` to open it up), and only AirDeck's own pages may call its API.
 The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ**), which opens with the DJ ready.
 `index.html` is the plain hand tracker, with the same queue as its music source.
 

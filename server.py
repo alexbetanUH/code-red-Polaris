@@ -35,6 +35,10 @@ DOWNLOAD_INDEX = DOWNLOADS / "index.json"
 index_lock = threading.Lock()
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000  # python server.py 8001 for another port
+# Only this computer can reach the server (and spend the API keys' credits) unless you
+# opt in, e.g. AIRDECK_HOST=0.0.0.0 to open it to your Wi-Fi.
+HOST = os.environ.get("AIRDECK_HOST", "127.0.0.1")
+AI_TIMEOUT = 15  # seconds before a Gemini or ElevenLabs request gives up (songs are short)
 # The yt-dlp command, or Python's module when pip's per-user install folder isn't on PATH.
 YTDLP = ["yt-dlp"] if shutil.which("yt-dlp") else [sys.executable, "-m", "yt_dlp"]
 # One video only: watch, shorts and live links, or youtu.be short links.
@@ -303,7 +307,7 @@ def ask_gemini_for_picks(prompt, schema):
         "generationConfig": {"responseMimeType": "application/json", "responseSchema": schema},
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-    data = json.loads(post_json(url, body, {"x-goog-api-key": key}))
+    data = json.loads(post_json(url, body, {"x-goog-api-key": key}, timeout=AI_TIMEOUT))
     try:
         parts = data["candidates"][0]["content"]["parts"]
         return json.loads("".join(part.get("text", "") for part in parts))["picks"]
@@ -441,7 +445,7 @@ def dj_voice(text):
     path = VOICES / f"{hashlib.sha1(f'{ELEVENLABS_VOICE}|{text}'.encode()).hexdigest()[:16]}.mp3"
     if not path.exists():
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE}?output_format=mp3_44100_128"
-        audio = post_json(url, {"text": text, "model_id": ELEVENLABS_MODEL}, {"xi-api-key": key})
+        audio = post_json(url, {"text": text, "model_id": ELEVENLABS_MODEL}, {"xi-api-key": key}, timeout=AI_TIMEOUT)
         path.write_bytes(audio)
     return path
 
@@ -489,6 +493,11 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError:
             self.close_connection = True
             return self.send_json(400, {"error": "invalid request body"})
+        # Only our own pages may call the API (blocks other websites from using it, and
+        # the keys, through your browser).
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != self.headers.get("Host"):
+            return self.send_json(403, {"error": "forbidden origin"})
         routes = {"/api/youtube": self.youtube, "/api/dj/pick": self.pick, "/api/dj/voice": self.voice}
         route = routes.get(self.path)
         if not route:
@@ -554,7 +563,7 @@ class Server(ThreadingHTTPServer):
 
 if __name__ == "__main__":
     try:
-        server = Server(("", PORT), Handler)
+        server = Server((HOST, PORT), Handler)
     except OSError:
         sys.exit(f"Port {PORT} is already in use (another server.py still running?)\n"
                  f"Stop it, or pick another port:  python server.py {PORT + 1}")
