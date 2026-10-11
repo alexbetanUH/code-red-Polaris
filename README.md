@@ -27,6 +27,7 @@ Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate p
 
 - `index.html`: hand tracking, gesture smoothing, hand → audio mapping, drawing
 - `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform)
+- `club.js`: 3D disco background (Three.js). Reacts to the music and the hand controls and shows the camera on its LED wall; it never changes the audio or tracking. **Club view** hides the camera panel so the club fills the screen.
 - `server.py`: local server; serves the site and downloads YouTube audio via yt-dlp into `downloads/`
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.

@@ -6,59 +6,85 @@
 <title>AirDeck Hand Tracker</title>
 <style>
   :root {
-    --bg: #0b0d12;
-    --panel: #151922;
-    --border: #262c3a;
-    --text: #e8ecf3;
-    --muted: #8a93a6;
-    --left: #38bdf8;
-    --right: #f472b6;
-    --between: #facc15;
+    --bg: #05050c;
+    --panel: rgba(12, 11, 28, 0.62);
+    --border: rgba(255, 255, 255, 0.09);
+    --text: #eef0ff;
+    --muted: #8f95b8;
+    --left: #19e6ff;
+    --right: #ff2e9a;
+    --between: #ffd23f;
+    --violet: #9b5cff;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
+    min-height: 100vh;
     background: var(--bg);
     color: var(--text);
     font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
+  /* The 3D club fills the window behind everything (club.js). */
+  #club { position: fixed; inset: 0; z-index: 0; }
+  #club canvas { display: block; }
+  .app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
   header {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 12px 16px;
     padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(5, 5, 12, 0.85), rgba(5, 5, 12, 0));
   }
-  h1 { font-size: 18px; margin: 0; font-weight: 600; }
-  #status { color: var(--muted); font-size: 13px; }
-  #calibMsg { color: var(--between); font-weight: 600; }
+  h1 {
+    margin: 0 8px 0 0;
+    font: 900 26px/1 "Segoe UI Black", "Arial Black", sans-serif;
+    letter-spacing: 0.02em;
+  }
+  h1 .air { color: var(--left); text-shadow: 0 0 14px rgba(25, 230, 255, 0.7); }
+  h1 .deck { color: var(--right); text-shadow: 0 0 14px rgba(255, 46, 154, 0.7); }
+  h1 small { margin-left: 8px; font-size: 11px; letter-spacing: 0.3em; color: var(--between); vertical-align: middle; }
+  #status { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #calibMsg { color: var(--between); font-weight: 600; text-shadow: 0 0 10px rgba(255, 210, 63, 0.5); }
   button {
-    background: var(--text);
-    color: var(--bg);
+    background: linear-gradient(90deg, var(--left), var(--right));
+    color: #06070d;
     border: 0;
-    border-radius: 8px;
-    padding: 8px 16px;
+    border-radius: 999px;
+    padding: 8px 18px;
     font: inherit;
-    font-weight: 600;
+    font-weight: 800;
+    letter-spacing: 0.02em;
     cursor: pointer;
+    box-shadow: 0 0 18px rgba(255, 46, 154, 0.35);
+    transition: transform 0.1s, box-shadow 0.2s;
   }
-  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 26px rgba(25, 230, 255, 0.5); }
+  button.secondary { background: rgba(255, 255, 255, 0.04); color: var(--text); border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none; }
+  button.secondary:hover:not(:disabled) { border-color: var(--left); box-shadow: 0 0 14px rgba(25, 230, 255, 0.35); }
   button:disabled { opacity: 0.4; cursor: default; }
+  .spacer { flex: 1; }
   main {
+    flex: 1;
     display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 1fr 340px;
+    align-items: start;
     gap: 20px;
-    padding: 20px;
+    padding: 6px 20px 20px;
   }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   .stage {
     position: relative;
-    background: #000;
-    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 16px;
     overflow: hidden;
     aspect-ratio: 16 / 9;
+    max-height: calc(100vh - 110px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 1px rgba(25, 230, 255, 0.25), -12px 0 40px -10px rgba(25, 230, 255, 0.45), 12px 0 40px -10px rgba(255, 46, 154, 0.45);
   }
+  /* "Club view": hide the camera panel; the camera keeps running and is shown on the LED wall. */
+  body.club-view .stage { visibility: hidden; }
   video { display: none; }
   canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
   .placeholder {
@@ -67,74 +93,100 @@
     display: grid;
     place-items: center;
     color: var(--muted);
+    background: radial-gradient(circle at 50% 50%, rgba(5, 5, 12, 0.55), rgba(5, 5, 12, 0.1) 70%);
+    font-weight: 600;
+    text-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+    letter-spacing: 0.04em;
   }
   aside, #cards { display: flex; flex-direction: column; gap: 12px; }
   .card {
+    position: relative;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 14px 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    overflow: hidden;
   }
+  /* Neon accent line on the left edge of each card */
+  .card::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; background: var(--violet); box-shadow: 0 0 10px var(--violet); }
+  .card.left::before { background: var(--left); box-shadow: 0 0 10px var(--left); }
+  .card.right::before { background: var(--right); box-shadow: 0 0 10px var(--right); }
+  .card.between::before { background: var(--between); box-shadow: 0 0 10px var(--between); }
   .card h2 {
     display: flex;
     justify-content: space-between;
     margin: 0 0 8px;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.1em;
     color: var(--muted);
   }
   .pose { color: var(--text); text-transform: none; letter-spacing: 0; }
   .row { display: grid; grid-template-columns: 70px 1fr 44px; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
   .row .label { color: var(--muted); }
   .row .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar { height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden; }
   .bar > div { height: 100%; width: 0; border-radius: 3px; }
-  .left .bar > div, .left .dot.on { background: var(--left); }
-  .right .bar > div, .right .dot.on { background: var(--right); }
-  .between .bar > div { background: var(--between); }
+  .left .bar > div, .left .dot.on { background: var(--left); box-shadow: 0 0 8px var(--left); }
+  .right .bar > div, .right .dot.on { background: var(--right); box-shadow: 0 0 8px var(--right); }
+  .between .bar > div { background: var(--between); box-shadow: 0 0 8px var(--between); }
   .left h2 .side { color: var(--left); }
   .right h2 .side { color: var(--right); }
   .between h2 .side { color: var(--between); }
   .fingers { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--muted); }
-  .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--border); display: grid; place-items: center; color: var(--bg); font-weight: 700; font-size: 11px; }
-  .control { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
-  .left .control { color: var(--left); }
-  .right .control { color: var(--right); }
-  .between .control { color: var(--between); }
+  .dot { width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); display: grid; place-items: center; color: #06070d; font-weight: 800; font-size: 11px; }
+  .dot:not(.on) { color: var(--muted); }
+  .control { font: 800 28px/1.1 "Segoe UI", system-ui, sans-serif; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+  .left .control { color: var(--left); text-shadow: 0 0 14px rgba(25, 230, 255, 0.5); }
+  .right .control { color: var(--right); text-shadow: 0 0 14px rgba(255, 46, 154, 0.5); }
+  .between .control { color: var(--between); text-shadow: 0 0 14px rgba(255, 210, 63, 0.5); }
   .song input[type="url"] {
     width: 100%;
-    background: var(--bg);
+    background: rgba(0, 0, 0, 0.35);
     color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
     padding: 8px 10px;
     font: inherit;
     font-size: 13px;
   }
+  .song input[type="url"]:focus { outline: none; border-color: var(--left); box-shadow: 0 0 12px rgba(25, 230, 255, 0.35); }
   .song .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .song .actions button { padding: 6px 12px; font-size: 13px; }
+  .song .actions button { padding: 6px 14px; font-size: 13px; }
   .song input[type="file"] { display: none; }
   #songStatus { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
   .muted { color: var(--muted); }
-  .help { color: var(--muted); font-size: 13px; margin: 0; }
+  .help { color: var(--muted); font-size: 12px; margin: 0; padding: 12px 14px; border-radius: 12px; background: rgba(5, 5, 12, 0.55); backdrop-filter: blur(10px); }
+  .help b { color: var(--text); }
 </style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+} }
+</script>
 </head>
 <body>
+<div id="club"></div>
+<div class="app">
 <header>
-  <h1>AirDeck</h1>
+  <h1><span class="air">AIR</span><span class="deck">DECK</span><small>CLUB</small></h1>
   <button id="start" disabled>Loading model…</button>
   <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
   <span id="calibMsg"></span>
   <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="viewBtn" class="secondary" title="Hide the camera panel and show it on the club's LED wall">Club view</button>
 </header>
 
 <main>
   <div class="stage">
     <video id="video" playsinline muted></video>
     <canvas id="canvas" width="1280" height="720"></canvas>
-    <div class="placeholder" id="placeholder">Click “Start camera” and show both hands</div>
+    <div class="placeholder" id="placeholder">Click “Start camera” and raise both hands</div>
   </div>
 
   <aside>
@@ -163,10 +215,12 @@
     </p>
   </aside>
 </main>
+</div>
 
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./audio.js";
+import { createClub } from "./club.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -226,7 +280,7 @@ const CONNECTIONS = [
   [0, 17],
 ];
 
-const COLORS = { left: "#38bdf8", right: "#f472b6", between: "#facc15" };
+const COLORS = { left: "#19e6ff", right: "#ff2e9a", between: "#ffd23f" };
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -831,6 +885,18 @@ playBtn.addEventListener("click", () => {
 });
 
 startBtn.addEventListener("click", startCamera);
+
+// ---- 3D club ---------------------------------------------------------------------
+// Background scene. It only reads the deck and the camera canvas; it never changes them.
+createClub($("club"), {
+  audio: () => ({ wave: deck.playing ? deck.waveform() : null, playing: deck.playing, ...controls }),
+  camera: canvas,
+  cameraOn: () => lastVideoTime >= 0,
+});
+$("viewBtn").addEventListener("click", () => {
+  const on = document.body.classList.toggle("club-view");
+  $("viewBtn").textContent = on ? "Camera view" : "Club view";
+});
 calibBtn.addEventListener("click", calibrate);
 updateControls();
 
