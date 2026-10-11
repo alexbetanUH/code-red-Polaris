@@ -5,7 +5,7 @@ async function run(available) {
  let releaseLibrary,downloads=0,plays=0;
  const songs=Array.from({length:5},(_,i)=>({id:'song'+i,title:'Song '+i,artist:'Artist',bpm:100}));
  const gate=new Promise(resolve=>releaseLibrary=resolve);
- const deck={playing:false,buffer:null,offset:0,setVolume(){},ensureContext(){},stopSource(){this.playing=false},play(){this.playing=true;plays++},position(){return 0}};
+ const deck={playing:false,buffer:null,offset:0,setVolume(){},setFrequency(){},ensureContext(){},stopSource(){this.playing=false},play(){this.playing=true;plays++},position(){return 0}};
  const box={console,Date,Math,performance,Promise,setInterval(){},clearInterval(){},setTimeout(){},clearTimeout(){},
  createTransitions:()=>({prepare(){},cancel(){}}),
  OfflineAudioContext:class{async decodeAudioData(){return {duration:10}}},

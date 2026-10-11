@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AirDeck · AI DJ</title>
+<title>AirDeck · AirMix</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="aero.css">
 <style>
-  /* AI DJ page: the shared Aero look (aero.css) in the sunset world.
+  /* AirMix page (the DJ-set rhythm game): the shared Aero look (aero.css) in the sunset world.
      Card styles adapted from Carlos's white-glass version of this page (club.html).
      queue.js reads --panel, --border, --bg, --text, --muted, --left, --between. */
   :root {
@@ -54,6 +54,7 @@
     background: radial-gradient(ellipse 40% 18% at 50% 50%, rgba(255,255,255,.75), rgba(255,255,255,0));
   }
   aside, #cards { display: flex; flex-direction: column; gap: 12px; }
+  #cards[hidden] { display: none; }
   .card { position: relative; border-radius: 22px; padding: 14px 16px; }
   .card h2 {
     display: flex;
@@ -84,12 +85,8 @@
   .left .control { color: #0a6bc0; }
   .right .control { color: #3f8f17; }
   .between .control { color: #c35f08; }
-  .song h2 { align-items: center; }
-  .song h2 button { min-height: 34px; padding: 0 14px; font-size: 13px; text-transform: none; letter-spacing: 0; }
-  #queueCount {
-    display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px;
-    background: rgba(255,255,255,.85); color: #3d1800; font-size: 11px; text-align: center; text-shadow: none;
-  }
+  .setButtons { display: flex; gap: 8px; }
+  .setButtons button { flex: 1; min-height: 34px; padding: 0 12px; font-size: 13px; }
   #songStatus { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
   #songStatus.error { color: #b3261e; }
   .song .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
@@ -102,7 +99,7 @@
 <body class="world-sunset">
 <header class="topbar glass">
   <a class="brand" href="landing.html" title="Back to the home page"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>AirDeck</a>
-  <nav class="modes" aria-label="Modes"><a class="dj" href="index.html">DJ Deck</a><a class="arcade" aria-disabled="true" role="link" title="Arcade is unavailable while its branch is being integrated">Arcade · Soon</a></nav>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="index.html">DJ Deck</a><a class="arcade on" href="arcade-versus.html">Arcade</a></nav><a class="modeSub" href="ai-dj.html" aria-current="page">♪ AirMix</a>
   <button id="start" disabled>Loading model…</button>
   <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
   <span class="note" id="calibMsg"></span>
@@ -118,30 +115,31 @@
 
   <aside>
     <div class="card glass song">
-      <h2><span>Song</span><button id="queueBtn" class="sun">Queue <span id="queueCount">0</span></button></h2>
-      <div id="transport"></div>
-      <div id="songStatus">Open the queue to pick songs from the library or start the AI DJ.</div>
+      <h2><span>Song</span></h2>
+      <div class="setButtons">
+        <button id="pauseBtn" class="secondary" type="button" disabled title="Space or P">⏸ Pause</button>
+        <button id="restartBtn" class="secondary" type="button" disabled title="R">↻ Restart</button>
+      </div>
+      <div id="songStatus">Pick your songs to start.</div>
     </div>
-    <div id="cards"></div>
+    <div id="djSet" style="display: contents"></div>
+    <!-- The per-hand debug readouts stay out of AirMix's rail (they still update, hidden). -->
+    <div id="cards" hidden></div>
     <div class="card glass between">
       <h2><span><span class="side">●</span> Between hands · volume</span></h2>
       <div class="control" id="volumeControl">80%</div>
       <div class="row"><span class="label">Distance</span><div class="bar"><div id="betweenBar"></div></div><span class="num" id="betweenVal">–</span></div>
       <div class="muted" id="betweenSub" style="font-size:12px">needs both hands</div>
     </div>
-    <p class="help glass">
-      <b>Left pinch</b> sets speed (closed = 0.9×, open = 1.1×).
-      <b>Right pinch</b> sets the filter (closed = muffled, open = full sound).
-      <b>Hands apart</b> = louder. If a hand leaves the frame, its control holds its last value.
-    </p>
   </aside>
 </main>
 
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./aiDeck.js";
-import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js";
-import { createDjCoach } from "./djCoach.js";
+import { createQueue } from "./queue.js";
+import { createDjGame } from "./djGame.js";
+import { createStartScreen } from "./djStart.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -324,9 +322,11 @@ async function startCamera() {
     startBtn.textContent = "Camera on";
     calibBtn.disabled = false;
     scheduleFrame();
+    return true;
   } catch (err) {
     statusEl.textContent = "Camera error: " + err.message;
     startBtn.disabled = false;
+    return false;
   }
 }
 
@@ -495,6 +495,8 @@ function processHand(side, det, now) {
     mid: mid(pts[THUMB_TIP], pts[INDEX_TIP]),
     wristX: det.x,
     pinchRaw, pinch, pinched: s.pinched,
+    // Palm size in pixels, the scale the pinch is measured against (djGame.js sizes its targets with it).
+    palmPx: (dist3(px[0], px[5]) + dist3(px[0], px[9]) + dist3(px[0], px[17]) + dist3(px[5], px[17])) / 4,
     height, open, ext,
     pose: s.pose,
   };
@@ -508,7 +510,7 @@ function update(result, now) {
   }
   const live = (side) => (now - sides[side].lastSeen < HOLD_MS ? sides[side].hand : null);
   const left = live("left"), right = live("right");
-  djCoach.update({ left, right }, now); // the hands perform the AI DJ's mixes (djCoach.js)
+  djGame.update({ left, right }, now); // the set as a rhythm game: your hands do the mixes (djGame.js)
 
   let between = null;
   if (left && right) {
@@ -752,37 +754,131 @@ function updateFps(now) {
   }
 }
 
-// ---- Song + queue -------------------------------------------------------------------
-// Songs are added, ordered and picked in the queue panel (queue.js); the player
-// bar (progress, ⏮ ⏯ ⏭) shows here and at the top of the panel.
+// ---- The set -------------------------------------------------------------------------
+// You pick the set on the start screen (djStart.js); the queue (queue.js) plays exactly
+// those songs, and the game (djGame.js) is how you mix them.
 const songStatus = $("songStatus");
 const queue = createQueue(deck);
-const queuePanel = createQueuePanel(queue, deck);
-$("transport").append(createTransport(queue, deck));
 
-// What the DJ does next, on the camera view, and the coach that cues the moves for
-// your hands to perform its mixes (djCoach.js).
-const upNext = createUpNext(queue);
-document.querySelector(".stage").append(upNext.element);
-const djCoach = createDjCoach(queue, upNext);
-
-$("queueBtn").addEventListener("click", () => {
-  deck.ensureContext(); // create audio inside the click so the browser allows it
-  queuePanel.toggle();
+// The set as a rhythm game over the camera view, plus its card in the rail (djGame.js).
+const stage = document.querySelector(".stage");
+const djGame = createDjGame(queue, {
+  stage,
+  camera: canvas,
+  rail: $("djSet"),
+  deck,
+  startEnabled: false,
+  // The pinch calibration and control ranges, so the game's targets mean real sounds.
+  controlMap: () => ({
+    pinchClosed: PINCH_CLOSED,
+    pinchOpen: PINCH_OPEN,
+    freqMin: FREQ_MIN,
+    freqMax: FREQ_MAX,
+    betweenClosed: BETWEEN_CLOSED,
+    betweenOpen: BETWEEN_OPEN,
+  }),
+  onSetEnd: (results) => {
+    inSet = false;
+    updateSetButtons();
+    screens.results(results);
+    queue.say(`That's the set! ${Math.round(results.accuracy * 100)} percent, best combo ${results.best}. Make some noise!`);
+  },
 });
 
-// This is the AI DJ's page: open the queue at the DJ.
-queuePanel.openDj();
+// The screens: pick your set, how to play and the camera (first time), 3-2-1, results.
+const screens = createStartScreen(stage, {
+  library: async () => {
+    await queue.libraryReady();
+    return queue.getState().library;
+  },
+  startCamera: async () => {
+    deck.ensureContext(); // inside a click, so the browser allows sound
+    try {
+      await modelReady;
+    } catch {
+      return false; // the hand tracking model didn't load
+    }
+    return video.srcObject ? true : startCamera();
+  },
+  handSeen: (side) => performance.now() - sides[side].lastSeen < 300,
+  prepare: async (ids) => {
+    deck.ensureContext(); // the Play click
+    djGame.reset();
+    await queue.playSet(ids);
+    await queue.readyToStart();
+  },
+  begin: () => {
+    djGame.setEnabled(true);
+    queue.beginSet();
+    inSet = true;
+    updateSetButtons();
+  },
+});
 
-// Keep the song card's count and status line in step with the queue.
+// ---- Pause and restart: keys and buttons (no gestures: your hands are busy) --------
+let inSet = false; // a set is playing (or paused)
+function updateSetButtons() {
+  $("pauseBtn").disabled = !inSet;
+  $("restartBtn").disabled = !inSet;
+  $("pauseBtn").textContent = djGame.paused ? "▶ Resume" : "⏸ Pause";
+}
+function pauseSet() {
+  if (!inSet || !djGame.pause()) return;
+  screens.paused({ resume: resumeSet, restart: restartSet, newSet: leaveSet });
+  updateSetButtons();
+}
+function resumeSet() {
+  if (!djGame.paused) return;
+  screens.countIn(() => {
+    djGame.resume();
+    updateSetButtons();
+  });
+}
+async function stopSet() {
+  inSet = false;
+  djGame.setEnabled(false);
+  djGame.reset();
+  updateSetButtons();
+  await queue.endSet(250);
+}
+async function restartSet() {
+  if (!inSet) return;
+  await stopSet();
+  screens.replay();
+}
+async function leaveSet() {
+  await stopSet();
+  screens.newSet();
+}
+$("pauseBtn").addEventListener("click", () => (djGame.paused ? resumeSet() : pauseSet()));
+$("restartBtn").addEventListener("click", restartSet);
+document.addEventListener("keydown", (event) => {
+  if (!inSet || event.repeat || event.target.closest?.("input, textarea")) return;
+  if (event.code === "Space" || event.code === "KeyP") {
+    event.preventDefault(); // not a click on whatever button has focus
+    djGame.paused ? resumeSet() : pauseSet();
+  } else if (event.code === "Escape") {
+    pauseSet();
+  } else if (event.code === "KeyR") {
+    restartSet();
+  }
+});
+document.addEventListener("keyup", (event) => {
+  if (inSet && event.code === "Space") event.preventDefault(); // buttons click on Space's keyup
+});
+// Switching tabs stops the camera: pause rather than miss everything.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) pauseSet();
+});
+
+// Keep the song card's status line in step with the queue.
 function updateSongCard() {
   const { items, downloads, status, dj } = queue.getState();
-  $("queueCount").textContent = items.length;
   const active = downloads.filter((download) => download.stage !== "failed");
-  const idle = items.length ? "" : "Open the queue to pick songs from the library or start the AI DJ.";
+  const idle = items.length ? "" : "Pick your songs to start.";
   songStatus.textContent =
     status?.message ??
-    (dj.talking ? "🎙 The DJ is on the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
+    (dj.talking ? "🎙 On the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
   songStatus.classList.toggle("error", Boolean(status?.isError));
 }
 queue.on(updateSongCard);
@@ -791,7 +887,8 @@ startBtn.addEventListener("click", startCamera);
 calibBtn.addEventListener("click", calibrate);
 updateControls();
 
-loadModel()
+const modelReady = loadModel();
+modelReady
   .then(() => {
     startBtn.disabled = false;
     startBtn.textContent = "Start camera";

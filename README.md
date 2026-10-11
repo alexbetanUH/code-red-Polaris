@@ -27,6 +27,20 @@ Songs come from the shared queue and library. DJ Deck keeps Song, Queue, Library
 
 Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` finish blend, `F` effects mode, `V` visuals mode, `1`–`5` pick, `↑↓` effect amount, `L` frame, `K` lock, `Esc` leave a mode.
 
+### Arcade · 2P
+
+`arcade-versus.html`: two players, one camera. P1 plays with the left half of the frame, P2 with the right half; each side panel shows that player's half of the camera with their hand drawn on it. Pick a game with the arrows in the top bar. The top bar's switch goes to the DJ Deck, and its **♪ AirMix** button (next to Arcade) to the one-player game. Background music is a short chiptune made with Web Audio (no audio files).
+
+| Game | How you play | How you win |
+|---|---|---|
+| Snake Battle | Your snake follows your index fingertip; eat apples | 2 rounds of 20 s; tied rounds → most apples in total |
+| Bubble Trails | Your bubble follows your fingertip and leaves a trail | Hit a wall or a trail and the other player scores; first to 3 |
+| Air Pong | Raise or lower your hand to move the paddle | First to 3 |
+| Bubble Pop | Touch bubbles of your color with your fingertip (golden = +2, wrong color = −1) | Best of 3 rounds of 15 s |
+| Hand Duel | Show rock, paper or scissors on beat 4 (a photo of each hand is shown) | First to 3 |
+
+No camera? P1 uses `W A S D` (and `1 2 3` for rock / paper / scissors), P2 the arrow keys (and `8 9 0`). `Space` starts.
+
 ### Run it
 
 Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp` or `pip install -U "yt-dlp[default]"`), Chrome. ffmpeg is optional (one extra download fallback). On Windows, run `python server.py`.
@@ -77,22 +91,46 @@ quiet intro) and mix it out after about 20 s, in whole phrases, with shorter ble
 transitions. The AI DJ page shows what's up next, when the DJ mixes into it and
 how (blend or echo out); DJ Deck shows Up next in its sidebar.
 
-**AI DJ page coach** (`ai-dj.html`, distinct from DJ Deck's unrestricted manual blend): the DJ picks the next song, keeps it beat-synced and decides where the mix
-belongs, and a move track above the strip shows what your hands do, timed to the beat like a rhythm game. Your
-**left hand is the song playing now, your right hand is the one coming in**:
+### AirMix
 
-| Cue | Move | Does |
-|---|---|---|
-| ✋↑ Right hand up | Raise your right hand on the cue (up to 8 bars early is fine) | The next song comes in on the downbeat; your right hand's height is now its volume |
-| ✋↓ Left hand down | Lower your left hand on the cue | The bass lines swap on the downbeat; your left hand's height is the old song's volume, all the way down ends the mix |
+AirMix (`ai-dj.html`, part of the Arcade: the **♪ AirMix** button in the Arcade's top bar) is a single-player rhythm game in the style of
+osu!: you play a DJ set with your hands. It opens on **Pick your set**: tick 2–5 songs from the library in the
+order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Then, the
+first time, how to play in three pictures, the camera and a check that it sees both hands; the set loads while
+you do that, then 3, 2, 1.
 
-When the tempos don't match, the AI echoes the old song out by itself. Moves within a beat of the cue are PERFECT, within two GOOD. Miss one by a bar, or stall, and the AI does that part
-for you, so the music never stops. Pinching never counts as a move, so the pinch controls keep working, and the
-master volume and speed hold still while you mix. Without the camera the DJ does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
-looping. You can still drag, remove or ▶ anything (those switch instantly).
+Each shape is four dots, two per hand: where your thumb (hollow) and index fingertip (filled) go. A ring closes in on
+each dot, landing on the beat about 2 seconds after it shows up. One comes every beat or two, each joined to the next.
+The targets are the DJ controls, and they're worked out from your pinch calibration and how big your hand is right
+now: put your fingertips on the dots, with the gap between them, and you really get that sound. The right pinch is
+the filter (open = filter off; it narrows through a build-up and snaps open on the drop), the distance between your
+hands is the volume (wider on drops), and the speed stays at 1.00× while you play. A shape counts when both hands are
+on their dots and the right pinch is about as open as asked. The mixes into each next song of your set are part of
+the chart:
 
-It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
-machine and never reach the browser):
+- **Blends** (tempos close): your right thumb and index slide the new song in along a track (how far along you are is
+  its volume), then your left ones slide the old song out: it thins out (its high-pass sweeps up) as it goes, and its
+  last beat is thrown into an echo. If you don't follow, the music moves along anyway.
+- **Cuts** (tempos far apart): one shape on the downbeat; the new song slams in and the old one is thrown into an echo.
+
+Shapes hit within about 160 ms of the beat are Perfect, within 320 ms Good, and you hear them: each hit claps on its
+beat. Slides have a tick on every beat: each one your fingers are on
+clicks and keeps the combo going, and the slide is graded on how many held. Your combo shows in the corner; the
+Your set card shows the set (played, playing, to come), the crowd's hype and your accuracy. With nobody in frame
+nothing counts as a miss. The last song fades out where it would have been mixed out, and the results come up
+(grade, score, accuracy, best combo, Perfect / Good / Miss) with **Play again** and **New set**.
+
+**Pause** with **Space**, **P** or **Esc** (or the Pause button in the Song card): the music and the game stop
+together, even mid-mix, and a quick 3-2-1 brings them back. **R** (or Restart) plays the set again from the top.
+Switching tabs pauses too. Targets stay in the middle of the camera view (about 18–82% across, 28–68% down), where
+the hand tracking is steady.
+
+The AI doesn't pick anything in AirMix; it only talks: with an ElevenLabs key, a DJ voice opens the set, calls out
+genre switches and your result. Without a key it stays quiet.
+
+It needs API keys. The easy way: copy `.env.example` to `.env` and put your keys in it; `server.py` reads it every
+time it starts (`.env` is gitignored, so the keys never get pushed). Or set them in the terminal before starting the
+server, which only lasts for that window (either way they stay on your machine and never reach the browser):
 
 ```bash
 export GEMINI_API_KEY="..." ELEVENLABS_API_KEY="..."   # PowerShell: $env:GEMINI_API_KEY="..."; $env:ELEVENLABS_API_KEY="..."
@@ -104,7 +142,7 @@ library songs by genre and tempo, and says so. The server prints whether Gemini 
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
 The server only answers this computer, so nobody on the venue Wi-Fi can spend your API credits (set
 `AIRDECK_HOST=0.0.0.0` to open it up), and only AirDeck's own pages may call its API.
-The AI DJ has its own page at `ai-dj.html`. DJ Deck (`index.html`) also exposes AI DJ tools through **AI DJ & import** in its sidebar.
+AirMix lives at `ai-dj.html`. DJ Deck (`index.html`) exposes AI DJ tools through **AI DJ & import** in its sidebar.
 
 ### Files
 
@@ -113,11 +151,12 @@ The AI DJ has its own page at `ai-dj.html`. DJ Deck (`index.html`) also exposes 
 - `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform, effects)
 - `frame.js`: WebGL visual inside the shape between both hands' thumb and index tips
 - `bubble-particles.js`: bubbles emitted from the portal, floating outside its edges
-- `ai-dj.html`, `aiDeck.js`: the AI DJ page, with the same hand tracking and a frozen copy of `audio.js`, so
-  changes to `index.html` or `audio.js` can't break it
-- `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
+- `ai-dj.html`, `aiDeck.js`: AirMix, with the same hand tracking and a frozen copy of `audio.js`, so changes to
+  `index.html` or `audio.js` can't break it
+- `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ, AirMix sets)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
-- `djCoach.js`: the move track and the hand moves that perform the AI DJ's mixes
+- `djGame.js`: AirMix's game: the chart, hits and their sounds, the playable mixes, the set's end, the Your set card
+- `djStart.js`: AirMix's screens: pick your set, how to play, camera and hand check, loading, 3-2-1, results
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 - `tests/tracking.cjs`: `node tests/tracking.cjs` runs the hand tracking / gesture mode tests
@@ -150,4 +189,4 @@ If grabbing feels unreliable, click **Calibrate pinch** once (it's saved). No ca
 
 ## DJ Deck view
 
-The Song/Queue card and expanded Library stay visible in the right sidebar, with Up next above the queue. **Show controls & help** reveals effects, visuals, calibration, tracking details and advanced switches. **Full screen** expands the camera workspace with a separate sidebar, keeps the camera unobstructed, and exits with its button or Escape. The idle screen remains clear; only the explicit L test shape or synthetic hands enable the plain test preview. Arcade links are unavailable until the teammate’s game branch is integrated.
+The Song/Queue card and expanded Library stay visible in the right sidebar, with Up next above the queue. **Show controls & help** reveals effects, visuals, calibration, tracking details and advanced switches. **Full screen** expands the camera workspace with a separate sidebar, keeps the camera unobstructed, and exits with its button or Escape. The idle screen remains clear; only the explicit L test shape or synthetic hands enable the plain test preview. Arcade now opens `arcade-versus.html`; its AirMix entry opens `ai-dj.html`.

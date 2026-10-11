@@ -3,7 +3,7 @@ const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('ass
 const code=fs.readFileSync(path.join(__dirname,'..','queue.js'),'utf8').replace(/^import .*$/mg,'').replace(/^export /mg,'');
 async function run({fail=false,remove=false}={}) {
  let releaseB;const started=[];const slow=new Promise((resolve,reject)=>releaseB=()=>fail?reject(new Error('superseded decode failed')):resolve({duration:10,label:'B'}));
- const deck={playing:false,buffer:null,offset:0,setVolume(){},ensureContext(){},stopSource(){this.playing=false},play(){this.playing=true;started.push(this.buffer.label)},position(){return 0}};
+ const deck={playing:false,buffer:null,offset:0,setVolume(){},setFrequency(){},ensureContext(){},stopSource(){this.playing=false},play(){this.playing=true;started.push(this.buffer.label)},position(){return 0}};
  const box={console,Date,Math,performance,Promise,setInterval(){},clearInterval(){},setTimeout(){},clearTimeout(){},
  createTransitions:()=>({prepare(){},cancel(){}}),
  OfflineAudioContext:class{decodeAudioData(label){return label==='B'?slow:Promise.resolve({duration:10,label})}},

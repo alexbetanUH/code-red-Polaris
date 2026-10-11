@@ -17,7 +17,9 @@
 
 import { createTransitions } from "./transitions.js";
 
-const djSongsAhead = 2; // the DJ keeps this many songs queued after the current one
+const djSongsAhead = 3; // the DJ keeps this many songs queued after the current one (the choices)
+const choiceCount = 3; // songs offered to choose from for the next mix
+const blendTolerance = 0.08; // library tempos this close (or half/double) can be blended by hand
 const djPicksPerRequest = 3;
 const duckedVolume = 0.5; // the music's level while the DJ talks over a transition
 const duckFadeMs = 600;
@@ -53,7 +55,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let library = [];
   // short: short mixes (each song plays about 20 s from where it gets going), so a
   // one-minute demo hears several transitions.
-  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true };
+  const dj = { on: false, set: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true, crowd: null };
   const listeners = new Set();
 
   const changed = () => {
@@ -140,9 +142,17 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // While the hands perform a mix, moving them must not change the master volume
   // (it follows the distance between them) or the speed (the left pinch), so both are held.
   const setDeckVolume = deck.setVolume.bind(deck);
-  let handVolume = 0.8; // audio.js's starting volume
+  const startingVolume = 0.8; // audio.js's starting volume
+  let handVolume = startingVolume;
   let duckLevel = 1;
   let volumeHeld = false;
+  let speedHeld = false;
+  // The filter (right pinch) too: grabbing things on screen pinches.
+  const setDeckFrequency = deck.setFrequency.bind(deck);
+  let frequencyHeld = false;
+  deck.setFrequency = (hz) => {
+    if (!frequencyHeld) setDeckFrequency(hz);
+  };
   deck.setVolume = (volume) => {
     if (volumeHeld) return;
     handVolume = volume;
@@ -236,6 +246,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // Resolves startHandMix()'s promise with the hand controls once the mix is scheduled.
   let handMixStarted = null;
+  let handMix = null; // the hand mix's controls while it runs (until .done)
 
   // While the DJ is introducing a song or switching to it: the flag, and which song.
   let transitioning = false;
@@ -281,6 +292,14 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // ---- AI DJ ----------------------------------------------------------------------
 
+  // An AirMix set's DJ line for a song (spoken as it comes in, if the genre changed).
+  function setLine(song, previous) {
+    const name = `${song.title} by ${song.artist}`;
+    if (!previous) return `Welcome to AirMix! Hands up. First up: ${name}.`;
+    const genre = (song.genre ?? "").split("/")[0].trim();
+    return genre ? `Switching it up, ${genre} time: ${name}!` : `Next up: ${name}!`;
+  }
+
   // The ElevenLabs clip's URL for a DJ line, or null to fall back to the browser's voice.
   async function prepareVoice(text) {
     try {
@@ -309,6 +328,14 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     return before.length > 0 && after.length > 0 && !after.some((genre) => before.includes(genre));
   }
 
+  // Whether a line will actually be heard: lines without the browser voice to fall back
+  // on (an AirMix set's) need their ElevenLabs clip, so the music isn't ducked for nothing.
+  async function canSpeak(item) {
+    if (item.dj?.browserVoice !== false) return true;
+    const late = new Promise((resolve) => setTimeout(() => resolve(null), voiceWaitMs));
+    return Boolean(await Promise.race([voiceFor(item), late]));
+  }
+
   // Plays a DJ line and resolves when it's done (or after a timeout).
   async function speak(item) {
     const intro = item.dj?.intro;
@@ -327,7 +354,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         audio.onended = done;
         audio.onerror = done;
         audio.play().catch(done);
-      } else if ("speechSynthesis" in window) {
+      } else if (item.dj.browserVoice !== false && "speechSynthesis" in window) {
         const line = new SpeechSynthesisUtterance(intro);
         line.onend = done;
         line.onerror = done;
@@ -341,7 +368,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // The DJ mixes into the next song (transitions.js) and introduces it over the mix,
   // with the music turned down. With nothing playing, it introduces the song first.
   // One at a time.
-  async function transitionTo(item, { mixOutAt, hands = false } = {}) {
+  async function transitionTo(item, { mixOutAt, startAt = null, style = null, hands = false } = {}) {
     transitioning = true;
     transitionId = item.id;
     try {
@@ -349,9 +376,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       const talks = djSpeaksBefore(item, mixing ? items.find((entry) => entry.id === currentId) : null);
       // Mix in from the playing song, or (nothing playing) just start, at the song's
       // entry with short mixes. Either way the DJ talks over the music, not before it.
-      await playItem(item.id, mixing ? { mix: { mixOutAt, hands } } : { entry: dj.short });
+      await playItem(item.id, mixing ? { mix: { mixOutAt, startAt, style, hands } } : { entry: dj.short });
       if (currentId !== item.id) return; // skipped or paused meanwhile
-      if (talks) {
+      if (talks && (await canSpeak(item))) {
         dj.talking = true;
         changed();
         await fadeTo(duckedVolume, duckFadeMs);
@@ -370,7 +397,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // Asks the DJ for more songs whenever fewer than djSongsAhead are queued.
   async function topUpDj() {
-    if (!dj.on || dj.busy || upcoming().length >= djSongsAhead) return;
+    if (!dj.on || dj.set || dj.busy || upcoming().length >= djSongsAhead) return;
     const generation = dj.generation;
     const stillValid = () => dj.on && dj.generation === generation;
     dj.busy = true;
@@ -385,6 +412,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         vibe: dj.vibe,
         nowPlaying: current?.title ?? "",
         queued: items.map((item) => item.title),
+        crowd: dj.crowd,
         played,
         count: djPicksPerRequest,
         ...(useLibrary && { library: library.map(({ id, artist, title, bpm, genre }) => ({ id, artist, title, bpm, genre })) }),
@@ -414,12 +442,13 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const entry = add(
           {
             ...entryData,
-            dj: { intro: pick.intro, voice: null },
+            dj: { intro: pick.intro, voice: null, reason: pick.reason },
           },
           { autoplay: false },
         );
         added += 1;
-        if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
+        // Nothing playing yet: start the set (unless the page starts it, after a countdown).
+        if (currentId === null && !transitioning && !dj.waitToStart) transitionTo(entry);
       }
       if (stillValid() && !added) throw new Error("none of the picks could be loaded");
       // Gemini was unreachable: the server picked the closest library songs instead.
@@ -439,9 +468,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // With the DJ on, the mix into the next song starts as the current one nears its end.
   // No next song yet: the current one loops (and gets mixed out next time around).
-  // While a coach (djCoach.js) is running, it decides when to mix instead.
+  // While a game (djGame.js) is running, it decides when to mix instead.
   let coachSeen = 0;
-  const coached = () => performance.now() - coachSeen < 1000;
+  const coached = () => performance.now() - coachSeen < 4000; // a hiccup (a song decoding) mustn't hand a mix to the AI
   setInterval(() => {
     if (!dj.on || transitioning || !deck.playing || !deck.buffer) return;
     const next = upcoming()[0];
@@ -469,6 +498,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const from = items.find((entry) => entry.id === currentId);
         const mixed = await transitions.mixInto(buffer, {
           mixOutAt: mix.mixOutAt,
+          startAt: mix.startAt ?? null,
+          style: mix.style ?? null,
           hands: mix.hands,
           short: dj.short,
           fromBpm: from?.bpm,
@@ -515,7 +546,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       downloads,
       library,
       status,
-      dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status, short: dj.short },
+      dj: { on: dj.on, set: dj.set, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status, short: dj.short },
     }),
 
     // Fast-changing playback state for progress bars; read it every frame.
@@ -524,7 +555,22 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       duration: deck.buffer?.duration ?? 0,
       playing: Boolean(deck.playing),
       loaded: Boolean(deck.buffer),
+      rate: deck.rate || 1, // song seconds per real second
+      songId: currentId,
     }),
+
+    // The playing song's beat grid ({ bpm, first downbeat }, song seconds) around a point
+    // in it, and how loud it is there (1 = its typical level). For djGame.js's charts.
+    beatGridAt: (seconds) => (deck.buffer ? transitions.beatGridAt(deck.buffer, seconds) : null),
+    energyAt: (seconds) => (deck.buffer ? transitions.energyAt(deck.buffer, seconds) : 1),
+
+    // Where (song seconds) the DJ mixes the playing song out by, or null with the DJ off.
+    mixOutAt: () => (dj.on && deck.buffer ? transitions.mixOutPoint(deck.buffer, dj.short) : null),
+
+    // How the crowd (the player) is doing, 0–1: the DJ hears about it with its next picks.
+    setCrowd(level) {
+      dj.crowd = Math.round(Math.max(0, Math.min(1, level)) * 100) / 100;
+    },
 
     on(listener) {
       listeners.add(listener);
@@ -549,11 +595,12 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
     // Adds a library song (by its id), instantly from music/. playNow plays it right away.
-    async addFromLibrary(id, { playNow = false } = {}) {
+    // autoplay: false only queues it (it still gets decoded ahead, if it's up next).
+    async addFromLibrary(id, { playNow = false, autoplay = true } = {}) {
       const song = library.find((entry) => entry.id === id);
       if (!song) return;
       try {
-        const entry = add(await libraryEntry(song, "Library"), { autoplay: !playNow });
+        const entry = add(await libraryEntry(song, "Library"), { autoplay: autoplay && !playNow });
         if (playNow) queue.play(entry.id);
       } catch (error) {
         setStatus(`Error: ${error.message}`, true);
@@ -650,16 +697,84 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
     // Turns the AI DJ on: it fills the queue to match the vibe and moves on at the end of each song.
-    startDj(vibe = "") {
+    // wait: pick songs but don't start playing; the page calls beginSet() when it's ready.
+    startDj(vibe = "", { wait = false } = {}) {
       dj.on = true;
+      dj.set = false;
       dj.vibe = vibe.trim();
       dj.generation += 1;
+      dj.waitToStart = wait;
       setDjStatus(null);
       topUpDj();
     },
 
+    // Resolves once the library has loaded (and checked which songs are in music/).
+    async libraryReady() {
+      while (!library.length || library.some((song) => song.available === null)) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    },
+
+    // Resolves once the DJ's first song is picked and decoded, so it can start instantly.
+    async readyToStart() {
+      while (!items.length) await new Promise((resolve) => setTimeout(resolve, 200));
+      await decode(items[0]).catch(() => null);
+    },
+
+    // Starts the set the DJ prepared with startDj(vibe, { wait: true }).
+    beginSet() {
+      dj.waitToStart = false;
+      deck.ensureContext();
+      if (currentId === null && !transitioning && items.length) transitionTo(items[0]);
+    },
+
+
+    // AirMix: a set of library songs (ids, in order) your hands play through. The queue
+    // becomes exactly that set and the mixes work as with the DJ, but nothing gets picked:
+    // the AI only talks (ElevenLabs, if there's a key; otherwise it stays quiet) as the set
+    // starts and when the genre changes. The first song starts decoding right away; call
+    // beginSet() to play it.
+    async playSet(ids) {
+      await queue.libraryReady();
+      playRequest += 1; // any load still running is stale now
+      transitions.cancel();
+      deck.stopSource();
+      currentId = null;
+      Object.assign(dj, { on: true, set: true, vibe: "", busy: false, waitToStart: true, status: null });
+      dj.generation += 1;
+      const songs = ids.map((id) => library.find((song) => song.id === id)).filter(Boolean);
+      const entries = await Promise.all(songs.map((song) => libraryEntry(song, "AirMix set")));
+      items = [];
+      entries.forEach((entry, index) => {
+        const intro = setLine(songs[index], songs[index - 1]);
+        add({ ...entry, dj: { intro, voice: null, reason: null, browserVoice: false } }, { autoplay: false });
+      });
+      prefetch();
+    },
+
+    // Ends a set: the last song fades out, muffling as it goes, then stops (the queue
+    // keeps the set). Resolves once it's quiet.
+    async endSet(ms = 3000) {
+      dj.on = false;
+      dj.set = false;
+      if (deck.filter) deck.filter.frequency.setTargetAtTime(300, deck.ctx.currentTime, ms / 3000);
+      await fadeTo(0, ms);
+      transitions.cancel();
+      deck.stopSource();
+      currentId = null;
+      duck(1);
+      if (deck.filter) deck.filter.frequency.setTargetAtTime(20000, deck.ctx.currentTime, 0.05);
+      changed();
+    },
+
+    // Says a line in the DJ's voice (ElevenLabs only; quiet without a key).
+    say(text) {
+      return speak({ dj: { intro: text, voice: null, browserVoice: false } });
+    },
+
     stopDj() {
       dj.on = false;
+      dj.set = false;
       dj.generation += 1;
       dj.busy = false;
       setDjStatus(null);
@@ -691,25 +806,68 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       coachSeen = performance.now();
     },
 
-    // Starts a mix the hands perform: any next song comes in immediately, and
-    // this resolves with its live controls (see transitions.mixInto's hands option), or
-    // with null when there's nothing to mix.
-    startHandMix() {
+    // Starts a mix the hands perform, and resolves with its live controls (see
+    // transitions.mixInto's hands option), or with null when there's nothing to mix.
+    // With no startAt or style (the DJ Deck): any next song comes in immediately.
+    // startAt: the downbeat (song seconds) it starts on, beat-matched (AirMix);
+    // style: "blend" or "cut" to insist on one.
+    startHandMix({ startAt = null, style = null } = {}) {
       const next = upcoming()[0];
       if (transitioning || !next || !deck.playing || !deck.buffer) return Promise.resolve(null);
       return new Promise((resolve) => {
         handMixStarted = (controls) => {
           handMixStarted = null;
+          handMix = controls ?? null;
           resolve(controls ?? null);
         };
-        transitionTo(next, { mixOutAt: 0, hands: true }).finally(() => handMixStarted?.(null));
+        transitionTo(next, { mixOutAt: 0, startAt, style, hands: true }).finally(() => handMixStarted?.(null));
       });
     },
 
     // Holds the master volume and speed where they are (while the hands perform a mix), or lets go.
-    holdControls(on) {
-      volumeHeld = Boolean(on);
-      transitions.holdSpeed(on);
+    // Which of the hands' controls hold still: { speed, volume, filter } (true = held).
+    // Speed is held at 1.00×.
+    holdControls({ speed = false, volume = false, filter = false } = {}) {
+      if (speed && !speedHeld) transitions.resetSpeed();
+      speedHeld = speed;
+      volumeHeld = volume;
+      frequencyHeld = filter;
+      transitions.holdSpeed(speed);
+    },
+
+    // Normal sound: 80% volume, filter open, 1.00× (whatever the hands last set, say
+    // hands together and a closed pinch while getting into position, is forgotten).
+    resetSound() {
+      handVolume = startingVolume;
+      setDeckVolume(handVolume * duckLevel);
+      setDeckFrequency(20000);
+      transitions.resetSpeed();
+    },
+
+    // The songs to choose from for the next mix: the next few queued, each with the
+    // DJ's reason and whether it can be blended by hand with what's playing (close
+    // library tempos) rather than echoed out. The first is the DJ's own pick.
+    getChoices() {
+      const current = items.find((entry) => entry.id === currentId);
+      return upcoming()
+        .slice(0, choiceCount)
+        .map((item) => {
+          let blends = null;
+          if (current?.bpm && item.bpm) {
+            let ratio = current.bpm / item.bpm;
+            while (ratio > Math.SQRT2) ratio /= 2;
+            while (ratio < Math.SQRT1_2) ratio *= 2;
+            blends = Math.abs(ratio - 1) <= blendTolerance;
+          }
+          return { item, reason: item.dj?.reason ?? null, blends };
+        });
+    },
+
+    // Makes a queued song the next one (choosing it for the next mix).
+    chooseNext(id) {
+      const index = currentIndex();
+      if (index === -1 || items[index + 1]?.id === id) return;
+      queue.move(id, index + 1);
     },
 
     // What happens next, for an on-screen preview, or null when nothing's queued:
@@ -719,7 +877,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // next one on the beat grid the mix uses), beatSeconds, short }.
     getUpNext() {
       // While mixing (the AI's or the hands'), it's about the song coming in.
-      const mixing = transitioning || volumeHeld;
+      const mixing = transitioning || Boolean(handMix && !handMix.done);
       const incoming = mixing && (items.find((entry) => entry.id === transitionId) ?? items.find((entry) => entry.id === currentId));
       const next = incoming || upcoming()[0];
       if (!next) return null;
@@ -1023,10 +1181,10 @@ export function createUpNext(queue) {
     element("div", { className: "upNext-line" }, [element("span", { className: "upNext-label", text: "Up next" }), title, genre]),
     element("div", { className: "upNext-line" }, [when]),
   ]);
-  const slot = element("div", { className: "upNext-slot" }); // for extras, like djCoach.js's move track
+  const slot = element("div", { className: "upNext-slot" }); // for extras above the strip
   const root = element("div", { className: "upNext" }, [toast, slot, strip]);
   let toastTimer = null;
-  let statusOverride = null; // setStatus(): someone else (djCoach.js) says what's happening
+  let statusOverride = null; // setStatus(): something else says what's happening
 
   function update() {
     const next = queue.getUpNext();
@@ -1425,5 +1583,11 @@ export function createQueuePanel(queue, deck, { embedded = false } = {}) {
       vibeInput.focus();
     },
   };
+  // A click anywhere outside the panel closes it. The page's own Queue button toggles
+  // it instead: mark that button with data-queue-toggle.
+  document.addEventListener("pointerdown", (event) => {
+    if (panel.hidden || panel.contains(event.target) || event.target.closest?.("[data-queue-toggle]")) return;
+    controls.close();
+  });
   return controls;
 }

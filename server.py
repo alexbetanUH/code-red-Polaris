@@ -28,6 +28,26 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).parent
+
+
+def load_env_file(path):
+    """Settings from a local .env file (KEY=value per line, # for comments), so the API
+    keys survive restarts and new windows. Anything already set in the environment wins.
+    The file is gitignored: keys never get committed."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(ROOT / ".env")
 DOWNLOADS = ROOT / "downloads"
 VOICES = DOWNLOADS / "voice"
 # Searches and links already downloaded, so asking again (e.g. in a rehearsed demo) skips yt-dlp.
@@ -330,6 +350,19 @@ def tempo_gap(a, b):
     return min(abs(a - b), abs(a - 2 * b), abs(2 * a - b))
 
 
+def crowd_line(level):
+    """How the player is doing (0-1, from the game on the AI DJ page), as a hint for the DJ."""
+    try:
+        level = float(level)
+    except (TypeError, ValueError):
+        return ""
+    if level >= 0.7:
+        return "The crowd is hyped (the player is nailing the moves): you can push the energy up.\n"
+    if level <= 0.35:
+        return "The crowd is cooling off (the player is missing moves): pick something familiar and easy to groove to.\n"
+    return "The crowd is steady.\n"
+
+
 def dj_pick(request):
     """Ask Gemini for the next songs. Returns (picks, offline): picks is a list of
     {artist, title, reason, intro}; offline is why Gemini couldn't be used, or None.
@@ -347,6 +380,7 @@ def dj_pick(request):
         f"Now playing: {clean(request.get('nowPlaying') or 'nothing yet', 120)}\n"
         f"Already queued:\n{listing('queued')}\n"
         f"Already played:\n{listing('played')}\n"
+        f"{crowd_line(request.get('crowd'))}"
     )
 
     library = {

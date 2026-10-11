@@ -11,7 +11,7 @@
 ## Current application
 
 - `index.html` is DJ Deck; `mix.html` redirects there. `/` serves `landing.html`.
-- Arcade is intentionally unavailable while waiting for a teammate's branch. Keep the entry disabled.
+- Arcade is now integrated at `arcade-versus.html` (two-player games); `ai-dj.html` is AirMix, its single-player rhythm game. Preserve both routes and the homepage links.
 - DJ Deck Song, Queue, Library and Up next belong in the sidebar, outside camera pixels, including fullscreen. Mobile may stack them below the camera.
 - Other controls/help are hidden behind a toggle. Preserve the site's Aero styling.
 - Manual hand blends accept all tempos without beat alignment, speed matching or automatic bass cuts. Keep automatic AI DJ behavior distinct.
@@ -22,11 +22,13 @@
 ## Files and verification
 
 - `index.html`: camera, gesture logic, canvas HUD, fullscreen/sidebar integration.
-- `audio.js`: DJ Deck audio engine; `aiDeck.js`: AI page's engine copy.
+- `audio.js`: DJ Deck audio engine; `aiDeck.js`: AirMix's engine copy.
 - `queue.js`: shared queue, playback requests, embedded/floating panels, announcements.
 - `transitions.js`: manual level blends and automatic tempo/echo transitions.
 - `frame.js`: polygon WebGL visuals; `bubble-particles.js`: screen-space particles.
-- `server.py`: local serving/downloads, Gemini picks, ElevenLabs speech.
+- `djGame.js` / `djStart.js`: AirMix gameplay, set selection, onboarding and results.
+- `arcade-versus.html`: two-player Arcade games.
+- `server.py`: local serving/downloads, Gemini picks, ElevenLabs speech; loads a gitignored `.env` at startup.
 - `FEATURES_PLAN.md` is historical, not the current product specification.
 
 Run relevant regression suites: `node tests/tracking.cjs`, `node tests/effects.cjs`, `node tests/queue-default.cjs`, `node tests/queue-selection.cjs`, `node tests/hand-blend.cjs`, `node tests/bubble-particles.cjs`; run `git diff --check`. Browser checks matter for rendering and fullscreen. Stub tests do not replace real webcam/listening validation.
