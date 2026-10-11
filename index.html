@@ -288,7 +288,7 @@ const FIST_EXIT_MS = 350;       // fist must be out of its zone this long before
 const FIST_ENTER_GRACE_MS = 150; // a fist that flickers away for less than this doesn't restart the 'hold to enter' timer
 const PENDING_CLEAR_MS = 250;   // a closed fist (0 fingers) must last this long to cancel the chosen count
 const BLEND_SLEW = 1.2;         // hand-driven crossfade can move at most this much (0–1) per second
-const BLEND_BOTTOM = 0.85, BLEND_TOP = 0.55; // palm Y: full range comfortably in the lower half
+const BLEND_BOTTOM = 0.88, BLEND_TOP = 0.70; // palm Y: short travel near the bottom, far below the lock zone
 const BLEND_ARM_MS = 600;       // ignore the hands this long after a blend opens (the hand that just picked is still up)
 const BLEND_SNAP = 0.1;         // within this of the top/bottom the blend snaps to fully new / fully old
 const BLEND_IDLE_MS = 4000;     // no left hand for this long → the blend finishes by itself
@@ -1211,7 +1211,7 @@ function drawBlend(now) {
   fillFit(`🎚 BLENDING  ${blend.from}  →  ${blend.to}`, cx, cardY + 24, 24, 700, cardW - 30);
   ctx.fillStyle = "#fff";
   const lines = blend.finishing ? ["Finishing by itself…"] : blend.waiting ? ["Starting the next song…"] : [
-    "LEFT hand: lower half of the frame = blend new / old",
+    "LEFT hand: bottom of the frame = blend new / old",
     "RIGHT hand UP = fade the old song out faster",
     "Put your left hand away and it finishes by itself",
   ];
