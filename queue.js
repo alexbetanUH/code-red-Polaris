@@ -142,7 +142,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // While the hands perform a mix, moving them must not change the master volume
   // (it follows the distance between them) or the speed (the left pinch), so both are held.
   const setDeckVolume = deck.setVolume.bind(deck);
-  let handVolume = 0.8; // audio.js's starting volume
+  const startingVolume = 0.8; // audio.js's starting volume
+  let handVolume = startingVolume;
   let duckLevel = 1;
   let volumeHeld = false;
   // The filter (right pinch) too: grabbing things on screen pinches.
@@ -566,11 +567,12 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
     // Adds a library song (by its id), instantly from music/. playNow plays it right away.
-    async addFromLibrary(id, { playNow = false } = {}) {
+    // autoplay: false only queues it (it still gets decoded ahead, if it's up next).
+    async addFromLibrary(id, { playNow = false, autoplay = true } = {}) {
       const song = library.find((entry) => entry.id === id);
       if (!song) return;
       try {
-        const entry = add(await libraryEntry(song, "Library"), { autoplay: !playNow });
+        const entry = add(await libraryEntry(song, "Library"), { autoplay: autoplay && !playNow });
         if (playNow) queue.play(entry.id);
       } catch (error) {
         setStatus(`Error: ${error.message}`, true);
@@ -654,6 +656,13 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       topUpDj();
     },
 
+    // Resolves once the library has loaded (and checked which songs are in music/).
+    async libraryReady() {
+      while (!library.length || library.some((song) => song.available === null)) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    },
+
     // Resolves once the DJ's first song is picked and decoded, so it can start instantly.
     async readyToStart() {
       while (!items.length) await new Promise((resolve) => setTimeout(resolve, 200));
@@ -724,9 +733,18 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
     // Holds the master volume and speed where they are (while the hands perform a mix), or lets go.
     holdControls(on) {
+      const starting = on && !volumeHeld;
       volumeHeld = Boolean(on);
       frequencyHeld = Boolean(on);
       transitions.holdSpeed(on);
+      if (starting) {
+        // Whatever the hands last set (getting into position, say hands together and a
+        // closed pinch: silent and muffled) gives way to normal sound before it's held.
+        handVolume = startingVolume;
+        setDeckVolume(handVolume * duckLevel);
+        setDeckFrequency(20000);
+        transitions.resetSpeed();
+      }
     },
 
     // The songs to choose from for the next mix: the next few queued, each with the

@@ -312,6 +312,12 @@ export function createTransitions(deck) {
       speedHeld = Boolean(on);
     },
 
+    // Back to normal speed (the hands' speed setting forgotten, a mix's tempo nudge kept).
+    resetSpeed() {
+      handSpeed = 1;
+      setDeckSpeed(nudge);
+    },
+
     // Manual song changes: no tail, no nudge.
     cancel() {
       finish();

@@ -770,6 +770,13 @@ $("queueBtn").addEventListener("click", () => {
   queuePanel.toggle();
 });
 
+// The first song loads the moment the page opens (while you read the start screen and
+// check the camera), so the set starts the instant you're ready. The DJ picks the rest.
+queue.libraryReady().then(() => {
+  const first = queue.getState().library.find((song) => song.available);
+  if (first && !queue.getState().items.length) queue.addFromLibrary(first.id, { autoplay: false });
+});
+
 // The start screen: how to play, the camera and a hand check, the first song, 3-2-1.
 createStartScreen(stage, {
   startCamera: async () => {

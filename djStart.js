@@ -112,7 +112,7 @@ export function createStartScreen(stage, { startCamera, handSeen, prepare, begin
   }
 
   async function loading() {
-    show(`<div class="djStart-panel"><p class="djStart-status">The DJ is picking your first song…</p></div>`);
+    show(`<div class="djStart-panel"><p class="djStart-status">Getting the music ready…</p></div>`);
     await prepare();
     countdown();
   }
