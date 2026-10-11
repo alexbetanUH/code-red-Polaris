@@ -155,7 +155,7 @@
       <h2 style="margin-top:14px"><span>Effects</span></h2>
       <div class="chips" id="fxChips"></div>
       <p class="keyhelp">Test keys: <b>S</b> song mode · <b>←→</b> blend · <b>Enter</b> finish blend · <b>V</b> visuals mode · <b>F</b> effects mode · <b>1–5</b> pick · <b>↑↓</b> amount · <b>K</b> lock · <b>L</b> frame · <b>Esc</b> leave mode · <b>D</b> tracking debug.<br>
-      Right fist in the upper-right zone → left hand: 1 finger = next song (mixed in with your hands: left hand height = crossfade, right hand up = old song out faster), 2 = previous, 3+ = nothing. Left fist in the left zone → right hand picks an effect (open hand = all off, hand height = amount). Right fist in the bottom-right corner → left hand picks a visual (1–5). The choice applies when the fist leaves its zone. Then show both hands in any pose: the shape between your two thumb tips and two index tips shows the visual.</p>
+      Right fist in the upper-right zone → left hand: 1 finger = next song (mixed in with your hands: left hand height = crossfade, right hand up = old song out faster), 2 = previous, 3+ = nothing. Left fist in the left zone → right hand picks an effect (open hand = all off, raise/lower right hand = strength, full strength below the lock zone). Right fist in the bottom-right corner → left hand picks a visual (1–5). The choice applies when the fist leaves its zone. Then show both hands in any pose: the shape between your two thumb tips and two index tips shows the visual.</p>
     </div>
     <div id="cards"></div>
     <div class="card glass between">
@@ -176,9 +176,9 @@
 
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
-import { Deck } from "./audio.js?v=7";
+import { Deck } from "./audio.js?v=8";
 import { FrameFx } from "./frame.js?v=8";
-import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js";
+import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js?v=2";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -246,6 +246,8 @@ const BLEND_ARM_MS = 600;       // ignore the hands this long after a blend open
 const BLEND_SNAP = 0.1;         // within this of the top/bottom the blend snaps to fully new / fully old
 const BLEND_IDLE_MS = 4000;     // no left hand for this long → the blend finishes by itself
 const BLEND_AUTO_SECS = 5;      // how long that automatic finish takes
+const FX_HEIGHT_BOTTOM = 0.85;
+const FX_HEIGHT_TOP = 0.40;     // full intensity at 40% down the frame, below the 32% lock zone
 const FX_AMOUNT_EASE = 0.15;    // how fast the effect amount follows hand height
 // Lock zone: a hand held in the top of the frame locks speed/filter/volume; the same
 // hold for longer unlocks them again.
@@ -667,6 +669,7 @@ function update(result, now) {
     [left, right].some((h) => h && h.palmY < zoneEdge);
   lock.inZone = inZone;
   updateLock(inZone, now);
+  updateEffectHeight(right, inZone);
 
 
   // Hands drive the audio. A missing hand leaves its control where it was.
@@ -686,6 +689,7 @@ function update(result, now) {
   }
 
   draw(left, right, between);
+  drawEffectHeight(right);
   drawModes(now);
   drawBlend(now);
   const picking = modes.current !== "normal" || blend.active;
@@ -917,10 +921,7 @@ function updateModes(left, right, now) {
   if (modes.current === "normal") return;
 
   const picker = modes.current === "fx" ? right : left;   // songs and visuals are picked with the left hand
-  if (modes.current === "fx" && picker && lastFx && deck.effectState?.()[lastFx]?.on) {
-    const cur = deck.effectState()[lastFx].amount;
-    deck.setEffectAmount?.(lastFx, cur + (picker.height - cur) * FX_AMOUNT_EASE);
-  }
+
   // The choice = the last finger count held steady; a closed fist (0) clears it.
   const count = picker ? fingerCount(picker) : 0;
   if (count !== modes.count) { modes.count = count; modes.countSince = now; }
@@ -932,6 +933,31 @@ function updateModes(left, right, now) {
     modes.zeroSince = null;
     if (count >= 1 && modes.pick >= 1) modes.pending = count;
   }
+}
+
+// One right-hand height slider for the most recently selected effect.
+// Use palm position directly: 85% down = zero, 40% down = full intensity.
+// The last amount is held when the hand enters the lock zone or disappears.
+function updateEffectHeight(hand, inLockZone) {
+  if (!hand || !lastFx || !deck.effectState?.()[lastFx]?.on || inLockZone || hand.palmY < LOCK_ZONE_Y + 0.05 ||
+      blend.active || modes.hold > 0 || !["normal", "fx"].includes(modes.current) || hand.pose === "✊ fist") return;
+  const target = clamp01(remap(hand.palmY, FX_HEIGHT_BOTTOM, FX_HEIGHT_TOP));
+  const current = deck.effectState()[lastFx].amount;
+  const eased = current + (target - current) * FX_AMOUNT_EASE;
+  deck.setEffectAmount(lastFx, Math.abs(eased - target) < 0.01 ? target : eased);
+}
+function drawEffectHeight(hand) {
+  if (!hand || !lastFx || !deck.effectState?.()[lastFx]?.on || blend.active || !["normal", "fx"].includes(modes.current)) return;
+  const value = deck.effectState()[lastFx].amount;
+  const x = canvas.width * 0.75, top = canvas.height * FX_HEIGHT_TOP, bottom = canvas.height * FX_HEIGHT_BOTTOM;
+  ctx.save(); ctx.fillStyle = "rgba(0,0,0,.55)";
+  ctx.fillRect(x - 5, top, 10, bottom - top);
+  ctx.fillStyle = "#9be0ff"; ctx.fillRect(x - 5, bottom - value * (bottom - top), 10, value * (bottom - top));
+  ctx.beginPath(); ctx.arc(x, bottom - value * (bottom - top), 8, 0, Math.PI * 2); ctx.fill();
+  ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "600 16px system-ui";
+  ctx.shadowColor = "#000"; ctx.shadowBlur = 5;
+  ctx.fillText(`${FX_LABELS[lastFx]} ${Math.round(value * 100)}%`, x, top - 14);
+  ctx.fillText("right hand ↑ stronger", x, bottom + 24); ctx.restore();
 }
 
 // Song zone: 1 finger = next song, 2 = previous song, 3 or more = nothing (changed your mind).
@@ -948,12 +974,23 @@ function previousSong() {
   queue.play(items[Math.max(0, i - 1)].id);
 }
 
+let defaultQueueStarting = false;
+
 // Choose song action / visual / effect number n (1–5) in the current mode.
 function pick(n) {
   deck.ensureContext();
   if (modes.current === "song") {
     const c = songChoice(n);
-    if (!queue.getState().items.length && c < 3) { flash("The queue is empty"); return; }
+    if (c < 3 && defaultQueueStarting) return;
+    if (!queue.getState().items.length && c < 3) {
+      defaultQueueStarting = true;
+      flash("Loading the default queue…", 10000);
+      queue.startDefaultQueue()
+        .then(() => flash("▶ Playing the default queue"))
+        .catch((error) => flash(error.message || "Could not start the default queue", 5000))
+        .finally(() => { defaultQueueStarting = false; });
+      return;
+    }
     if (c === 1) nextSong();
     else if (c === 2) { previousSong(); flash("⏮ Previous song"); }
   } else if (modes.current === "vis") {
