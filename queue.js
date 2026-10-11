@@ -636,7 +636,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       changed();
     },
 
-    // Mixes into the next song right away, on the next downbeat (the swipe gesture).
+    // Mixes into the next song right away, on the next downbeat (the coach uses it).
     // Returns whether there was a song to mix into.
     mixNow() {
       if (transitioning) return false;

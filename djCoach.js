@@ -8,15 +8,14 @@
 //      Raising it earlier (up to 8 bars before the cue) starts the mix early.
 //   2. ✋↓ lower your left hand on the cue → the bass lines swap on the downbeat, and
 //      your left hand's height is the old song's volume. All the way down ends the mix.
-// When they don't (an echo out): 👋 swipe an open hand sideways on the cue.
+// When they don't, the AI echoes the old song out by itself (no move).
 //
 // Raising means from low to high: a right hand still up from the last mix has to come
 // down first. Miss a cue by more than a bar, or stall, and the AI does that part for you. Hitting
 // moves within a beat of the cue counts as PERFECT, within two as GOOD.
 //
 // The page calls update() every camera frame with its hands (index.html's hand objects:
-// height 0 at the bottom to 1 at the top, open 0 fist to 1 flat, pinched, wristX 0–1
-// across the mirrored frame). Pinching hands never trigger moves, so the pinch controls
+// height 0 at the bottom to 1 at the top, open 0 fist to 1 flat, pinched). Pinching hands never trigger moves, so the pinch controls
 // (filter, and speed between mixes) keep working. While the hands perform a mix the master
 // volume and the speed hold still (lowering an open left hand would otherwise speed it up).
 
@@ -33,8 +32,6 @@ const finishBars = 2; // the AI eases a mix home over this long
 const stallBars = 6; // after "let go" starts, the hands get this long to finish
 const earlyBars = 8; // the right hand can start a mix this early
 const laneBeats = 16; // the move track shows this far ahead
-const swipeDistance = 0.25; // an open hand sweeping this share of the frame width…
-const swipeMs = 450; // …within this long is a swipe
 const planEveryMs = 100;
 
 const level = (height) => Math.max(0, Math.min(1, (height - levelBottom) / (levelTop - levelBottom)));
@@ -47,7 +44,6 @@ export function createDjCoach(queue, upNext) {
   let letGoAt = 0;
   let levels = { in: 0, out: 1 };
   let rightArmed = false; // the right hand was down since the last move (so raising it is deliberate)
-  const trails = { left: [], right: [] }; // recent wrist positions of each hand, for swipes
   const score = { perfect: 0, moves: 0 };
 
   const canvas = document.createElement("canvas");
@@ -100,18 +96,6 @@ export function createDjCoach(queue, upNext) {
     }
   }
 
-  function swiped(side, hand, now) {
-    const trail = trails[side];
-    if (!hand || hand.pinched || hand.open < moveOpen) {
-      trail.length = 0;
-      return false;
-    }
-    trail.push({ x: hand.wristX, now });
-    while (trail.length && now - trail[0].now > swipeMs) trail.shift();
-    if (Math.abs(hand.wristX - trail[0].x) < swipeDistance) return false;
-    trail.length = 0;
-    return true;
-  }
   const canMove = (hand) => hand && !hand.pinched && hand.open >= moveOpen;
 
   function startHandMix(now, cued) {
@@ -158,12 +142,11 @@ export function createDjCoach(queue, upNext) {
           startHandMix(now, inWindow);
           return;
         }
-      } else if (swiped("right", right, now) || swiped("left", left, now)) {
-        if (queue.mixNow()) {
-          rate(now, cue1, beatMs);
-          phase = "idle";
-          plan = null;
-        }
+      } else if (now >= cue1 && queue.mixNow()) {
+        // Tempos too far apart to blend by hand: the AI echoes it out on the cue.
+        upNext.flash("Echo out 🌊");
+        phase = "idle";
+        plan = null;
         return;
       }
       if (now > cue1 + missBars * barMs && queue.mixNow()) {
@@ -252,9 +235,10 @@ export function createDjCoach(queue, upNext) {
   function status(now) {
     if (phase === "cued") {
       const seconds = Math.max(0, (plan.cue1 - now) / 1000);
-      const move = plan.style === "echo" ? "👋 Swipe" : "✋↑ Right hand up";
       const whole = Math.ceil(seconds);
-      return seconds > 0.3 ? `${move} in ${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}` : `${move} now!`;
+      const clock = `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+      if (plan.style === "echo") return `🌊 Echo out in ${clock}`;
+      return seconds > 0.3 ? `✋↑ Right hand up in ${clock}` : "✋↑ Right hand up now!";
     }
     if (phase === "starting") return "🎚 Here it comes…";
     if (phase === "closing") return "🎚 Landing the mix…";
@@ -314,7 +298,7 @@ export function createDjCoach(queue, upNext) {
     context.fillRect(hitX - 1.5, 2, 3, height - 4);
 
     const cues = [];
-    if (plan.style === "echo") cues.push([cue1, `👋 Swipe · drop ${name}`, colors.accent]);
+    if (plan.style === "echo") cues.push([cue1, `🌊 AI echoes out · ${name}`, colors.accent]);
     else {
       if (phase === "cued") cues.push([cue1, `✋↑ Right hand up · ${name}`, colors.right]);
       cues.push([cue2, "✋↓ Left hand down", colors.left]);
@@ -341,7 +325,7 @@ export function createDjCoach(queue, upNext) {
     } else {
       hint.textContent =
         plan.style === "echo"
-          ? "Swipe on the cue to echo out"
+          ? "These two don't blend: the AI echoes this one out"
           : rightArmed
             ? `Raise your right hand on the cue (or a little early) · Perfect ${score.perfect}/${score.moves}`
             : "Lower your right hand to get ready";

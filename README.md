@@ -71,9 +71,8 @@ belongs, and a move track above the strip shows what your hands do, timed to the
 |---|---|---|
 | ✋↑ Right hand up | Raise your right hand on the cue (up to 8 bars early is fine) | The next song comes in on the downbeat; your right hand's height is now its volume |
 | ✋↓ Left hand down | Lower your left hand on the cue | The bass lines swap on the downbeat; your left hand's height is the old song's volume, all the way down ends the mix |
-| 👋 Swipe | When the tempos don't match: sweep an open hand sideways | The old song echoes out and the new one drops in |
 
-Moves within a beat of the cue are PERFECT, within two GOOD. Miss one by a bar, or stall, and the AI does that part
+When the tempos don't match, the AI echoes the old song out by itself. Moves within a beat of the cue are PERFECT, within two GOOD. Miss one by a bar, or stall, and the AI does that part
 for you, so the music never stops. Pinching never counts as a move, so the pinch controls keep working, and the
 master volume and speed hold still while you mix. Without the camera the DJ does the mixes itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
