@@ -63,8 +63,9 @@ quiet intro) and mix it out after about 20 s, in whole phrases, with shorter ble
 transitions. The camera view shows what's up next, when the DJ mixes into it and
 how (blend or echo out).
 
-**Play the set** (with the camera on and the DJ started): the set becomes a rhythm game in the style of osu!.
-Circles come in about 2 beats before their beat, with a ring closing onto them: get that hand's palm into the circle
+**Play the set**: the AI DJ page opens on a start screen (how to play in four pictures, then the camera and a check
+that it sees both hands, then the DJ picks the first song, then 3, 2, 1). The set is a rhythm game in the style of
+osu!. Circles come in about 2 seconds before their beat, with a ring closing onto them: get that hand's palm into the circle
 as the ring closes (blue for your left hand, green for your right). They follow the song's beats all the way through,
 more of them in its loud parts. The mixes are part of the chart:
 
@@ -76,7 +77,9 @@ more of them in its loud parts. The mixes are part of the chart:
 - **Cuts** (tempos far apart): one circle per hand on the downbeat; the new song slams in and the old one is thrown
   into an echo.
 
-Hits within about 140 ms of the beat are Perfect, within 280 ms Good. Your combo and accuracy show in the corner and
+Hits within about 140 ms of the beat are Perfect, within 280 ms Good, and you hear them: each hit claps on its
+beat, every 10 in a row sounds the air horn, and a miss muffles the song for a beat. Lose the crowd and the whole
+song goes muffled until you win it back. Both fists held for a second pauses, and again plays. Your combo and accuracy show in the corner and
 the Set card, and how well you play is the crowd's hype, which the DJ hears about when it picks the next songs. While
 the game runs, speed, filter and volume hold still (your hands are busy); with nobody in frame nothing counts as a
 miss. Untick **Play the set** in the Set card to get the pinch controls back; without the camera the DJ mixes by
@@ -107,7 +110,8 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
   changes to `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
-- `djGame.js`: the set as a rhythm game: the chart, hits, the playable mixes and the Set card
+- `djGame.js`: the set as a rhythm game: the chart, hits and their sounds, the playable mixes, pause, the Set card
+- `djStart.js`: the AI DJ's start screen: how to play, camera and hand check, loading, 3-2-1
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 

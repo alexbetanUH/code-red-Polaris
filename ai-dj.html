@@ -140,6 +140,7 @@ import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@m
 import { Deck } from "./aiDeck.js";
 import { createQueue, createQueuePanel, createTransport } from "./queue.js";
 import { createDjGame } from "./djGame.js";
+import { createStartScreen } from "./djStart.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -322,9 +323,11 @@ async function startCamera() {
     startBtn.textContent = "Camera on";
     calibBtn.disabled = false;
     scheduleFrame();
+    return true;
   } catch (err) {
     statusEl.textContent = "Camera error: " + err.message;
     startBtn.disabled = false;
+    return false;
   }
 }
 
@@ -759,15 +762,35 @@ const queuePanel = createQueuePanel(queue, deck);
 $("transport").append(createTransport(queue, deck));
 
 // The set as a rhythm game over the camera view, plus its card in the rail (djGame.js).
-const djGame = createDjGame(queue, { stage: document.querySelector(".stage"), camera: canvas, rail: $("djSet") });
+const stage = document.querySelector(".stage");
+const djGame = createDjGame(queue, { stage, camera: canvas, rail: $("djSet"), deck, startEnabled: false });
 
 $("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it
   queuePanel.toggle();
 });
 
-// This is the AI DJ's page: open the queue at the DJ.
-queuePanel.openDj();
+// The start screen: how to play, the camera and a hand check, the first song, 3-2-1.
+createStartScreen(stage, {
+  startCamera: async () => {
+    deck.ensureContext(); // inside the Start click, so the browser allows sound
+    try {
+      await modelReady;
+    } catch {
+      return false; // the hand tracking model didn't load
+    }
+    return video.srcObject ? true : startCamera();
+  },
+  handSeen: (side) => performance.now() - sides[side].lastSeen < 300,
+  prepare: async () => {
+    queue.startDj("", { wait: true });
+    await queue.readyToStart();
+  },
+  begin: () => {
+    djGame.setEnabled(true);
+    queue.beginSet();
+  },
+});
 
 // Keep the song card's count and status line in step with the queue.
 function updateSongCard() {
@@ -786,7 +809,8 @@ startBtn.addEventListener("click", startCamera);
 calibBtn.addEventListener("click", calibrate);
 updateControls();
 
-loadModel()
+const modelReady = loadModel();
+modelReady
   .then(() => {
     startBtn.disabled = false;
     startBtn.textContent = "Start camera";

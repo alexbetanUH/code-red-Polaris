@@ -421,7 +421,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
           { autoplay: false },
         );
         added += 1;
-        if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
+        // Nothing playing yet: start the set (unless the page starts it, after a countdown).
+        if (currentId === null && !transitioning && !dj.waitToStart) transitionTo(entry);
       }
       if (stillValid() && !added) throw new Error("none of the picks could be loaded");
       // Gemini was unreachable: the server picked the closest library songs instead.
@@ -643,12 +644,32 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
     // Turns the AI DJ on: it fills the queue to match the vibe and moves on at the end of each song.
-    startDj(vibe = "") {
+    // wait: pick songs but don't start playing; the page calls beginSet() when it's ready.
+    startDj(vibe = "", { wait = false } = {}) {
       dj.on = true;
       dj.vibe = vibe.trim();
       dj.generation += 1;
+      dj.waitToStart = wait;
       setDjStatus(null);
       topUpDj();
+    },
+
+    // Resolves once the DJ's first song is picked and decoded, so it can start instantly.
+    async readyToStart() {
+      while (!items.length) await new Promise((resolve) => setTimeout(resolve, 200));
+      await decode(items[0]).catch(() => null);
+    },
+
+    // Starts the set the DJ prepared with startDj(vibe, { wait: true }).
+    beginSet() {
+      dj.waitToStart = false;
+      deck.ensureContext();
+      if (currentId === null && !transitioning && items.length) transitionTo(items[0]);
+    },
+
+    // The game's own say over the filter (the hands' filter is held while it runs).
+    setGameFilter(hz) {
+      setDeckFrequency(hz);
     },
 
     stopDj() {

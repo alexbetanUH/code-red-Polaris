@@ -15,26 +15,36 @@
 //   - Cut (tempos far apart): one circle per hand on the downbeat; the new song slams
 //     in and the old one is thrown into an echo.
 //
-// Hits within ~140 ms of the beat are Perfect, within ~280 ms Good. How well you play
-// is the crowd's hype, which the DJ hears about when it picks the next songs. While the
-// game runs, speed, filter and volume hold still (your hands are busy). With nobody in
-// frame, nothing counts as a miss.
+// Hits within ~140 ms of the beat are Perfect, within ~280 ms Good, and you hear them:
+// each hit claps on its beat, every 10 in a row sounds the air horn, and a miss muffles
+// the song for a beat. How well you play is the crowd's hype: lose the crowd and the
+// whole song goes muffled until you win it back, and the DJ hears about it when it
+// picks the next songs. Both fists held for a second pauses (and plays again). While
+// the game runs, speed, filter and volume hold still (your hands are busy). With
+// nobody in frame, nothing counts as a miss.
 //
 // The page calls update() every camera frame with its hands (ai-dj.html's hand objects:
 // pts = landmarks in camera-canvas pixels), and gives it a stage, the camera canvas and
 // an element in the side rail for the set card.
 
-const leadBeats = 2; // circles show up this many beats early
+const approachBeats = 3; // circles show up this many beats early,
+const approachMinMs = 1600; // but never less than this
+const approachMaxMs = 2400; // or more than this
 const perfectMs = 140;
 const goodMs = 280;
-const circleSize = 0.065; // circle radius, as a share of the stage height
-const reach = 1.3; // a palm within this many radii counts
+const circleSize = 0.095; // circle radius, as a share of the stage height
+const reach = 1.2; // a palm within this many radii counts
 const followReach = 2.2; // a palm within this many radii of a slider ball is following it
 const gapBars = { short: 2, full: 4 }; // the new song's slider
 const outBars = 2; // the old song's slider
 const chooseBars = 4; // the choice lands this many bars before the mix (or as early as it can after the last one)
 const idleMs = 2000; // no hands this long: notes are skipped, not missed
 const hypeWeight = 0.08; // how fast the crowd's hype follows your hits
+const missMuffleHz = 700; // a miss muffles the song this much, for a beat
+const coldCrowdHz = 1400; // with no hype at all the song is this muffled (it opens up by half hype)
+const hornEvery = 10; // the air horn sounds every this many hits in a row
+const pauseHoldMs = 1000; // both fists held this long pauses or plays
+const approachMs = (beatMs) => Math.max(approachMinMs, Math.min(approachMaxMs, approachBeats * beatMs));
 
 // Where things go, as shares of the stage. Each hand's circles stay on its own half.
 const zones = { left: [0.1, 0.44], right: [0.56, 0.9], top: 0.2, bottom: 0.68 };
@@ -60,14 +70,20 @@ function seeded(text) {
   };
 }
 
-export function createDjGame(queue, { stage, camera, rail }) {
+export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = true }) {
   const canvas = document.createElement("canvas");
   canvas.className = "djGame";
   stage.append(canvas);
   const context = canvas.getContext("2d");
   const card = buildCard(queue, rail);
 
-  let enabled = true;
+  let enabled = startEnabled;
+  let beatMsNow = 500; // the playing song's beat, in real ms
+  let muffleUntil = 0;
+  let cutoff = 20000; // the filter the game last set
+  let fistsSince = 0; // both fists held since
+  let fistsArmed = true; // the fists have to open between pauses
+  let sounds = null;
   let lastFrame = 0;
   let lastHands = 0; // when a hand was last in frame
   const palms = { left: null, right: null };
@@ -104,18 +120,24 @@ export function createDjGame(queue, { stage, camera, rail }) {
 
   // ---- scoring --------------------------------------------------------------------
 
-  function judge(note, verdict) {
+  // when: the note's beat (performance.now() ms), so its clap lands on it.
+  function judge(note, verdict, when = performance.now()) {
     note.verdict = verdict;
     note.judgedAt = performance.now();
     if (verdict === "skip") return;
     score.judged += 1;
     if (verdict === "miss") {
       score.combo = 0;
+      muffleUntil = note.judgedAt + beatMsNow;
     } else {
       score.hits += 1;
       score.combo += 1;
       score.best = Math.max(score.best, score.combo);
       score.points += verdict === "perfect" ? 1 : 0.6;
+      sounds ??= deck?.ctx ? createSounds(deck.ctx) : null;
+      const at = Math.max(0, (when - performance.now()) / 1000);
+      sounds?.clap(at, verdict === "perfect" ? 1 : 0.6);
+      if (score.combo % hornEvery === 0) sounds?.horn(at);
     }
     const value = verdict === "perfect" ? 1 : verdict === "good" ? 0.6 : 0;
     score.hype += (value - score.hype) * hypeWeight;
@@ -130,11 +152,11 @@ export function createDjGame(queue, { stage, camera, rail }) {
     const offset = now - when;
     if (palm && Math.abs(offset) <= goodMs && distance(palm, point(note.spot)) <= radius() * reach) {
       note.best = Math.min(note.best ?? Infinity, Math.abs(offset));
-      if (note.best <= perfectMs && offset >= -perfectMs) judge(note, "perfect");
+      if (note.best <= perfectMs && offset >= -perfectMs) judge(note, "perfect", when);
     }
     if (!note.verdict && offset > goodMs) {
-      if (note.best !== undefined) judge(note, note.best <= perfectMs ? "perfect" : "good");
-      else judge(note, present ? "miss" : "skip");
+      if (note.best !== undefined) judge(note, note.best <= perfectMs ? "perfect" : "good", when);
+      else judge(note, present ? "miss" : "skip", when);
     }
   }
 
@@ -158,7 +180,7 @@ export function createDjGame(queue, { stage, camera, rail }) {
       const downbeat = grid.first + k * bar;
       if (downbeat < playback.position) continue;
       const energy = queue.energyAt(downbeat);
-      const beats = energy < 0.45 ? [] : energy < 0.95 ? [0] : energy < 1.25 ? [0, 2] : [0, 1, 2, 3];
+      const beats = energy < 0.45 ? [] : energy < 1.15 ? [0] : [0, 2];
       beats.forEach((beat, index) => {
         const time = downbeat + (beat * bar) / 4;
         const hand = (k + index) % 2 === 0 ? "left" : "right";
@@ -166,7 +188,7 @@ export function createDjGame(queue, { stage, camera, rail }) {
         // Each hand wanders around its half of the frame, a step at a time.
         const [x0, y0] = lastSpot[hand];
         const angle = random() * Math.PI * 2;
-        const step = 0.1 + random() * 0.14;
+        const step = 0.05 + random() * 0.09;
         const [minX, maxX] = zones[hand];
         const x = Math.max(minX, Math.min(maxX, x0 + Math.cos(angle) * step));
         const y = Math.max(zones.top, Math.min(zones.bottom, y0 + Math.sin(angle) * step * 0.8));
@@ -302,6 +324,12 @@ export function createDjGame(queue, { stage, camera, rail }) {
 
   // ---- every camera frame ---------------------------------------------------------
 
+  function setCutoff(hz) {
+    if (Math.abs(hz - cutoff) < 1) return;
+    cutoff = hz;
+    queue.setGameFilter(hz);
+  }
+
   function update(input, now) {
     lastFrame = now;
     for (const side of ["left", "right"]) {
@@ -312,11 +340,34 @@ export function createDjGame(queue, { stage, camera, rail }) {
     const present = now - lastHands < idleMs;
     const active = enabled && queue.getState().dj.on;
     queue.holdControls(active);
-    if (!active) return;
+    if (!active) {
+      setCutoff(20000);
+      return;
+    }
     queue.coachPing(); // the game decides when to mix, not the DJ's timer
+
+    // Both fists held for a second: pause, or play again.
+    const fists = input.left?.pose?.includes("fist") && input.right?.pose?.includes("fist");
+    if (fists && fistsArmed) {
+      fistsSince ||= now;
+      if (now - fistsSince >= pauseHoldMs) {
+        fistsArmed = false;
+        fistsSince = 0;
+        deck?.ensureContext();
+        queue.togglePlay();
+      }
+    } else if (!fists) {
+      fistsSince = 0;
+      fistsArmed = true;
+    }
 
     const playback = queue.getPlayback();
     if (!playback.playing) return;
+    const grid = queue.beatGridAt(playback.position);
+    if (grid) beatMsNow = (60 / grid.bpm / playback.rate) * 1000;
+    // The crowd: lose them and the song goes muffled; a miss muffles it for a beat.
+    const crowdHz = score.hype >= 0.5 ? 20000 : coldCrowdHz * (20000 / coldCrowdHz) ** (score.hype / 0.5);
+    setCutoff(now < muffleUntil ? Math.min(missMuffleHz, crowdHz) : crowdHz);
     const realAt = (songTime) => now + ((songTime - playback.position) / playback.rate) * 1000;
 
     if (mix?.state === "landing") {
@@ -333,7 +384,7 @@ export function createDjGame(queue, { stage, camera, rail }) {
     }
 
     // Taps of the song (not during a mix: those wait until it's landed).
-    if (!mix || mix.state === "planned" || mix.state === "starting") chart(playback, leadBeats + 4);
+    if (!mix || mix.state === "planned" || mix.state === "starting") chart(playback, 12);
     for (const note of notes.values()) {
       if (note.kind !== "tap" || note.song !== playback.songId) continue;
       track(note, realAt(note.time), now, present);
@@ -346,7 +397,7 @@ export function createDjGame(queue, { stage, camera, rail }) {
       if (picked) {
         queue.chooseNext(picked.choice.item.id);
         mix.chosen = picked;
-        judge(picked, Math.abs(now - when) <= perfectMs ? "perfect" : "good");
+        judge(picked, Math.abs(now - when) <= perfectMs ? "perfect" : "good", when);
       } else if (now - when > goodMs) {
         mix.chosen = mix.choices[0]; // the DJ's own pick stands
       }
@@ -402,10 +453,10 @@ export function createDjGame(queue, { stage, camera, rail }) {
   }
 
   function drawNote(spot, color, when, now, beatMs) {
-    const leadMs = leadBeats * beatMs;
+    const leadMs = approachMs(beatMs);
     const progress = clamp01(1 - (when - now) / leadMs);
     if (when - now > leadMs || now - when > goodMs) return;
-    const fadeIn = clamp01(progress * 3);
+    const fadeIn = clamp01(progress * 6);
     const p = point(spot);
     circle(p, color, fadeIn);
     if (now < when) approachRing(p, color, progress, fadeIn);
@@ -542,15 +593,15 @@ export function createDjGame(queue, { stage, camera, rail }) {
         if (shown <= 0) return;
         balloon(point(note.spot), title, detail, shown);
         circle(point(note.spot), colors.accent, shown);
-        if (when - now <= leadBeats * beatMs && now < when) {
-          approachRing(point(note.spot), colors.accent, clamp01(1 - (when - now) / (leadBeats * beatMs)), shown);
+        if (when - now <= approachMs(beatMs) && now < when) {
+          approachRing(point(note.spot), colors.accent, clamp01(1 - (when - now) / approachMs(beatMs)), shown);
         }
       });
     }
     if (mix?.heads?.length) {
       if (mix.state === "blend" || mix.state === "landing") {
         slider(inPath, colors.right, now >= mix.comesIn ? mix.in?.ideal ?? 0 : null, mix.in?.following, now < mix.swapAt + mix.barMs ? 1 : 0.35);
-        if (now >= mix.swapAt - leadBeats * beatMs) slider(outPath, colors.left, now >= mix.swapAt ? mix.out?.ideal ?? 0 : null, mix.out?.following, 1);
+        if (now >= mix.swapAt - approachMs(beatMs)) slider(outPath, colors.left, now >= mix.swapAt ? mix.out?.ideal ?? 0 : null, mix.out?.following, 1);
       }
       for (const head of mix.heads) if (!head.verdict) drawNote(head.spot, colors[head.hand], head.real, now, beatMs);
     }
@@ -565,6 +616,25 @@ export function createDjGame(queue, { stage, camera, rail }) {
       const p = point(effect.at);
       const color = effect.verdict === "perfect" ? colors.accent : effect.verdict === "good" ? "#ffffff" : "#c9cfd6";
       outlinedText(effect.text, p.x, p.y - radius() * 1.3 - age * 0.04, radius() * 0.48, color, 1 - age / 650);
+    }
+    if (fistsSince) {
+      // Both fists: a ring fills on each until the pause (or play) happens.
+      const filled = clamp01((now - fistsSince) / pauseHoldMs);
+      for (const side of ["left", "right"]) {
+        const palm = palms[side];
+        if (!palm) continue;
+        context.save();
+        context.strokeStyle = colors[side];
+        context.lineWidth = radius() * 0.16;
+        context.beginPath();
+        context.arc(palm.x, palm.y, radius() * 0.9, -Math.PI / 2, -Math.PI / 2 + filled * Math.PI * 2);
+        context.stroke();
+        context.restore();
+      }
+    }
+    if (playback.loaded && !playback.playing) {
+      outlinedText("Paused", width / 2, height / 2 - radius() * 0.4, radius() * 1.2, "#ffffff", 0.95);
+      outlinedText("Both fists for a second to play", width / 2, height / 2 + radius() * 0.7, radius() * 0.34, "#ffffff", 0.95);
     }
     if (score.combo > 1) outlinedText(`${score.combo}×`, radius() * 0.6, height - radius() * 0.9, radius() * 1.25, "#ffffff", 0.95, "left");
     for (const side of ["left", "right"]) {
@@ -587,9 +657,16 @@ export function createDjGame(queue, { stage, camera, rail }) {
     enabled = on;
     if (!on) queue.holdControls(false);
   });
+  card.setChecked(enabled);
 
   return {
     update,
+    // Turns the game on or off (the start screen turns it on at "Go").
+    setEnabled(on) {
+      enabled = on;
+      card.setChecked(on);
+      if (!on) queue.holdControls(false);
+    },
     // For debugging and tests: the score, the mix, and where the next targets are
     // (stage shares) and when (performance.now() ms).
     peek(now = performance.now()) {
@@ -644,6 +721,9 @@ function buildCard(queue, rail) {
     onToggle(listener) {
       toggle.addEventListener("change", () => listener(toggle.checked));
     },
+    setChecked(on) {
+      toggle.checked = on;
+    },
     render(score, mix, enabled) {
       const next = queue.getUpNext();
       const shownNext = next
@@ -666,6 +746,66 @@ function buildCard(queue, rail) {
       card.classList.toggle("off", !enabled);
     },
   };
+}
+
+// The sounds your hits make, on top of the music: a clap, and the DJ air horn.
+function createSounds(context) {
+  const out = context.createGain();
+  out.gain.value = 0.55;
+  out.connect(context.destination);
+  const noise = context.createBuffer(1, context.sampleRate * 0.4, context.sampleRate);
+  const samples = noise.getChannelData(0);
+  for (let i = 0; i < samples.length; i += 1) samples[i] = Math.random() * 2 - 1;
+
+  // A hand clap: three quick bursts of filtered noise and a short tail.
+  function clap(delay, loudness) {
+    const start = context.currentTime + delay;
+    const source = context.createBufferSource();
+    source.buffer = noise;
+    const band = context.createBiquadFilter();
+    band.type = "bandpass";
+    band.frequency.value = 1300;
+    band.Q.value = 0.9;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0, start);
+    for (const [offset, level] of [[0, 1], [0.011, 0.8], [0.022, 1]]) {
+      gain.gain.setValueAtTime(level * loudness, start + offset);
+      gain.gain.exponentialRampToValueAtTime(0.05 * loudness, start + offset + 0.009);
+    }
+    gain.gain.setValueAtTime(0.7 * loudness, start + 0.033);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+    source.connect(band).connect(gain).connect(out);
+    source.start(start);
+    source.stop(start + 0.25);
+  }
+
+  // The air horn: two brassy saws a little apart, a quick blast and a long one.
+  function horn(delay) {
+    const start = context.currentTime + delay;
+    const tone = context.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = 2600;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0, start);
+    for (const [at, length] of [[0, 0.12], [0.16, 0.5]]) {
+      gain.gain.setValueAtTime(0, start + at);
+      gain.gain.linearRampToValueAtTime(0.35, start + at + 0.02);
+      gain.gain.setValueAtTime(0.35, start + at + length - 0.05);
+      gain.gain.linearRampToValueAtTime(0, start + at + length);
+    }
+    tone.connect(gain).connect(out);
+    for (const hz of [466, 470, 233]) {
+      const saw = context.createOscillator();
+      saw.type = "sawtooth";
+      saw.frequency.setValueAtTime(hz, start);
+      saw.frequency.linearRampToValueAtTime(hz * 0.97, start + 0.7);
+      saw.connect(tone);
+      saw.start(start);
+      saw.stop(start + 0.72);
+    }
+  }
+
+  return { clap, horn };
 }
 
 function addStyles() {
