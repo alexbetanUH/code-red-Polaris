@@ -666,12 +666,18 @@ const pong = {
     for (const p of [1, 2]) this.pad[p] += ((1 - input[p].height) - this.pad[p]) * Math.min(1, dt * 12);
     if (this.wait > 0) { this.wait -= dt; return; }
     const A = W / H, b = this.ball, ph = 0.22, px = 0.045;
+    const oldX = b.x, oldY = b.y;
     b.x += b.vx * dt / A; b.y += b.vy * dt;
     if (b.y < 0.03 || b.y > 0.97) { b.vy *= -1; b.y = Math.min(.97, Math.max(.03, b.y)); }
     for (const p of [1, 2]) {
       const x = p === 1 ? px : 1 - px, side = p === 1 ? b.vx < 0 : b.vx > 0;
-      if (side && Math.abs(b.x - x) < 0.02 && Math.abs(b.y - this.pad[p]) < ph / 2 + 0.03) {
-        b.vx = -b.vx * 1.07; b.vy = (b.y - this.pad[p]) / (ph / 2) * 0.6;
+      const edge = x + (p === 1 ? 0.02 : -0.02);
+      const crossed = p === 1 ? oldX >= edge && b.x <= edge : oldX <= edge && b.x >= edge;
+      const fraction = crossed ? (edge - oldX) / (b.x - oldX) : 0;
+      const hitY = oldY + (b.y - oldY) * fraction;
+      if (side && crossed && Math.abs(hitY - this.pad[p]) < ph / 2 + 0.03) {
+        b.x = 2 * edge - b.x; // retain travel after contact, even across a slow frame
+        b.vx = -b.vx * 1.07; b.vy = (hitY - this.pad[p]) / (ph / 2) * 0.6;
         this.rally++; this.best = Math.max(this.best, this.rally); beep(p === 1 ? 700 : 560);
       }
     }
@@ -828,6 +834,8 @@ function selectGame(i) {
   resetMatch();
 }
 function resetMatch() {
+  paused = false; pauseLabel();
+  FX = [];
   Object.assign(state, { phase: "idle", score: { 1: 0, 2: 0 }, rounds: { 1: 0, 2: 0 }, totals: { 1: 0, 2: 0 }, round: 1, winner: 0 });
   state.game.best = 0; state.game.draws = 0;
   state.game.init(); state.timeLeft = state.game.roundTime || 0;
@@ -885,6 +893,7 @@ function updateTitle() {
 
 // ---- Side panels ---------------------------------------------------------------------
 function buildSides() {
+  for (const id of Object.keys(lastHTML)) delete lastHTML[id];
   for (const p of [1, 2]) {
     $("p" + p).innerHTML = `
       <div class="tag"><span class="orb p${p}">P${p}</span><div><b>Player ${p}</b><span id="hand${p}">${p === 1 ? "Left" : "Right"} half of the camera</span></div></div>
@@ -986,7 +995,7 @@ function loop(now) {
     }
   }
   state.game.draw();
-  if (state.phase === "matchover" && state.winner && Math.random() < .35) rain(PCOL[state.winner]);
+  if (!paused && state.phase === "matchover" && state.winner && Math.random() < .35) rain(PCOL[state.winner]);
   drawFX(paused ? 0 : dt);
   drawCams();
   updateSides();

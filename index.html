@@ -1182,9 +1182,8 @@ async function nextSong() {
   const controls = await queue.startHandMix().catch(() => null);
   blend.starting = false;
   if (!controls) {
-    // Playback changed or the next song could not load: fall back to a plain skip.
-    if (queue.getState().currentId === currentId) { if (!queue.mixNow()) queue.next(); }
-    flash("⏭ Next song");
+    // A pause, removal or newer selection may have cancelled this request.
+    flash(queue.getState().status?.message || "Song change cancelled");
     return;
   }
   const now = performance.now();
@@ -1984,6 +1983,13 @@ function idleLoop(now) {
     $("placeholder")?.style.setProperty("display", "none");
     paintTest(now);
     try { update(window.airdeck.fake || { landmarks: [], worldLandmarks: [] }, now); } catch (err) { console.error(err); }   // .fake = synthetic hands for tests
+  } else if (blend.active) {
+    // Next also works before camera startup. Keep its timeout/HUD and control release alive.
+    idleBlank = false;
+    $("placeholder")?.style.setProperty("display", "none");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    updateBlend(null, null, now);
+    drawBlend(now);
   } else {
     if (!idleBlank) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);   // the stage's Aero glass shows through

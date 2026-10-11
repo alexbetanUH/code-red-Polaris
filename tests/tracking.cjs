@@ -7,7 +7,7 @@ function boot(path) {
  const noop=()=>{}, gradient={addColorStop:noop};
  const ctx=new Proxy({measureText:t=>({width:t.length*7}),createLinearGradient:()=>gradient}, {get:(o,k)=>k in o?o[k]:noop});
  const elements=new Map();
- const el=()=>({width:1280,height:720,style:{},classList:{toggle:noop,contains:()=>false,add:noop,remove:noop},addEventListener:noop,appendChild:noop,insertBefore:noop,append:noop,remove:noop,getContext:()=>ctx,querySelector:()=>({style:{}}),querySelectorAll:()=>[],textContent:'',value:''});
+ const el=()=>({width:1280,height:720,style:{setProperty:noop},classList:{toggle:noop,contains:()=>false,add:noop,remove:noop},addEventListener:noop,appendChild:noop,insertBefore:noop,append:noop,remove:noop,getContext:()=>ctx,querySelector:()=>({style:{}}),querySelectorAll:()=>[],textContent:'',value:''});
  const events={};
  const box={console,performance,Math,Float32Array,Uint8Array, setTimeout:()=>0,clearTimeout:noop,
  window:{addEventListener:(k,f)=>(events[k]??=[]).push(f)},document:{addEventListener:noop,getElementById:k=>{if(!elements.has(k))elements.set(k,el());return elements.get(k)},createElement:el,querySelector:el,querySelectorAll:()=>[],body:el()},
@@ -227,3 +227,14 @@ console.log('PASS: full volume range within the central gesture-safe area');
  assert.deepEqual(e.run('queue.calls'),['handmix'],'transport blends from last song back to first');
 }
 console.log('PASS: Next transport starts defaults and opens wraparound hand blends');
+
+// The normal camera-off page must still advance a transport-started blend.
+{
+ const e=boot(path);
+ e.run(`let finishedWithoutCamera=0; Object.assign(blend,{active:true,finishing:false,lastInput:0,last:0,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){finishedWithoutCamera++}}});`);
+ e.run('idleLoop(6000)');
+ assert.equal(e.run('finishedWithoutCamera'),1,'no-camera blend reaches idle completion');
+ e.run('blend.controls.done=true;idleLoop(6100)');
+ assert.equal(e.api.blend.active,false,'no-camera blend releases controls when done');
+}
+console.log('PASS: transport blends finish and release controls without a camera');
