@@ -100,11 +100,16 @@ the chart:
 - **Cuts** (tempos far apart): one shape on the downbeat; the new song slams in and the old one is thrown into an echo.
 
 Shapes hit within about 160 ms of the beat are Perfect, within 320 ms Good, and you hear them: each hit claps on its
-beat and every 10 in a row sounds the air horn. Slides have a tick on every beat: each one your fingers are on
+beat. Slides have a tick on every beat: each one your fingers are on
 clicks and keeps the combo going, and the slide is graded on how many held. Your combo shows in the corner; the
 Your set card shows the set (played, playing, to come), the crowd's hype and your accuracy. With nobody in frame
 nothing counts as a miss. The last song fades out where it would have been mixed out, and the results come up
 (grade, score, accuracy, best combo, Perfect / Good / Miss) with **Play again** and **New set**.
+
+**Pause** with **Space**, **P** or **Esc** (or the Pause button in the Song card): the music and the game stop
+together, even mid-mix, and a quick 3-2-1 brings them back. **R** (or Restart) plays the set again from the top.
+Switching tabs pauses too. Targets stay in the middle of the camera view (about 18–82% across, 28–68% down), where
+the hand tracking is steady.
 
 The AI doesn't pick anything in AirMix; it only talks: with an ElevenLabs key, a DJ voice opens the set, calls out
 genre switches and your result. Without a key it stays quiet.

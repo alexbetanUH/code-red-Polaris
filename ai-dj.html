@@ -85,6 +85,8 @@
   .left .control { color: #0a6bc0; }
   .right .control { color: #3f8f17; }
   .between .control { color: #c35f08; }
+  .setButtons { display: flex; gap: 8px; }
+  .setButtons button { flex: 1; min-height: 34px; padding: 0 12px; font-size: 13px; }
   #songStatus { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
   #songStatus.error { color: #b3261e; }
   .song .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
@@ -114,6 +116,10 @@
   <aside>
     <div class="card glass song">
       <h2><span>Song</span></h2>
+      <div class="setButtons">
+        <button id="pauseBtn" class="secondary" type="button" disabled title="Space or P">⏸ Pause</button>
+        <button id="restartBtn" class="secondary" type="button" disabled title="R">↻ Restart</button>
+      </div>
       <div id="songStatus">Pick your songs to start.</div>
     </div>
     <div id="djSet" style="display: contents"></div>
@@ -772,6 +778,8 @@ const djGame = createDjGame(queue, {
     betweenOpen: BETWEEN_OPEN,
   }),
   onSetEnd: (results) => {
+    inSet = false;
+    updateSetButtons();
     screens.results(results);
     queue.say(`That's the set! ${Math.round(results.accuracy * 100)} percent, best combo ${results.best}. Make some noise!`);
   },
@@ -802,7 +810,65 @@ const screens = createStartScreen(stage, {
   begin: () => {
     djGame.setEnabled(true);
     queue.beginSet();
+    inSet = true;
+    updateSetButtons();
   },
+});
+
+// ---- Pause and restart: keys and buttons (no gestures: your hands are busy) --------
+let inSet = false; // a set is playing (or paused)
+function updateSetButtons() {
+  $("pauseBtn").disabled = !inSet;
+  $("restartBtn").disabled = !inSet;
+  $("pauseBtn").textContent = djGame.paused ? "▶ Resume" : "⏸ Pause";
+}
+function pauseSet() {
+  if (!inSet || !djGame.pause()) return;
+  screens.paused({ resume: resumeSet, restart: restartSet, newSet: leaveSet });
+  updateSetButtons();
+}
+function resumeSet() {
+  if (!djGame.paused) return;
+  screens.countIn(() => {
+    djGame.resume();
+    updateSetButtons();
+  });
+}
+async function stopSet() {
+  inSet = false;
+  djGame.setEnabled(false);
+  djGame.reset();
+  updateSetButtons();
+  await queue.endSet(250);
+}
+async function restartSet() {
+  if (!inSet) return;
+  await stopSet();
+  screens.replay();
+}
+async function leaveSet() {
+  await stopSet();
+  screens.newSet();
+}
+$("pauseBtn").addEventListener("click", () => (djGame.paused ? resumeSet() : pauseSet()));
+$("restartBtn").addEventListener("click", restartSet);
+document.addEventListener("keydown", (event) => {
+  if (!inSet || event.repeat || event.target.closest?.("input, textarea")) return;
+  if (event.code === "Space" || event.code === "KeyP") {
+    event.preventDefault(); // not a click on whatever button has focus
+    djGame.paused ? resumeSet() : pauseSet();
+  } else if (event.code === "Escape") {
+    pauseSet();
+  } else if (event.code === "KeyR") {
+    restartSet();
+  }
+});
+document.addEventListener("keyup", (event) => {
+  if (inSet && event.code === "Space") event.preventDefault(); // buttons click on Space's keyup
+});
+// Switching tabs stops the camera: pause rather than miss everything.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) pauseSet();
 });
 
 // Keep the song card's status line in step with the queue.

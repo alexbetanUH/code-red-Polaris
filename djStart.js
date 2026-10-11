@@ -11,6 +11,10 @@
 //     begin: () => {},                        // start the set, on "Go"
 //   });
 //   screens.results({ score, perfect, good, miss, best, accuracy });
+//   screens.paused({ resume, restart, newSet });   // the pause panel (the page pauses the set)
+//   screens.countIn(onGo);                         // a quick 3-2-1, then onGo (after a pause)
+//   screens.replay();                              // the same set again: loads, 3-2-1, Go
+//   screens.newSet();                              // back to picking a set
 
 const handCheckMs = 800; // both hands in view this long counts as checked
 const setSize = { min: 2, max: 5 };
@@ -77,6 +81,7 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
   let cameraReady = false; // the camera's on and the hands have been checked once
   let loading = null; // the set being prepared
   let lastSet = [];
+  let run = 0; // the current countdown; a newer one (or a restart) cancels the older
 
   const show = (html) => {
     if (!root?.isConnected) {
@@ -90,8 +95,10 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
 
   // ---- pick your set
   async function setSelect() {
+    const mine = ++run;
     show(`<div class="djStart-panel"><p class="djStart-status">Loading the songs…</p></div>`);
     const songs = await library();
+    if (mine !== run) return; // another screen came up meanwhile
     const known = new Set(songs.filter((song) => song.available !== false).map((song) => song.id));
     let picked = (lastSet.length ? lastSet : savedSet()).filter((id) => known.has(id)).slice(0, setSize.max);
 
@@ -231,20 +238,46 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
     countdown();
   }
 
-  function countdown() {
+  function countdown(onGo = begin, stepMs = 1000) {
+    const mine = ++run;
     let count = 3;
     const tick = () => {
+      if (mine !== run) return;
       show(`<div class="djStart-count">${count > 0 ? count : "Go!"}</div>`);
       if (count === 0) {
-        begin();
+        onGo();
         const shown = root;
-        setTimeout(() => shown.remove(), 700);
+        setTimeout(() => mine === run && shown.remove(), 700);
         return;
       }
       count -= 1;
-      setTimeout(tick, 1000);
+      setTimeout(tick, stepMs);
     };
     tick();
+  }
+
+  // ---- paused (Space / P on the page, or its Pause button)
+  function paused({ resume, restart, newSet }) {
+    run += 1; // a countdown still going (say, resuming) stops
+    show(`
+      <div class="djStart-panel">
+        <h1>Paused</h1>
+        <p><kbd>Space</kbd> to resume · <kbd>R</kbd> to restart the set</p>
+        <div class="djStart-row">
+          <button class="secondary" type="button" data-new>New set</button>
+          <button class="secondary" type="button" data-restart>Restart</button>
+          <button class="lime" type="button" data-resume>Resume ▶</button>
+        </div>
+      </div>`);
+    root.querySelector("[data-resume]").addEventListener("click", resume, { once: true });
+    root.querySelector("[data-restart]").addEventListener("click", restart, { once: true });
+    root.querySelector("[data-new]").addEventListener("click", newSet, { once: true });
+  }
+
+  function replay() {
+    run += 1;
+    loading = prepare(lastSet);
+    ready();
   }
 
   // ---- results
@@ -268,18 +301,17 @@ export function createStartScreen(stage, { library, startCamera, handSeen, prepa
         </div>
       </div>`);
     root.querySelector("[data-new]").addEventListener("click", setSelect, { once: true });
-    root.querySelector("[data-again]").addEventListener(
-      "click",
-      () => {
-        loading = prepare(lastSet);
-        ready();
-      },
-      { once: true },
-    );
+    root.querySelector("[data-again]").addEventListener("click", replay, { once: true });
   }
 
   setSelect();
-  return { results };
+  return {
+    results,
+    paused,
+    countIn: (onGo) => countdown(onGo, 700),
+    replay,
+    newSet: setSelect,
+  };
 }
 
 function addStyles() {
@@ -349,6 +381,10 @@ function addStyles() {
 .djStart-hands span.seen[data-side="left"] { color: #fff; background: #1e95e3; border: 2px solid #1e95e3; }
 .djStart-hands span.seen[data-side="right"] { color: #fff; background: #5cb82c; border: 2px solid #5cb82c; }
 .djStart-skip { min-width: 0; font-size: 13px; }
+.djStart kbd {
+  padding: 1px 6px; border-radius: 3px; border: 1px solid #9fb6cc; border-bottom-width: 2px;
+  background: #fff; font: bold 12px Tahoma, "Segoe UI", sans-serif;
+}
 .djStart-count {
   font: italic bold min(30vh, 220px)/1 "Trebuchet MS", "Segoe UI", sans-serif; color: #fff;
   -webkit-text-stroke: 6px rgba(20, 30, 45, 0.85); paint-order: stroke fill;

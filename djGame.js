@@ -20,9 +20,9 @@
 //     old one is thrown into an echo.
 //
 // Shapes hit within ~160 ms of the beat are Perfect, within ~320 ms Good: both hands in
-// place, and the right pinch about as open as the shape asks (that's the filter). Hits clap on their beat and every 10 in a row sounds the air
-// horn. Slides have a tick on every beat: each one your fingers are on clicks and keeps
-// the combo going. How well you play is the crowd's hype. With nobody in frame, nothing
+// place, and the right pinch about as open as the shape asks (that's the filter). Hits
+// clap on their beat. Slides have a tick on every beat: each one your fingers are on
+// clicks and keeps the combo going. How well you play is the crowd's hype. With nobody in frame, nothing
 // counts as a miss. The last song fades out at its end and onSetEnd gets your results.
 //
 // The page calls update() every camera frame with its hands (ai-dj.html's hand objects:
@@ -43,14 +43,13 @@ const leadBars = 4; // a mix (or the set's end) is planned at least this many ba
 const phraseBars = 4; // and moved on by whole phrases to get there
 const idleMs = 2000; // no hands this long: shapes are skipped, not missed
 const hypeWeight = 0.08; // how fast the crowd's hype follows your hits
-const hornEvery = 10; // the air horn sounds every this many hits in a row
 const approachMs = (beatMs) => Math.max(approachMinMs, Math.min(approachMaxMs, approachBeats * beatMs));
 
 // The choreography, in DJ-control terms. Shapes turn these into dot positions with your
 // pinch calibration and your hand's size right now, so fingertips on the dots really set
 // that sound (closer to the camera, bigger hands, wider gaps).
 const moves = {
-  volume: { quiet: 0.5, normal: 0.68, loud: 0.8, drop: 0.95 }, // the distance between your hands
+  volume: { quiet: 0.45, normal: 0.6, loud: 0.7, drop: 0.78 }, // the distance between your hands
   filterOpen: 1.08, // the right pinch a bit past fully open: the filter is off
   buildUpHz: 350, // the filter closes to this at the end of a build-up
   leftPinch: 0.5, // the left pinch half open (it's the speed, held at 1.00× anyway)
@@ -59,8 +58,11 @@ const moves = {
 // The page's control mapping, used until the page tells us its own (see controlMap).
 const defaultControls = { pinchClosed: 0.05, pinchOpen: 0.9, freqMin: 150, freqMax: 10000, betweenClosed: 0.04, betweenOpen: 0.8 };
 const defaultPalm = 0.11; // a hand's palm size (as the page measures it) before we've seen it, in shares of the stage height
-const inPath = [[0.9, 0.24], [0.56, 0.6]]; // the right hand slides the new song in
-const outPath = [[0.44, 0.5], [0.08, 0.5]]; // the left hand slides the old song out
+// Targets stay inside this part of the camera view (stage shares): near the edges, hands
+// drift partly out of frame and the tracking gets shaky.
+const safe = { left: 0.18, right: 0.82, top: 0.28, bottom: 0.68 };
+const inPath = [[0.78, 0.3], [0.56, 0.6]]; // the right hand slides the new song in
+const outPath = [[0.44, 0.5], [0.22, 0.5]]; // the left hand slides the old song out
 const cutShape = { cx: 0.5, cy: 0.46, volume: moves.volume.drop, rightPinch: moves.filterOpen };
 
 const colors = { left: "#1e95e3", right: "#5cb82c", accent: "#f5861f" };
@@ -112,6 +114,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   let lastPlaced = null; // { time, cy, pins }: the last shape charted, to keep the next one clear of it
 
   let mix = null; // the next mix: planned on the playing song, then performed in real time
+  let pausedAt = null; // performance.now() when paused (the audio clock is suspended too)
   const freshScore = () => ({ combo: 0, best: 0, hits: 0, judged: 0, points: 0, hype: 0.5, perfect: 0, good: 0, miss: 0 });
   const score = freshScore();
   const effects = [];
@@ -145,11 +148,12 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   // apart as the volume asks for.
   function makeShape({ cx, cy, volume, rightPinch }) {
     const map = controlMap();
-    const spread = Math.min(0.84, map.betweenClosed + volume * (map.betweenOpen - map.betweenClosed));
-    const x = Math.max(0.08 + spread / 2, Math.min(0.92 - spread / 2, cx));
+    const spread = Math.min(safe.right - safe.left, map.betweenClosed + volume * (map.betweenOpen - map.betweenClosed));
+    const x = Math.max(safe.left + spread / 2, Math.min(safe.right - spread / 2, cx));
+    const y = Math.max(safe.top, Math.min(safe.bottom, cy));
     return {
-      left: { at: [x - spread / 2, cy], pinch: moves.leftPinch },
-      right: { at: [x + spread / 2, cy], pinch: rightPinch },
+      left: { at: [x - spread / 2, y], pinch: moves.leftPinch },
+      right: { at: [x + spread / 2, y], pinch: rightPinch },
     };
   }
   // Whether two shapes' dots would overlap: a hand's pair is about a dot wide and two
@@ -219,7 +223,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       sounds ??= deck?.ctx ? createSounds(deck.ctx) : null;
       const delay = Math.max(0, (when - performance.now()) / 1000);
       sounds?.clap(delay, verdict === "perfect" ? 1 : 0.6);
-      if (score.combo % hornEvery === 0) sounds?.horn(delay);
     }
     const value = verdict === "perfect" ? 1 : verdict === "good" ? 0.6 : 0;
     score.hype += (value - score.hype) * hypeWeight;
@@ -340,10 +343,12 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
         }
         let pins = makeShape({ cx, cy, volume, rightPinch });
         // On screen together with the last shape and on top of it? Move it a whole pair's
-        // height up or down (toward the middle), so two shapes never pile up.
+        // height up or down (where there's room), so two shapes never pile up.
         const approachSongSeconds = (approachMs(beatSeconds * 1000) / 1000) * playback.rate;
         if (lastPlaced && time - lastPlaced.time < approachSongSeconds + (goodMs / 1000) * playback.rate && overlaps(pins, lastPlaced.pins)) {
-          cy = lastPlaced.cy + (lastPlaced.cy > 0.47 ? -1 : 1) * clearY;
+          const up = lastPlaced.cy - clearY;
+          const down = lastPlaced.cy + clearY;
+          cy = up >= safe.top || safe.bottom - lastPlaced.cy < lastPlaced.cy - safe.top ? Math.max(safe.top, up) : Math.min(safe.bottom, down);
           pins = makeShape({ cx, cy, volume, rightPinch });
         }
         lastPlaced = { time, cy, pins };
@@ -534,6 +539,10 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
   function update(input, now) {
     lastFrame = now;
+    if (pausedAt !== null) {
+      queue.coachPing(); // still the game's set: the DJ's timer mustn't mix meanwhile
+      return;
+    }
     for (const side of ["left", "right"]) {
       const hand = input[side];
       tips[side] = hand?.thumb && hand?.index ? { thumb: toStage(hand.thumb), index: toStage(hand.index), pinch: hand.pinch } : null;
@@ -771,7 +780,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
   function draw() {
     requestAnimationFrame(draw);
-    const now = performance.now();
+    const now = pausedAt ?? performance.now(); // paused: everything holds still
     const { width, height } = size();
     const scale = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(width * scale)) canvas.width = Math.round(width * scale);
@@ -779,7 +788,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.clearRect(0, 0, width, height);
     card.render(score, enabled);
-    if (now - lastFrame > 1000 || !enabled || !queue.getState().dj.on) return; // camera off, or not playing
+    if ((pausedAt === null && now - lastFrame > 1000) || !enabled || !queue.getState().dj.on) return; // camera off, or not playing
 
     const playback = queue.getPlayback();
     const grid = playback.loaded ? queue.beatGridAt(playback.position) : null;
@@ -832,7 +841,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       const color = effect.verdict === "perfect" ? colors.accent : effect.verdict === "good" ? "#ffffff" : "#c9cfd6";
       outlinedText(effect.text, p.x, p.y - dot() * 4 - age * 0.04, dot() * 1.5, color, 1 - age / 650);
     }
-    if (playback.loaded && !playback.playing) outlinedText("Paused", width / 2, height / 2, dot() * 3.8, "#ffffff", 0.95);
+    if (pausedAt === null && playback.loaded && !playback.playing) outlinedText("Paused", width / 2, height / 2, dot() * 3.8, "#ffffff", 0.95);
     if (score.combo > 1) outlinedText(`${score.combo}×`, dot() * 2, height - dot() * 3, dot() * 4, "#ffffff", 0.95, "left");
     // Your fingertips.
     for (const side of ["left", "right"]) {
@@ -860,8 +869,32 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       enabled = on;
       if (!on) queue.holdControls({});
     },
+    // Pauses the set: the music (the whole audio clock, so a mix holds mid-slide) and the game.
+    pause() {
+      if (pausedAt !== null || !deck?.ctx) return false;
+      pausedAt = performance.now();
+      deck.ctx.suspend();
+      return true;
+    },
+    // Picks up where it paused: the mix's moments (real time) move on by the pause.
+    async resume() {
+      if (pausedAt === null) return;
+      await deck.ctx.resume();
+      const paused = performance.now() - pausedAt;
+      if (mix) {
+        for (const key of ["comesIn", "swapAt", "endAt"]) if (typeof mix[key] === "number") mix[key] += paused;
+        for (const head of mix.heads ?? []) head.real += paused;
+      }
+      lastHands += paused;
+      pausedAt = null;
+    },
+    get paused() {
+      return pausedAt !== null;
+    },
     // A fresh start for a new set (or the same one again): score, chart and mix cleared.
     reset() {
+      if (pausedAt !== null) deck?.ctx?.resume();
+      pausedAt = null;
       Object.assign(score, freshScore());
       finishMix();
       effects.length = 0;
@@ -926,7 +959,7 @@ function buildCard(queue, rail) {
   };
 }
 
-// The sounds your hits make, on top of the music: a clap, and the DJ air horn.
+// The sounds your hits make, on top of the music: a clap, and a slide's tick.
 function createSounds(context) {
   const out = context.createGain();
   out.gain.value = 0.55;
@@ -957,32 +990,6 @@ function createSounds(context) {
     source.stop(start + 0.25);
   }
 
-  // The air horn: two brassy saws a little apart, a quick blast and a long one.
-  function horn(delay) {
-    const start = context.currentTime + delay;
-    const tone = context.createBiquadFilter();
-    tone.type = "lowpass";
-    tone.frequency.value = 2600;
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0, start);
-    for (const [at, length] of [[0, 0.12], [0.16, 0.5]]) {
-      gain.gain.setValueAtTime(0, start + at);
-      gain.gain.linearRampToValueAtTime(0.35, start + at + 0.02);
-      gain.gain.setValueAtTime(0.35, start + at + length - 0.05);
-      gain.gain.linearRampToValueAtTime(0, start + at + length);
-    }
-    tone.connect(gain).connect(out);
-    for (const hz of [466, 470, 233]) {
-      const saw = context.createOscillator();
-      saw.type = "sawtooth";
-      saw.frequency.setValueAtTime(hz, start);
-      saw.frequency.linearRampToValueAtTime(hz * 0.97, start + 0.7);
-      saw.connect(tone);
-      saw.start(start);
-      saw.stop(start + 0.72);
-    }
-  }
-
   // A slide tick: a short, bright click.
   function tick() {
     const start = context.currentTime;
@@ -999,7 +1006,7 @@ function createSounds(context) {
     source.stop(start + 0.06);
   }
 
-  return { clap, horn, tick };
+  return { clap, tick };
 }
 
 function addStyles() {
