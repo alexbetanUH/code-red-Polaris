@@ -146,6 +146,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let handVolume = startingVolume;
   let duckLevel = 1;
   let volumeHeld = false;
+  let speedHeld = false;
   // The filter (right pinch) too: grabbing things on screen pinches.
   const setDeckFrequency = deck.setFrequency.bind(deck);
   let frequencyHeld = false;
@@ -676,10 +677,6 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       if (currentId === null && !transitioning && items.length) transitionTo(items[0]);
     },
 
-    // The game's own say over the filter (the hands' filter is held while it runs).
-    setGameFilter(hz) {
-      setDeckFrequency(hz);
-    },
 
     stopDj() {
       dj.on = false;
@@ -732,19 +729,23 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
     // Holds the master volume and speed where they are (while the hands perform a mix), or lets go.
-    holdControls(on) {
-      const starting = on && !volumeHeld;
-      volumeHeld = Boolean(on);
-      frequencyHeld = Boolean(on);
-      transitions.holdSpeed(on);
-      if (starting) {
-        // Whatever the hands last set (getting into position, say hands together and a
-        // closed pinch: silent and muffled) gives way to normal sound before it's held.
-        handVolume = startingVolume;
-        setDeckVolume(handVolume * duckLevel);
-        setDeckFrequency(20000);
-        transitions.resetSpeed();
-      }
+    // Which of the hands' controls hold still: { speed, volume, filter } (true = held).
+    // Speed is held at 1.00×.
+    holdControls({ speed = false, volume = false, filter = false } = {}) {
+      if (speed && !speedHeld) transitions.resetSpeed();
+      speedHeld = speed;
+      volumeHeld = volume;
+      frequencyHeld = filter;
+      transitions.holdSpeed(speed);
+    },
+
+    // Normal sound: 80% volume, filter open, 1.00× (whatever the hands last set, say
+    // hands together and a closed pinch while getting into position, is forgotten).
+    resetSound() {
+      handVolume = startingVolume;
+      setDeckVolume(handVolume * duckLevel);
+      setDeckFrequency(20000);
+      transitions.resetSpeed();
     },
 
     // The songs to choose from for the next mix: the next few queued, each with the

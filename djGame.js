@@ -1,57 +1,65 @@
-// The AI DJ as a rhythm game, osu!-style, played with your hands on the camera view.
+// The AI DJ as a rhythm game played with your fingertips on the camera view.
 //
-// Circles come in about 2 beats before their beat, with a ring closing onto them: get
-// that hand's palm into the circle as the ring closes (blue = left hand, green = right).
-// They follow the song's beats, more of them in its loud parts, all the way through.
+// Each target is a shape of four dots: your left thumb and index fingertip (blue) and
+// your right thumb and index fingertip (green). Shapes fly in about 2 seconds before
+// their beat, shrinking onto their place; have your fingertips on the dots as they land.
+// Those four fingertips are the DJ controls, so the chart is choreography:
+//   - the right thumb–index gap is the filter: wide = open, narrowing through a build-up
+//     closes it, and it snaps open on the drop;
+//   - the distance between your hands is the volume: wider on drops, closer in quiet parts;
+//   - the left gap is the speed, which stays at 1.00× while you play (it's held);
+//   - where the shape sits moves with the music (sways, bobs, circles, steps), one shape
+//     every beat or two, each joined to the next so you see where you're going.
+// Hitting the shapes is how a good DJ would move right then; your hands really set the
+// filter and volume, so missing them sounds like it.
 //
 // The mixes are part of the chart:
-//   - Choose: a few beats ahead, the DJ's next songs come in as circles on the right,
-//     each with a balloon saying what it is and why. Your right hand in one on its beat
-//     picks it; otherwise the DJ's own pick plays.
-//   - Blend (tempos close): a green slider brings the new song in. Follow its ball with
-//     your right hand and how far along it you are is the new song's volume. Then a
-//     blue slider takes the old song out with your left hand. Not following? The AI
-//     moves the music along the sliders for you.
-//   - Cut (tempos far apart): one circle per hand on the downbeat; the new song slams
-//     in and the old one is thrown into an echo.
+//   - Choose: the DJ's next songs come in as circles on the right with balloons saying
+//     what each is and why. Your right index finger in one on its beat picks it;
+//     otherwise the DJ's pick plays.
+//   - Blend (tempos close): your right thumb and index slide the new song in along a
+//     track, then your left ones slide the old song out. Not following? The AI does it.
+//   - Cut (tempos far apart): one shape on the downbeat; the new song slams in and the
+//     old one is thrown into an echo.
 //
-// Hits within ~140 ms of the beat are Perfect, within ~280 ms Good, and you hear them:
-// each hit claps on its beat, every 10 in a row sounds the air horn, and a miss muffles
-// the song for a beat. How well you play is the crowd's hype: lose the crowd and the
-// whole song goes muffled until you win it back, and the DJ hears about it when it
-// picks the next songs. Both fists held for a second pauses (and plays again). While
-// the game runs, speed, filter and volume hold still (your hands are busy). With
-// nobody in frame, nothing counts as a miss.
+// Shapes hit within ~160 ms of the beat are Perfect (both hands), within ~320 ms Good
+// (or one hand on time). Hits clap on their beat and every 10 in a row sounds the air
+// horn. How well you play is the crowd's hype, which the DJ hears about when it picks
+// the next songs. Both fists held for a second pauses (and plays again). With nobody in
+// frame, nothing counts as a miss.
 //
 // The page calls update() every camera frame with its hands (ai-dj.html's hand objects:
-// pts = landmarks in camera-canvas pixels), and gives it a stage, the camera canvas and
-// an element in the side rail for the set card.
+// thumb and index = the fingertips in camera-canvas pixels, pose).
 
-const approachBeats = 3; // circles show up this many beats early,
+const approachBeats = 3; // shapes show up this many beats early,
 const approachMinMs = 1600; // but never less than this
 const approachMaxMs = 2400; // or more than this
-const perfectMs = 140;
-const goodMs = 280;
-const circleSize = 0.095; // circle radius, as a share of the stage height
-const reach = 1.2; // a palm within this many radii counts
-const followReach = 2.2; // a palm within this many radii of a slider ball is following it
-const gapBars = { short: 2, full: 4 }; // the new song's slider
-const outBars = 2; // the old song's slider
+const perfectMs = 160;
+const goodMs = 320;
+const dotSize = 0.03; // a target dot's radius, as a share of the stage height
+const reach = 0.075; // a fingertip within this share of the stage height of its dot counts
+const followReach = 0.15; // fingertips within this of a slider's dots are following it
+const gapBars = { short: 2, full: 4 }; // the new song's slide
+const outBars = 2; // the old song's slide
 const chooseBars = 4; // the choice lands this many bars before the mix (or as early as it can after the last one)
-const idleMs = 2000; // no hands this long: notes are skipped, not missed
+const idleMs = 2000; // no hands this long: shapes are skipped, not missed
 const hypeWeight = 0.08; // how fast the crowd's hype follows your hits
-const missMuffleHz = 700; // a miss muffles the song this much, for a beat
-const coldCrowdHz = 1400; // with no hype at all the song is this muffled (it opens up by half hype)
 const hornEvery = 10; // the air horn sounds every this many hits in a row
 const pauseHoldMs = 1000; // both fists held this long pauses or plays
 const approachMs = (beatMs) => Math.max(approachMinMs, Math.min(approachMaxMs, approachBeats * beatMs));
 
-// Where things go, as shares of the stage. Each hand's circles stay on its own half.
-const zones = { left: [0.1, 0.44], right: [0.56, 0.9], top: 0.2, bottom: 0.68 };
+// The shape's choreography, in shares of the stage (gaps in shares of its height).
+const shapeLook = {
+  spread: { quiet: 0.42, normal: 0.52, loud: 0.58, drop: 0.68 }, // between the hands' pinch points
+  openGap: 0.11, // the right thumb–index gap with the filter open
+  closedGap: 0.025, // ... and closed, at the end of a build-up
+  leftGap: 0.065, // the left gap (speed is held at 1.00× anyway)
+  tilt: 0.35, // radians: index fingertips lean in toward each other
+};
 const choiceSpots = [[0.86, 0.24], [0.86, 0.45], [0.86, 0.66]];
-const inPath = [[0.86, 0.3], [0.58, 0.56]];
-const outPath = [[0.42, 0.42], [0.12, 0.42]];
-const cutSpots = { left: [0.24, 0.42], right: [0.76, 0.42] };
+const inPath = [[0.86, 0.32], [0.62, 0.5]]; // the right hand slides the new song in
+const outPath = [[0.38, 0.5], [0.12, 0.5]]; // the left hand slides the old song out
+const cutShape = { cx: 0.5, cy: 0.46, spread: shapeLook.spread.drop, rightGap: shapeLook.openGap };
 
 const colors = { left: "#1e95e3", right: "#5cb82c", accent: "#f5861f", ink: "#1b1b1b", balloon: "#ffffe1" };
 const gameFont = '"Trebuchet MS", "Segoe UI", sans-serif'; // Windows XP's title-bar face
@@ -78,25 +86,24 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   const card = buildCard(queue, rail);
 
   let enabled = startEnabled;
-  let beatMsNow = 500; // the playing song's beat, in real ms
-  let muffleUntil = 0;
-  let cutoff = 20000; // the filter the game last set
+  let wasActive = false;
+  let lastFrame = 0;
+  let lastHands = 0; // when a hand was last in frame
   let fistsSince = 0; // both fists held since
   let fistsArmed = true; // the fists have to open between pauses
   let sounds = null;
-  let lastFrame = 0;
-  let lastHands = 0; // when a hand was last in frame
-  const palms = { left: null, right: null };
+  // Your fingertips, in stage pixels: { left: { thumb, index } | null, right: ... }.
+  const tips = { left: null, right: null };
 
-  // The chart: notes by key, generated a little ahead of the music.
-  const notes = new Map();
-  let chartSong = null; // which song the chart is for
+  // The chart: shapes by key, generated a little ahead of the music.
+  const shapes = new Map();
+  let chartSong = null;
   let charted = -1; // the last bar charted
-  const lastSpot = { left: [0.27, 0.45], right: [0.73, 0.45] };
   let random = Math.random;
+  let pattern = null; // the current phrase's movement
+  let step = 0; // shapes so far in this song (the movement's position)
 
-  // The next mix: planned on the playing song, then performed in real time.
-  let mix = null;
+  let mix = null; // the next mix: planned on the playing song, then performed in real time
   const score = { combo: 0, best: 0, hits: 0, judged: 0, points: 0, hype: 0.5 };
   const effects = [];
 
@@ -104,7 +111,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
   const size = () => ({ width: canvas.clientWidth, height: canvas.clientHeight });
   const point = ([x, y]) => ({ x: x * size().width, y: y * size().height });
-  const radius = () => size().height * circleSize;
+  const dot = () => size().height * dotSize;
   function toStage(p) {
     const { width, height } = size();
     const scale = Math.min(width / camera.width, height / camera.height);
@@ -112,106 +119,174 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   }
   const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  const middle = (pair) => lerp(pair.thumb, pair.index, 0.5);
   function along(p, a, b) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     return clamp01(((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy));
   }
 
+  // A shape's four dots (stage shares) from where it sits, how far apart the hands are
+  // and how open the right pinch is.
+  function makeShape({ cx, cy, spread, rightGap }) {
+    const aspect = size().height / size().width || 9 / 16;
+    const pair = (side, gap) => {
+      const inward = side === "left" ? 1 : -1;
+      const x = cx - (inward * spread) / 2;
+      // Index fingertip above the thumb, leaning in toward the other hand.
+      const dx = inward * Math.sin(shapeLook.tilt) * (gap / 2) * aspect;
+      const dy = Math.cos(shapeLook.tilt) * (gap / 2);
+      return { thumb: [x - dx, cy + dy], index: [x + dx, cy - dy] };
+    };
+    return { left: pair("left", shapeLook.leftGap), right: pair("right", rightGap) };
+  }
+  // A pinch pair (thumb + index) placed at a point, open like the right hand normally is.
+  function pairAt([x, y], side, gap = shapeLook.openGap) {
+    const shape = makeShape({ cx: x + (side === "left" ? 0.25 : -0.25), cy: y, spread: 0.5, rightGap: gap });
+    return shape[side];
+  }
+
   // ---- scoring --------------------------------------------------------------------
 
-  // when: the note's beat (performance.now() ms), so its clap lands on it.
-  function judge(note, verdict, when = performance.now()) {
-    note.verdict = verdict;
-    note.judgedAt = performance.now();
+  // when: the shape's beat (performance.now() ms), so its clap lands on it.
+  function judge(target, verdict, when = performance.now(), at = null) {
+    target.verdict = verdict;
     if (verdict === "skip") return;
     score.judged += 1;
     if (verdict === "miss") {
       score.combo = 0;
-      muffleUntil = note.judgedAt + beatMsNow;
     } else {
       score.hits += 1;
       score.combo += 1;
       score.best = Math.max(score.best, score.combo);
       score.points += verdict === "perfect" ? 1 : 0.6;
       sounds ??= deck?.ctx ? createSounds(deck.ctx) : null;
-      const at = Math.max(0, (when - performance.now()) / 1000);
-      sounds?.clap(at, verdict === "perfect" ? 1 : 0.6);
-      if (score.combo % hornEvery === 0) sounds?.horn(at);
+      const delay = Math.max(0, (when - performance.now()) / 1000);
+      sounds?.clap(delay, verdict === "perfect" ? 1 : 0.6);
+      if (score.combo % hornEvery === 0) sounds?.horn(delay);
     }
     const value = verdict === "perfect" ? 1 : verdict === "good" ? 0.6 : 0;
     score.hype += (value - score.hype) * hypeWeight;
     queue.setCrowd(score.hype);
-    effects.push({ text: verdict === "perfect" ? "Perfect" : verdict === "good" ? "Good" : "Miss", at: note.spot, born: note.judgedAt, verdict });
+    effects.push({ text: verdict === "perfect" ? "Perfect" : verdict === "good" ? "Good" : "Miss", at: at ?? [0.5, 0.42], born: performance.now(), verdict });
   }
 
-  // Watches one circle: the best moment its hand was inside it around its beat.
-  function track(note, when, now, present) {
-    if (note.verdict) return;
-    const palm = palms[note.hand];
-    const offset = now - when;
-    if (palm && Math.abs(offset) <= goodMs && distance(palm, point(note.spot)) <= radius() * reach) {
-      note.best = Math.min(note.best ?? Infinity, Math.abs(offset));
-      if (note.best <= perfectMs && offset >= -perfectMs) judge(note, "perfect", when);
+  // Which hands have both fingertips on their dots.
+  function onDots(dots) {
+    const hit = {};
+    for (const side of ["left", "right"]) {
+      const pair = dots[side];
+      const hand = tips[side];
+      hit[side] = Boolean(
+        pair && hand && distance(hand.thumb, point(pair.thumb)) <= size().height * reach && distance(hand.index, point(pair.index)) <= size().height * reach,
+      );
     }
-    if (!note.verdict && offset > goodMs) {
-      if (note.best !== undefined) judge(note, note.best <= perfectMs ? "perfect" : "good", when);
-      else judge(note, present ? "miss" : "skip", when);
+    return hit;
+  }
+
+  // Watches one shape: the best moment each hand was on its dots around the beat.
+  function track(target, when, now, present) {
+    if (target.verdict) return;
+    const offset = now - when;
+    if (Math.abs(offset) <= goodMs) {
+      const hit = onDots(target.dots);
+      for (const side of ["left", "right"]) {
+        if (target.dots[side] && hit[side]) target.best[side] = Math.min(target.best[side] ?? Infinity, Math.abs(offset));
+      }
+      const sides = ["left", "right"].filter((side) => target.dots[side]);
+      if (sides.every((side) => target.best[side] <= perfectMs) && offset >= -perfectMs) judge(target, "perfect", when, target.center);
+    }
+    if (!target.verdict && offset > goodMs) {
+      const sides = ["left", "right"].filter((side) => target.dots[side]);
+      const landed = sides.filter((side) => target.best[side] !== undefined);
+      if (landed.length === sides.length) judge(target, landed.every((side) => target.best[side] <= perfectMs) ? "perfect" : "good", when, target.center);
+      else if (landed.length) judge(target, "good", when, target.center);
+      else judge(target, present ? "miss" : "skip", when, target.center);
     }
   }
 
   // ---- the chart ------------------------------------------------------------------
 
-  // Notes for the bars coming up, from the beat grid and how loud each bar is.
+  const patterns = ["sway", "bob", "circle", "step"];
+  // Where the shape sits on a slot of a phrase's movement.
+  function placement(name, slot) {
+    switch (name) {
+      case "sway":
+        return [slot % 2 ? 0.56 : 0.44, 0.46];
+      case "bob":
+        return [0.5, slot % 2 ? 0.52 : 0.38];
+      case "circle": {
+        const angle = (slot / 4) * Math.PI * 2;
+        return [0.5 + Math.cos(angle) * 0.07, 0.45 + Math.sin(angle) * 0.08];
+      }
+      default:
+        return [[0.42, 0.5, 0.58, 0.5][slot % 4], 0.46];
+    }
+  }
+
+  // Shapes for the bars coming up, from the beat grid and how loud the song gets.
   function chart(playback, beatsAhead) {
     if (chartSong !== playback.songId) {
       chartSong = playback.songId;
       charted = -1;
       random = seeded(String(playback.songId));
-      for (const key of notes.keys()) if (!key.startsWith("mix")) notes.delete(key);
+      shapes.clear();
+      step = 0;
     }
     const grid = queue.beatGridAt(playback.position);
     if (!grid) return;
     const bar = 240 / grid.bpm;
+    const beatSeconds = 60 / grid.bpm / playback.rate;
     const horizon = playback.position + (beatsAhead * bar) / 4;
     let k = Math.max(charted + 1, Math.floor((playback.position - grid.first) / bar));
     for (; grid.first + k * bar <= horizon; k += 1) {
       charted = k;
       const downbeat = grid.first + k * bar;
       if (downbeat < playback.position) continue;
-      const energy = queue.energyAt(downbeat);
-      // A circle every 2 beats (hands taking turns), every beat in loud parts unless
-      // the song is too fast for that, one a bar in quiet parts: never long waits.
-      const beatSeconds = 60 / grid.bpm / playback.rate;
-      const beats = energy < 0.35 ? [0] : energy < 1.15 || beatSeconds < 0.42 ? [0, 2] : [0, 1, 2, 3];
-      beats.forEach((beat, index) => {
+      if (k % 4 === 0 || !pattern) pattern = patterns[Math.floor(random() * patterns.length)];
+      const energy = queue.energyAt(downbeat + bar / 2);
+      const before = queue.energyAt(downbeat - bar / 2);
+      const ahead = queue.energyAt(downbeat + bar * 2.5);
+      const drop = energy > 1 && energy > before * 1.3; // the bar where the energy jumps
+      const quiet = energy < 0.6;
+      const loud = energy > 1.15;
+      // The two bars before a jump are a build-up: the filter closes over them.
+      const buildUp = !drop && ahead > Math.max(1, energy * 1.3);
+      const lastBarOfBuild = buildUp && queue.energyAt(downbeat + bar * 1.5) > Math.max(1, energy * 1.3);
+      const beats = quiet ? [0] : loud && beatSeconds >= 0.42 ? [0, 1, 2, 3] : [0, 2];
+      for (const beat of beats) {
         const time = downbeat + (beat * bar) / 4;
-        const hand = (k + index) % 2 === 0 ? "left" : "right";
-        if (quiet(time, hand)) return; // the choice and the mix have their own circles
-        // Every circle gets its whole approach (a new song's first ones too, after a mix).
-        if (((time - playback.position) / playback.rate) * 1000 < approachMs(beatSeconds * 1000)) return;
-        // Each hand wanders around its half of the frame, a step at a time.
-        const [x0, y0] = lastSpot[hand];
-        const angle = random() * Math.PI * 2;
-        const step = 0.05 + random() * 0.09;
-        const [minX, maxX] = zones[hand];
-        const x = Math.max(minX, Math.min(maxX, x0 + Math.cos(angle) * step));
-        const y = Math.max(zones.top, Math.min(zones.bottom, y0 + Math.sin(angle) * step * 0.8));
-        lastSpot[hand] = [x, y];
+        if (quietAt(time)) continue; // the choice and the mix have their own targets
+        // Every shape gets its whole approach (a new song's first ones too, after a mix).
+        if (((time - playback.position) / playback.rate) * 1000 < approachMs(beatSeconds * 1000)) continue;
+        let [cx, cy] = placement(pattern, step);
+        step += 1;
+        let spread = quiet ? shapeLook.spread.quiet : loud ? shapeLook.spread.loud : shapeLook.spread.normal;
+        let rightGap = shapeLook.openGap;
+        if (drop && beat === 0) spread = shapeLook.spread.drop;
+        if (buildUp) {
+          const progress = (lastBarOfBuild ? 0.5 : 0) + (beat + 1) / 8; // closes over the build
+          rightGap = shapeLook.openGap - (shapeLook.openGap - shapeLook.closedGap) * clamp01(progress);
+          cy -= 0.08 * clamp01(progress); // and the shape rises with it
+        }
+        const dots = makeShape({ cx, cy, spread, rightGap });
+        // While the song choice is up, the right hand is picking: the left hand keeps playing.
+        if (choosingAt(time)) delete dots.right;
         const key = `${playback.songId}:${k}:${beat}`;
-        notes.set(key, { key, kind: "tap", song: playback.songId, time, hand, spot: [x, y] });
-      });
+        shapes.set(key, { key, song: playback.songId, time, dots, center: [cx, cy], best: {}, drop: drop && beat === 0 });
+      }
     }
   }
 
   // ---- the mix --------------------------------------------------------------------
 
-  // Song times kept clear of ordinary circles: the right hand's while the choice is up
-  // (its balloons fill the right half), and both from the mix on.
-  function quiet(time, hand) {
-    if (!mix) return false;
-    const choosing = mix.chooseAt !== null && time >= mix.chooseAt - 2 * mix.bar && time <= mix.chooseAt + mix.bar / 2;
-    return (choosing && hand === "right") || time >= mix.cue - mix.bar / 2;
+  // Song times kept clear of shapes: from the mix on.
+  function quietAt(time) {
+    return Boolean(mix) && time >= mix.cue - mix.bar / 2;
+  }
+  // Song times the choice is up (its balloons fill the right side).
+  function choosingAt(time) {
+    return Boolean(mix) && mix.chooseAt !== null && time >= mix.chooseAt - 2 * mix.bar && time <= mix.chooseAt + mix.bar / 2;
   }
 
   // Plans the next mix on the playing song (song seconds), or drops a stale plan.
@@ -248,17 +323,10 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     };
   }
 
-  function offerChoices(playback) {
+  function offerChoices() {
     const choices = queue.getChoices();
     if (choices.length < 2) return;
-    mix.choices = choices.map((choice, index) => ({
-      key: `mix:choice:${index}`,
-      kind: "choice",
-      hand: "right",
-      time: mix.chooseAt,
-      spot: choiceSpots[index],
-      choice,
-    }));
+    mix.choices = choices.map((choice, index) => ({ spot: choiceSpots[index], choice }));
   }
 
   function startMix() {
@@ -280,33 +348,33 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
         swapAt: comesIn + planned.gap * bar,
         endAt: comesIn + (planned.gap + outBars) * bar,
         barMs: bar,
-        heads: [],
       });
       if (controls.style === "cut") {
         // The new song slams in on the downbeat and the old one gets thrown into an echo.
         controls.setIncoming(1);
         controls.echoOut();
-        planned.heads = ["left", "right"].map((hand) => ({ key: `mix:cut:${hand}`, kind: "tap", hand, spot: cutSpots[hand], real: comesIn }));
+        planned.heads = [{ dots: makeShape(cutShape), real: comesIn, best: {}, center: [cutShape.cx, cutShape.cy] }];
       } else {
         planned.heads = [
-          { key: "mix:in", kind: "tap", hand: "right", spot: inPath[0], real: comesIn },
-          { key: "mix:out", kind: "tap", hand: "left", spot: outPath[0], real: planned.swapAt },
+          { dots: { right: pairAt(inPath[0], "right") }, real: comesIn, best: {}, center: inPath[0] },
+          { dots: { left: pairAt(outPath[0], "left") }, real: planned.swapAt, best: {}, center: outPath[0] },
         ];
       }
     });
   }
 
-  // While a blend runs: each slider's ball moves on the beat; a following hand sets the level.
+  // While a blend runs: each slide's dots move on the beat; following fingertips set the level.
   function performBlend(now) {
     const { controls } = mix;
     if (controls.done) return finishMix();
-    const slide = (path, from, to, hand) => {
+    const slide = (path, from, to, side) => {
       const ideal = clamp01((now - from) / (to - from));
-      const palm = palms[hand];
+      const hand = tips[side];
       const a = point(path[0]);
       const b = point(path[1]);
-      const following = palm && now >= from && distance(palm, lerp(a, b, ideal)) <= radius() * followReach;
-      return { ideal, level: following ? along(palm, a, b) : ideal, following };
+      const pinch = hand && middle(hand);
+      const following = pinch && now >= from && distance(pinch, lerp(a, b, ideal)) <= size().height * followReach;
+      return { ideal, level: following ? along(pinch, a, b) : ideal, following };
     };
     mix.in = slide(inPath, mix.comesIn, mix.swapAt, "right");
     controls.setIncoming(now < mix.swapAt ? mix.in.level : 1);
@@ -323,32 +391,28 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
   function finishMix() {
     mix = null;
-    notes.clear();
+    shapes.clear();
     chartSong = null;
   }
 
   // ---- every camera frame ---------------------------------------------------------
 
-  function setCutoff(hz) {
-    if (Math.abs(hz - cutoff) < 1) return;
-    cutoff = hz;
-    queue.setGameFilter(hz);
-  }
-
   function update(input, now) {
     lastFrame = now;
     for (const side of ["left", "right"]) {
       const hand = input[side];
-      palms[side] = hand ? toStage(hand.pts[9]) : null; // the middle knuckle: the palm's center
+      tips[side] = hand?.thumb && hand?.index ? { thumb: toStage(hand.thumb), index: toStage(hand.index) } : null;
     }
-    if (palms.left || palms.right) lastHands = now;
+    if (tips.left || tips.right) lastHands = now;
     const present = now - lastHands < idleMs;
     const active = enabled && queue.getState().dj.on;
-    queue.holdControls(active);
-    if (!active) {
-      setCutoff(20000);
-      return;
-    }
+    const mixing = Boolean(mix?.controls);
+    // Speed holds at 1.00× while you play; the volume holds while you're mixing (your hands
+    // move for the slides); the filter is always yours.
+    queue.holdControls({ speed: active, volume: active && mixing });
+    if (active && !wasActive) queue.resetSound();
+    wasActive = active;
+    if (!active) return;
     queue.coachPing(); // the game decides when to mix, not the DJ's timer
 
     // Both fists held for a second: pause, or play again.
@@ -368,11 +432,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
     const playback = queue.getPlayback();
     if (!playback.playing) return;
-    const grid = queue.beatGridAt(playback.position);
-    if (grid) beatMsNow = (60 / grid.bpm / playback.rate) * 1000;
-    // The crowd: lose them and the song goes muffled; a miss muffles it for a beat.
-    const crowdHz = score.hype >= 0.5 ? 20000 : coldCrowdHz * (20000 / coldCrowdHz) ** (score.hype / 0.5);
-    setCutoff(now < muffleUntil ? Math.min(missMuffleHz, crowdHz) : crowdHz);
     const realAt = (songTime) => now + ((songTime - playback.position) / playback.rate) * 1000;
 
     if (mix?.state === "landing") {
@@ -384,155 +443,193 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     }
     if (!mix) planMix(playback);
     if (mix?.state === "planned") {
-      if (!mix.choices && mix.chooseAt !== null && playback.position >= mix.chooseAt - 2 * mix.bar) offerChoices(playback);
+      if (!mix.choices && mix.chooseAt !== null && playback.position >= mix.chooseAt - 2 * mix.bar) offerChoices();
       if (playback.position >= mix.startAt) startMix();
     }
 
-    // Taps of the song (not during a mix: those wait until it's landed).
+    // Shapes of the song (not during a mix: those wait until it's landed).
     if (!mix || mix.state === "planned" || mix.state === "starting") chart(playback, 12);
-    for (const note of notes.values()) {
-      if (note.kind !== "tap" || note.song !== playback.songId) continue;
-      track(note, realAt(note.time), now, present);
-    }
-    // The choice: the right hand in one of the DJ's songs on its beat picks it.
+    for (const shape of shapes.values()) if (shape.song === playback.songId) track(shape, realAt(shape.time), now, present);
+    // The choice: the right index finger in one of the DJ's songs on its beat picks it.
     if (mix?.choices && !mix.chosen) {
       const when = realAt(mix.chooseAt);
-      const palm = palms.right;
-      const picked = palm && Math.abs(now - when) <= goodMs ? mix.choices.find((note) => distance(palm, point(note.spot)) <= radius() * reach) : null;
+      const finger = tips.right?.index;
+      const picked =
+        finger && Math.abs(now - when) <= goodMs ? mix.choices.find((choice) => distance(finger, point(choice.spot)) <= size().height * reach * 1.6) : null;
       if (picked) {
         queue.chooseNext(picked.choice.item.id);
         mix.chosen = picked;
-        judge(picked, Math.abs(now - when) <= perfectMs ? "perfect" : "good", when);
+        judge(picked, Math.abs(now - when) <= perfectMs ? "perfect" : "good", when, picked.spot);
       } else if (now - when > goodMs) {
         mix.chosen = mix.choices[0]; // the DJ's own pick stands
       }
     }
-    // The mix's own circles (slider heads, the cut).
+    // The mix's own shapes (where the slides start, the cut).
     if (mix?.heads) for (const head of mix.heads) track(head, head.real, now, present);
   }
 
   // ---- drawing --------------------------------------------------------------------
 
-  // A circle: translucent, with the hand's color as its rim and a little Luna gloss.
-  function circle(p, color, alpha, r = radius()) {
+  // One target dot: translucent, rimmed in its hand's color, with a little Luna gloss.
+  function targetDot(p, color, alpha, filled) {
+    const r = dot();
     context.save();
     context.globalAlpha = alpha;
-    context.fillStyle = "rgba(255, 255, 255, 0.28)";
+    context.fillStyle = filled ? color : "rgba(255, 255, 255, 0.6)";
     context.beginPath();
     context.arc(p.x, p.y, r, 0, Math.PI * 2);
     context.fill();
-    context.lineWidth = r * 0.17;
+    context.lineWidth = r * 0.32;
     context.strokeStyle = color;
     context.stroke();
-    context.lineWidth = 2;
-    context.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    context.lineWidth = 1.5;
+    context.strokeStyle = "rgba(255, 255, 255, 0.95)";
     context.beginPath();
-    context.arc(p.x, p.y, r * 0.9, 0, Math.PI * 2);
+    context.arc(p.x, p.y, r * 0.84, 0, Math.PI * 2);
     context.stroke();
-    const gloss = context.createLinearGradient(p.x, p.y - r, p.x, p.y);
-    gloss.addColorStop(0, "rgba(255, 255, 255, 0.55)");
-    gloss.addColorStop(1, "rgba(255, 255, 255, 0)");
-    context.fillStyle = gloss;
-    context.beginPath();
-    context.ellipse(p.x, p.y - r * 0.42, r * 0.6, r * 0.34, 0, 0, Math.PI * 2);
-    context.fill();
     context.restore();
   }
 
-  // The approach ring, in segments like the XP progress bar, closing onto the circle on the beat.
-  function approachRing(p, color, progress, alpha) {
-    const r = radius() * (1 + 1.6 * (1 - progress));
-    const segments = 14;
-    context.save();
-    context.globalAlpha = alpha;
-    context.strokeStyle = color;
-    context.lineWidth = radius() * 0.1;
-    context.lineCap = "butt";
-    for (let i = 0; i < segments; i += 1) {
-      const start = (i / segments) * Math.PI * 2 - Math.PI / 2;
-      context.beginPath();
-      context.arc(p.x, p.y, r, start + 0.06, start + (Math.PI * 2) / segments - 0.06);
-      context.stroke();
-    }
-    context.restore();
-  }
-
-  function drawNote(spot, color, when, now, beatMs) {
+  // A shape: its outline (the four fingertips joined up), each hand's pinch gap, and the
+  // dots. Thumbs are hollow, index fingers filled. Before its beat it's drawn bigger
+  // around its center, shrinking onto its place as the beat arrives.
+  function drawShape(dots, center, when, now, beatMs, { emphasis = false } = {}) {
     const leadMs = approachMs(beatMs);
-    const progress = clamp01(1 - (when - now) / leadMs);
     if (when - now > leadMs || now - when > goodMs) return;
-    const fadeIn = clamp01(progress * 6);
-    const p = point(spot);
-    circle(p, color, fadeIn);
-    if (now < when) approachRing(p, color, progress, fadeIn);
+    const progress = clamp01(1 - (when - now) / leadMs);
+    const alpha = clamp01(progress * 5);
+    const grow = 1 + 0.3 * (1 - progress) ** 1.5;
+    const c = point(center);
+    const place = (spot) => {
+      const p = point(spot);
+      return { x: c.x + (p.x - c.x) * grow, y: c.y + (p.y - c.y) * grow };
+    };
+    const corners = [dots.left?.thumb, dots.left?.index, dots.right?.index, dots.right?.thumb].filter(Boolean).map(place);
+    if (corners.length === 4) {
+      // The four fingertips joined up, faintly (a drop's shape is outlined in orange).
+      context.save();
+      context.globalAlpha = alpha * (emphasis ? 0.95 : 0.55);
+      context.strokeStyle = emphasis ? colors.accent : "#ffffff";
+      context.lineWidth = emphasis ? 3 : 1.5;
+      context.setLineDash([6, 6]);
+      context.beginPath();
+      corners.forEach((p, i) => (i ? context.lineTo(p.x, p.y) : context.moveTo(p.x, p.y)));
+      context.closePath();
+      context.stroke();
+      context.restore();
+    }
+    for (const side of ["left", "right"]) {
+      const pair = dots[side];
+      if (!pair) continue;
+      const thumb = place(pair.thumb);
+      const index = place(pair.index);
+      context.save();
+      context.globalAlpha = alpha;
+      context.strokeStyle = colors[side];
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(thumb.x, thumb.y);
+      context.lineTo(index.x, index.y);
+      context.stroke();
+      context.restore();
+      targetDot(thumb, colors[side], alpha, false);
+      targetDot(index, colors[side], alpha, true);
+    }
   }
 
-  // A dotted trail between two circles, showing up as the second one does.
-  function followPoints(fromSpot, toSpot, color, when, now, beatMs) {
+  // Dotted trails from each hand's pinch on one shape to the same hand on the next.
+  function followPoints(from, to, when, now, beatMs) {
     const leadMs = approachMs(beatMs);
     if (when - now > leadMs) return;
-    const a = point(fromSpot);
-    const b = point(toSpot);
-    const gap = distance(a, b);
-    const r = radius() * 1.15;
-    if (gap < r * 2.2) return;
-    const dots = Math.floor((gap - r * 2) / (radius() * 0.45));
     context.save();
-    context.globalAlpha = clamp01((1 - (when - now) / leadMs) * 4) * 0.8;
-    context.fillStyle = color;
-    for (let i = 1; i < dots; i += 1) {
-      const p = lerp(a, b, (r + ((gap - r * 2) * i) / dots) / gap);
-      context.beginPath();
-      context.arc(p.x, p.y, radius() * 0.07, 0, Math.PI * 2);
-      context.fill();
+    context.globalAlpha = clamp01((1 - (when - now) / leadMs) * 4) * 0.75;
+    for (const side of ["left", "right"]) {
+      if (!from[side] || !to[side]) continue;
+      const pinchPoint = (pair) => point([(pair.thumb[0] + pair.index[0]) / 2, (pair.thumb[1] + pair.index[1]) / 2]);
+      const a = pinchPoint(from[side]);
+      const b = pinchPoint(to[side]);
+      const gap = distance(a, b);
+      const clear = dot() * 2.2;
+      if (gap < clear * 2) continue;
+      context.fillStyle = colors[side];
+      const dots = Math.floor((gap - clear * 2) / (dot() * 1.4));
+      for (let i = 1; i < dots; i += 1) {
+        const p = lerp(a, b, (clear + ((gap - clear * 2) * i) / dots) / gap);
+        context.beginPath();
+        context.arc(p.x, p.y, dot() * 0.22, 0, Math.PI * 2);
+        context.fill();
+      }
     }
     context.restore();
   }
 
-  function slider(path, color, ball, following, alpha) {
+  // A slide's track, with the pinch pair (thumb + index) that rides it on the beat.
+  function slide(path, side, ball, following, alpha) {
     const a = point(path[0]);
     const b = point(path[1]);
     context.save();
     context.globalAlpha = alpha;
     context.lineCap = "round";
-    context.lineWidth = radius() * 1.7;
+    context.lineWidth = size().height * 0.13;
     context.strokeStyle = "rgba(255, 255, 255, 0.22)";
     context.beginPath();
     context.moveTo(a.x, a.y);
     context.lineTo(b.x, b.y);
     context.stroke();
     context.lineWidth = 3;
-    context.strokeStyle = color;
-    context.setLineDash([radius() * 0.3, radius() * 0.2]);
+    context.strokeStyle = colors[side];
+    context.setLineDash([10, 7]);
     context.beginPath();
     context.moveTo(a.x, a.y);
     context.lineTo(b.x, b.y);
     context.stroke();
     context.restore();
     if (ball === null) return;
-    const p = lerp(a, b, ball);
-    circle(p, color, alpha, radius() * 0.75);
+    const at = lerp(a, b, ball);
+    const pair = pairAt([at.x / size().width, at.y / size().height], side);
+    for (const [spot, filled] of [[pair.thumb, false], [pair.index, true]]) targetDot(point(spot), colors[side], alpha, filled);
     if (following) {
       context.save();
       context.globalAlpha = alpha;
-      context.strokeStyle = color;
+      context.strokeStyle = colors[side];
       context.lineWidth = 3;
       context.beginPath();
-      context.arc(p.x, p.y, radius() * followReach * 0.7, 0, Math.PI * 2);
+      context.arc(at.x, at.y, size().height * followReach * 0.75, 0, Math.PI * 2);
       context.stroke();
       context.restore();
     }
   }
 
-  // An XP notification balloon to the left of a choice circle.
+  // A choice circle and its XP notification balloon.
+  function choiceCircle(p, progress, alpha) {
+    const r = dot() * 2;
+    context.save();
+    context.globalAlpha = alpha;
+    context.fillStyle = "rgba(255, 255, 255, 0.55)";
+    context.strokeStyle = colors.accent;
+    context.lineWidth = r * 0.2;
+    context.beginPath();
+    context.arc(p.x, p.y, r, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    if (progress < 1) {
+      context.lineWidth = r * 0.1;
+      context.beginPath();
+      context.arc(p.x, p.y, r * (1 + 1.4 * (1 - progress)), 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.restore();
+  }
   function balloon(p, title, detail, alpha) {
     const pad = 8;
     context.save();
     context.globalAlpha = alpha;
+    context.font = `11px ${uiFont}`;
+    const detailWidth = detail ? context.measureText(detail).width : 0;
     context.font = `bold 13px ${uiFont}`;
-    const width = Math.min(Math.max(context.measureText(title).width, detail ? measure(detail) : 0) + pad * 2, size().width * 0.34);
+    const width = Math.min(Math.max(context.measureText(title).width, detailWidth) + pad * 2, size().width * 0.34);
     const height = detail ? 40 : 24;
-    const right = p.x - radius() * 1.25;
+    const right = p.x - dot() * 2.6;
     const x = right - width;
     const y = p.y - height / 2;
     context.fillStyle = colors.balloon;
@@ -549,20 +646,12 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     context.fillRect(right - 1, p.y - 5, 2, 10);
     context.fillStyle = colors.ink;
     context.textBaseline = "middle";
-    context.font = `bold 13px ${uiFont}`;
     context.fillText(clip(title, width - pad * 2), x + pad, detail ? y + 13 : p.y);
     if (detail) {
       context.font = `11px ${uiFont}`;
       context.fillText(clip(detail, width - pad * 2), x + pad, y + 28);
     }
     context.restore();
-  }
-  function measure(text) {
-    context.save();
-    context.font = `11px ${uiFont}`;
-    const width = context.measureText(text).width;
-    context.restore();
-    return width;
   }
   function clip(text, width) {
     if (context.measureText(text).width <= width) return text;
@@ -595,7 +684,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     if (canvas.height !== Math.round(height * scale)) canvas.height = Math.round(height * scale);
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.clearRect(0, 0, width, height);
-    card.render(score, mix, enabled);
+    card.render(score, enabled);
     if (now - lastFrame > 1000 || !enabled || !queue.getState().dj.on) return; // camera off, or not playing
 
     const playback = queue.getPlayback();
@@ -603,50 +692,42 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     const beatMs = grid ? (60 / grid.bpm / playback.rate) * 1000 : 500;
     const realAt = (songTime) => now + ((songTime - playback.position) / playback.rate) * 1000;
 
-    // Later notes underneath earlier ones.
-    const taps = [...notes.values()].filter((note) => note.kind === "tap" && note.song === playback.songId && !note.verdict);
-    taps.sort((a, b) => a.time - b.time);
-    // Follow points: each hand's next circle is joined to the one before, so you see where to go.
-    for (const hand of ["left", "right"]) {
-      const path = taps.filter((note) => note.hand === hand);
-      for (let i = 1; i < path.length; i += 1) followPoints(path[i - 1].spot, path[i].spot, colors[hand], realAt(path[i].time), now, beatMs);
-    }
-    for (const note of [...taps].reverse()) drawNote(note.spot, colors[note.hand], realAt(note.time), now, beatMs);
+    const upcoming = [...shapes.values()].filter((shape) => shape.song === playback.songId && !shape.verdict).sort((a, b) => a.time - b.time);
+    for (let i = 1; i < upcoming.length; i += 1) followPoints(upcoming[i - 1].dots, upcoming[i].dots, realAt(upcoming[i].time), now, beatMs);
+    for (const shape of [...upcoming].reverse()) drawShape(shape.dots, shape.center, realAt(shape.time), now, beatMs, { emphasis: shape.drop });
 
     if (mix?.choices && !mix.chosen) {
       const when = realAt(mix.chooseAt);
-      mix.choices.forEach((note, index) => {
-        const { choice } = note;
+      mix.choices.forEach((option, index) => {
+        const { choice } = option;
         const title = choice.item.title.split(" - ").slice(1).join(" - ") || choice.item.title;
         const artist = choice.item.title.split(" - ")[0];
         const detail = [index === 0 ? "The DJ's pick" : artist, choice.reason].filter(Boolean).join(": ");
         // Up 8 beats ahead (fading in over the first two), so there's time to read them.
         const shown = clamp01((beatMs * 8 - (when - now)) / (beatMs * 2));
         if (shown <= 0) return;
-        balloon(point(note.spot), title, detail, shown);
-        circle(point(note.spot), colors.accent, shown);
-        if (when - now <= approachMs(beatMs) && now < when) {
-          approachRing(point(note.spot), colors.accent, clamp01(1 - (when - now) / approachMs(beatMs)), shown);
-        }
+        const p = point(option.spot);
+        balloon(p, title, detail, shown);
+        choiceCircle(p, clamp01(1 - (when - now) / approachMs(beatMs)), shown);
       });
     }
     if (mix && (mix.state === "planned" || mix.state === "starting")) {
-      // The mix's first circles, drawn from the plan with their whole approach (the mix
+      // The mix's first targets, drawn from the plan with their whole approach (the mix
       // itself is only set up just before its downbeat).
       const when = realAt(mix.cue);
       if (queue.getUpNext()?.style === "echo") {
-        for (const hand of ["left", "right"]) drawNote(cutSpots[hand], colors[hand], when, now, beatMs);
+        drawShape(makeShape(cutShape), [cutShape.cx, cutShape.cy], when, now, beatMs, { emphasis: true });
       } else if (when - now <= approachMs(beatMs)) {
-        slider(inPath, colors.right, null, false, clamp01((1 - (when - now) / approachMs(beatMs)) * 4) * 0.8);
-        drawNote(inPath[0], colors.right, when, now, beatMs);
+        slide(inPath, "right", null, false, clamp01((1 - (when - now) / approachMs(beatMs)) * 4) * 0.8);
+        drawShape({ right: pairAt(inPath[0], "right") }, inPath[0], when, now, beatMs);
       }
     }
-    if (mix?.heads?.length) {
+    if (mix?.heads) {
       if (mix.state === "blend" || mix.state === "landing") {
-        slider(inPath, colors.right, now >= mix.comesIn ? mix.in?.ideal ?? 0 : null, mix.in?.following, now < mix.swapAt + mix.barMs ? 1 : 0.35);
-        if (now >= mix.swapAt - approachMs(beatMs)) slider(outPath, colors.left, now >= mix.swapAt ? mix.out?.ideal ?? 0 : null, mix.out?.following, 1);
+        slide(inPath, "right", now >= mix.comesIn ? mix.in?.ideal ?? 0 : null, mix.in?.following, now < mix.swapAt + mix.barMs ? 1 : 0.35);
+        if (now >= mix.swapAt - approachMs(beatMs)) slide(outPath, "left", now >= mix.swapAt ? mix.out?.ideal ?? 0 : null, mix.out?.following, 1);
       }
-      for (const head of mix.heads) if (!head.verdict) drawNote(head.spot, colors[head.hand], head.real, now, beatMs);
+      for (const head of mix.heads) if (!head.verdict) drawShape(head.dots, head.center, head.real, now, beatMs, { emphasis: mix.state === "cut" });
     }
 
     for (let i = effects.length - 1; i >= 0; i -= 1) {
@@ -658,47 +739,51 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       }
       const p = point(effect.at);
       const color = effect.verdict === "perfect" ? colors.accent : effect.verdict === "good" ? "#ffffff" : "#c9cfd6";
-      outlinedText(effect.text, p.x, p.y - radius() * 1.3 - age * 0.04, radius() * 0.48, color, 1 - age / 650);
+      outlinedText(effect.text, p.x, p.y - dot() * 4 - age * 0.04, dot() * 1.5, color, 1 - age / 650);
     }
     if (fistsSince) {
-      // Both fists: a ring fills on each until the pause (or play) happens.
+      // Both fists: a ring fills on each hand until the pause (or play) happens.
       const filled = clamp01((now - fistsSince) / pauseHoldMs);
       for (const side of ["left", "right"]) {
-        const palm = palms[side];
-        if (!palm) continue;
+        const hand = tips[side];
+        if (!hand) continue;
+        const p = middle(hand);
         context.save();
         context.strokeStyle = colors[side];
-        context.lineWidth = radius() * 0.16;
+        context.lineWidth = dot() * 0.5;
         context.beginPath();
-        context.arc(palm.x, palm.y, radius() * 0.9, -Math.PI / 2, -Math.PI / 2 + filled * Math.PI * 2);
+        context.arc(p.x, p.y, dot() * 3, -Math.PI / 2, -Math.PI / 2 + filled * Math.PI * 2);
         context.stroke();
         context.restore();
       }
     }
     if (playback.loaded && !playback.playing) {
-      outlinedText("Paused", width / 2, height / 2 - radius() * 0.4, radius() * 1.2, "#ffffff", 0.95);
-      outlinedText("Both fists for a second to play", width / 2, height / 2 + radius() * 0.7, radius() * 0.34, "#ffffff", 0.95);
+      outlinedText("Paused", width / 2, height / 2 - dot() * 1.2, dot() * 3.8, "#ffffff", 0.95);
+      outlinedText("Both fists for a second to play", width / 2, height / 2 + dot() * 2.2, dot() * 1.1, "#ffffff", 0.95);
     }
-    if (score.combo > 1) outlinedText(`${score.combo}×`, radius() * 0.6, height - radius() * 0.9, radius() * 1.25, "#ffffff", 0.95, "left");
+    if (score.combo > 1) outlinedText(`${score.combo}×`, dot() * 2, height - dot() * 3, dot() * 4, "#ffffff", 0.95, "left");
+    // Your fingertips.
     for (const side of ["left", "right"]) {
-      const palm = palms[side];
-      if (!palm) continue;
-      context.save();
-      context.fillStyle = colors[side];
-      context.strokeStyle = "#ffffff";
-      context.lineWidth = 2;
-      context.beginPath();
-      context.arc(palm.x, palm.y, radius() * 0.22, 0, Math.PI * 2);
-      context.fill();
-      context.stroke();
-      context.restore();
+      const hand = tips[side];
+      if (!hand) continue;
+      for (const tip of [hand.thumb, hand.index]) {
+        context.save();
+        context.fillStyle = colors[side];
+        context.strokeStyle = "#ffffff";
+        context.lineWidth = 2;
+        context.beginPath();
+        context.arc(tip.x, tip.y, dot() * 0.45, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+        context.restore();
+      }
     }
   }
   requestAnimationFrame(draw);
 
   card.onToggle((on) => {
     enabled = on;
-    if (!on) queue.holdControls(false);
+    if (!on) queue.holdControls({});
   });
   card.setChecked(enabled);
 
@@ -708,20 +793,20 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     setEnabled(on) {
       enabled = on;
       card.setChecked(on);
-      if (!on) queue.holdControls(false);
+      if (!on) queue.holdControls({});
     },
-    // For debugging and tests: the score, the mix, and where the next targets are
-    // (stage shares) and when (performance.now() ms).
+    // For debugging and tests: the score, the mix, and the next targets: their dots (stage
+    // shares) and when (performance.now() ms).
     peek(now = performance.now()) {
       const playback = queue.getPlayback();
       const realAt = (songTime) => now + ((songTime - playback.position) / playback.rate) * 1000;
-      const targets = [...notes.values()]
-        .filter((note) => note.kind === "tap" && note.song === playback.songId && !note.verdict)
-        .map((note) => ({ hand: note.hand, spot: note.spot, at: realAt(note.time) }));
-      if (mix?.choices && !mix.chosen) targets.push(...mix.choices.map((note) => ({ hand: "right", spot: note.spot, at: realAt(mix.chooseAt), title: note.choice.item.title })));
-      for (const head of mix?.heads ?? []) if (!head.verdict) targets.push({ hand: head.hand, spot: head.spot, at: head.real });
-      const sliders = mix?.state === "blend" ? { in: [inPath, mix.comesIn, mix.swapAt], out: [outPath, mix.swapAt, mix.endAt] } : null;
-      return { score: { ...score }, mix: mix && { state: mix.state, chosen: mix.chosen?.choice?.item.title ?? null }, targets: targets.sort((a, b) => a.at - b.at), sliders };
+      const targets = [...shapes.values()]
+        .filter((shape) => shape.song === playback.songId && !shape.verdict)
+        .map((shape) => ({ dots: shape.dots, at: realAt(shape.time) }));
+      for (const head of mix?.heads ?? []) if (!head.verdict) targets.push({ dots: head.dots, at: head.real });
+      const choices = mix?.choices && !mix.chosen ? { at: realAt(mix.chooseAt), spots: mix.choices.map((choice) => choice.spot) } : null;
+      const slides = mix?.state === "blend" ? { right: [inPath, mix.comesIn, mix.swapAt], left: [outPath, mix.swapAt, mix.endAt] } : null;
+      return { score: { ...score }, mix: mix && { state: mix.state, chosen: mix.chosen?.choice?.item.title ?? null }, targets: targets.sort((a, b) => a.at - b.at), choices, slides };
     },
   };
 }
@@ -740,22 +825,15 @@ function buildCard(queue, rail) {
   const chunks = Array.from({ length: 12 }, () => hype.appendChild(element("span")));
   const combo = element("span");
   const accuracy = element("span");
+  const stats = element("p", "djSet-stats");
+  stats.append(combo, accuracy);
   const toggle = element("input");
   toggle.type = "checkbox";
   toggle.checked = true;
   const label = element("label", "djSet-toggle");
   label.append(toggle, " Play the set: your hands do the mixes");
   const card = element("div", "card glass djSet");
-  card.append(
-    element("h2", null, "Set"),
-    title,
-    why,
-    element("p", "djSet-label", "Crowd"),
-    hype,
-    Object.assign(element("p", "djSet-stats"), {}),
-    label,
-  );
-  card.querySelector(".djSet-stats").append(combo, accuracy);
+  card.append(element("h2", null, "Set"), title, why, element("p", "djSet-label", "Crowd"), hype, stats, label);
   rail.append(card);
   addStyles();
 
@@ -767,13 +845,9 @@ function buildCard(queue, rail) {
     setChecked(on) {
       toggle.checked = on;
     },
-    render(score, mix, enabled) {
+    render(score, enabled) {
       const next = queue.getUpNext();
-      const shownNext = next
-        ? next.item.title
-        : queue.getState().dj.on
-          ? "The DJ is picking…"
-          : "Start the AI DJ in the queue";
+      const shownNext = next ? next.item.title : queue.getState().dj.on ? "The DJ is picking…" : "Start the AI DJ in the queue";
       const reason = next?.item.dj?.reason ?? "";
       const lit = Math.round(score.hype * chunks.length);
       const accuracyText = score.judged ? `${Math.round((score.points / score.judged) * 100)}% accuracy` : "No hits yet";

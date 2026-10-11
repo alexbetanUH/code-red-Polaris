@@ -14,9 +14,12 @@ const handCheckMs = 800; // both hands in view this long counts as checked
 // Tiny pictures for the four moves, in the page's colors.
 const pictures = {
   hit: `<svg viewBox="0 0 64 48" aria-hidden="true">
-    <circle cx="32" cy="24" r="17" fill="none" stroke="#5cb82c" stroke-width="2" stroke-dasharray="4 3"/>
-    <circle cx="32" cy="24" r="11" fill="rgba(255,255,255,.7)" stroke="#5cb82c" stroke-width="3"/>
-    <path d="M27 31v-9m3 9V18m3 13V19m3 12v-8m-12 6c-2-1-3 1-2 3l3 4h10l2-5" fill="none" stroke="#3a2412" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M14 30 18 14 46 14 50 30Z" fill="rgba(255,255,255,.6)" stroke="#8a96a3" stroke-dasharray="3 2"/>
+    <path d="M14 30 18 14" stroke="#1e95e3" stroke-width="2.5"/><path d="M50 30 46 14" stroke="#5cb82c" stroke-width="2.5"/>
+    <circle cx="14" cy="30" r="4.5" fill="#fff" stroke="#1e95e3" stroke-width="2.5"/>
+    <circle cx="18" cy="14" r="4.5" fill="#1e95e3" stroke="#1e95e3" stroke-width="2.5"/>
+    <circle cx="50" cy="30" r="4.5" fill="#fff" stroke="#5cb82c" stroke-width="2.5"/>
+    <circle cx="46" cy="14" r="4.5" fill="#5cb82c" stroke="#5cb82c" stroke-width="2.5"/>
   </svg>`,
   slide: `<svg viewBox="0 0 64 48" aria-hidden="true">
     <path d="M12 34 52 14" stroke="rgba(92,184,44,.35)" stroke-width="12" stroke-linecap="round"/>
@@ -55,9 +58,9 @@ export function createStartScreen(stage, { startCamera, handSeen, prepare, begin
         <h1>AI DJ</h1>
         <p>Play a DJ set with your hands. The AI picks the songs, you do the mixes.</p>
         <ol class="djStart-moves">
-          <li>${pictures.hit}<span>Palm in the circle as the ring closes</span></li>
-          <li>${pictures.slide}<span>Follow the slider to mix songs</span></li>
-          <li>${pictures.pick}<span>Touch a song to play it next</span></li>
+          <li>${pictures.hit}<span>Thumbs and index fingers on the dots</span></li>
+          <li>${pictures.slide}<span>Slide your fingers along to mix</span></li>
+          <li>${pictures.pick}<span>Point at a song to play it next</span></li>
           <li>${pictures.pause}<span>Both fists for a second: pause</span></li>
         </ol>
         <button class="lime" type="button">Start</button>

@@ -65,25 +65,24 @@ how (blend or echo out).
 
 **Play the set**: the AI DJ page opens on a start screen (how to play in four pictures, then the camera and a check
 that it sees both hands, then the DJ picks the first song, then 3, 2, 1). The set is a rhythm game in the style of
-osu!. Circles come in about 2 seconds before their beat, with a ring closing onto them: get that hand's palm into the circle
-as the ring closes (blue for your left hand, green for your right). They follow the song's beats all the way through,
-more of them in its loud parts. The mixes are part of the chart:
+osu!, played with your fingertips. Each target is a shape of four dots: your left thumb and index fingertip (blue)
+and your right ones (green). Shapes fly in about 2 seconds before their beat, shrinking onto their place; have your
+fingertips on the dots as they land. One comes every beat or two, each joined to the next. Those fingertips are the
+DJ controls, so the chart is choreography: the right thumb-index gap is the filter (it narrows through a build-up and
+snaps open on the drop), the distance between your hands is the volume (wider on drops), and the speed stays at
+1.00× while you play. The mixes are part of the chart:
 
 - **Choosing the next song**: a few bars ahead, the DJ's next songs come in as circles on the right, each with a
-  balloon saying what it is and why. Your right hand in one on its beat picks it; otherwise the DJ's pick plays.
-- **Blends** (tempos close): a green slider brings the new song in; follow its ball with your right hand and how far
-  along you are is the new song's volume. Then a blue slider takes the old song out with your left hand. If you
-  don't follow, the AI moves the music along the sliders for you.
-- **Cuts** (tempos far apart): one circle per hand on the downbeat; the new song slams in and the old one is thrown
-  into an echo.
+  balloon saying what it is and why. Your right index finger in one on its beat picks it; otherwise the DJ's pick plays.
+- **Blends** (tempos close): your right thumb and index slide the new song in along a track (how far along you are is
+  its volume), then your left ones slide the old song out. If you don't follow, the AI moves the music along for you.
+- **Cuts** (tempos far apart): one shape on the downbeat; the new song slams in and the old one is thrown into an echo.
 
-Hits within about 140 ms of the beat are Perfect, within 280 ms Good, and you hear them: each hit claps on its
-beat, every 10 in a row sounds the air horn, and a miss muffles the song for a beat. Lose the crowd and the whole
-song goes muffled until you win it back. Both fists held for a second pauses, and again plays. Your combo and accuracy show in the corner and
-the Set card, and how well you play is the crowd's hype, which the DJ hears about when it picks the next songs. While
-the game runs, speed, filter and volume hold still (your hands are busy); with nobody in frame nothing counts as a
-miss. Untick **Play the set** in the Set card to get the pinch controls back; without the camera the DJ mixes by
-itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+Shapes hit within about 160 ms of the beat are Perfect, within 320 ms Good, and you hear them: each hit claps on its
+beat and every 10 in a row sounds the air horn. Both fists held for a second pauses, and again plays. Your combo and accuracy show in the corner and
+the Set card, and how well you play is the crowd's hype, which the DJ hears about when it picks the next songs. Your
+filter and volume stay live (the volume holds still only during a mix's slides); with nobody in frame nothing counts
+as a miss. Untick **Play the set** in the Set card for plain pinch controls; without the camera the DJ mixes by itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
