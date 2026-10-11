@@ -330,7 +330,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         queued: items.map((item) => item.title),
         played,
         count: djPicksPerRequest,
-        ...(useLibrary && { library: library.map(({ id, artist, title }) => ({ id, artist, title })) }),
+        ...(useLibrary && { library: library.map(({ id, artist, title, bpm }) => ({ id, artist, title, bpm })) }),
       });
       // Every pick gets ready (and gets its voice line) at the same time; they join
       // the queue in pick order.
@@ -1020,7 +1020,11 @@ export function createQueuePanel(queue, deck) {
     return element("li", { className: `queuePanel-row librarySong ${missing ? "missing" : ""}` }, [
       element("div", { className: "queuePanel-track" }, [
         element("strong", { text: song.title }),
-        element("small", { text: missing ? `${song.artist} · not in music/ yet (run prefetch.py)` : song.artist }),
+        element("small", {
+          text: [song.artist, song.bpm && `${song.bpm} BPM`, missing && "not in music/ yet (run prefetch.py)"]
+            .filter(Boolean)
+            .join(" · "),
+        }),
       ]),
       element("div", { className: "queuePanel-actions" }, [
         element("button", {

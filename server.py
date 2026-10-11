@@ -307,10 +307,25 @@ def ask_gemini_for_picks(prompt, schema):
         raise DjError("Gemini returned an unexpected answer") from None
 
 
+def bpm(song):
+    """A library song's BPM as a whole number, or None."""
+    try:
+        return round(float(song.get("bpm"))) if song and song.get("bpm") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def tempo_gap(a, b):
+    """How far apart two tempos are, counting half and double time as close (80 ~ 160)."""
+    if not a or not b:
+        return 0
+    return min(abs(a - b), abs(a - 2 * b), abs(2 * a - b))
+
+
 def dj_pick(request):
     """Ask Gemini for the next songs. Returns a list of {artist, title, reason, intro}.
 
-    With a "library" ([{id, artist, title}]) in the request, Gemini may only pick
+    With a "library" ([{id, artist, title, bpm}]) in the request, Gemini may only pick
     from it and each pick also has its "id"; otherwise it can pick any song (beta).
     """
     count = max(1, min(int(request.get("count") or 3), 5))
@@ -328,18 +343,29 @@ def dj_pick(request):
         if isinstance(song, dict) and song.get("id")
     }
     if library:
-        menu = "\n".join(f"- {song_id}: {clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}" for song_id, s in library.items())
+        tempo = lambda s: f" (~{bpm(s)} BPM)" if bpm(s) else ""
+        menu = "\n".join(
+            f"- {song_id}: {clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}{tempo(s)}"
+            for song_id, s in library.items()
+        )
         prompt = (
             f"{situation}"
-            f"You may only pick from this library (id: artist - title):\n{menu}\n"
+            f"You may only pick from this library (id: artist - title (tempo)):\n{menu}\n"
             "Answer with library ids. Prefer songs that haven't been played or queued; only repeat a song "
             "once every song has played, starting with the one played longest ago.\n"
+            "Keep the tempo flowing: step to nearby BPMs (or half/double time), and build energy gradually "
+            "unless the vibe asks for a change.\n"
             f"Pick {count} songs."
         )
         # Songs already queued or played, by the "artist - title" label the page uses.
         label = lambda s: f"{clean(s.get('artist', ''), 80)} - {clean(s.get('title', ''), 120)}".lower()
         used = {clean(t, 200).lower() for t in [*request.get("queued", []), *request.get("played", [])]}
-        unused = [s for s in library.values() if label(s) not in used]
+        # Fill-ins (when Gemini comes up short) start with the closest tempo to what's playing.
+        playing = next((s for s in library.values() if label(s) == clean(request.get("nowPlaying") or "", 200).lower()), None)
+        unused = sorted(
+            (s for s in library.values() if label(s) not in used),
+            key=lambda s: tempo_gap(bpm(playing), bpm(s)),
+        )
 
         def entry(song, reason, intro):
             return {
