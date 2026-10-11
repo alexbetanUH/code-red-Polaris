@@ -156,6 +156,7 @@ AirMix lives at `ai-dj.html`. DJ Deck (`index.html`) exposes AI DJ tools through
 - `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform, effects)
 - `frame.js`: WebGL visual inside the shape between both hands' thumb and index tips
 - `bubble-particles.js`: bubbles emitted from the portal, floating outside its edges
+- `club.html`, `club.js`: the preserved 3D Club demo from `disco-ui`, with a reactive dance floor, lights and camera LED wall. It is separate from the current Aero DJ Deck; its Club view toggle hides the demo camera panel while tracking continues.
 - `ai-dj.html`, `aiDeck.js`: AirMix, with the same hand tracking and a frozen copy of `audio.js`, so changes to
   `index.html` or `audio.js` can't break it
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ, AirMix sets)
