@@ -58,8 +58,9 @@ ahead), and a DJ voice speaks up over the mix when the genre switches (and at th
 Tempo and downbeats are detected from the audio (`analyzeTempo` in `mix-audio.js`) and checked against the library's
 BPM. The browser console logs each mix.
 
-**Short mixes** (on by default, a checkbox under the DJ) mix each song out after about 75 s, at the start of a
-phrase, so a demo hears several transitions. The camera view shows what's up next, when the DJ mixes into it and
+**Short mixes** (on by default, a checkbox under the DJ) bring each song in where it first gets going (skipping a
+quiet intro) and mix it out after about 20 s, in whole phrases, with shorter blends: a one-minute demo hears several
+transitions. The camera view shows what's up next, when the DJ mixes into it and
 how (blend or echo out). Hand gestures steer the DJ (the right hand is best: the left one also sets the speed):
 
 | Gesture | Does |

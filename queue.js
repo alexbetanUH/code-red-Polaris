@@ -53,7 +53,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let downloads = [];
   // The song library: { id, artist, title, file: "music/<id>.m4a", available }.
   let library = [];
-  // short: short mixes (each song plays about 75 s), so a demo hears several transitions.
+  // short: short mixes (each song plays about 20 s from where it gets going), so a
+  // one-minute demo hears several transitions.
   const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true };
   const listeners = new Set();
 
@@ -211,9 +212,10 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let playChain = Promise.resolve();
 
   // mix: false, or { mixOutAt } to mix into the song (see transitions.mixInto).
-  function playItem(id, { mix = false } = {}) {
+  // entry: start where the song gets going (short mixes) instead of at 0.
+  function playItem(id, { mix = false, entry = false } = {}) {
     const request = ++playRequest;
-    playChain = playChain.then(() => (request === playRequest ? loadAndPlay(id, { mix, request }) : undefined));
+    playChain = playChain.then(() => (request === playRequest ? loadAndPlay(id, { mix, entry, request }) : undefined));
     return playChain;
   }
 
@@ -327,10 +329,10 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     try {
       const mixing = deck.playing && deck.buffer;
       const talks = djSpeaksBefore(item, mixing ? items.find((entry) => entry.id === currentId) : null);
-      if (mixing) {
-        await playItem(item.id, { mix: { mixOutAt } }); // resolves once the new song comes in
-        if (currentId !== item.id) return; // skipped or paused meanwhile
-      }
+      // Mix in from the playing song, or (nothing playing) just start, at the song's
+      // entry with short mixes. Either way the DJ talks over the music, not before it.
+      await playItem(item.id, mixing ? { mix: { mixOutAt } } : { entry: dj.short });
+      if (currentId !== item.id) return; // skipped or paused meanwhile
       if (talks) {
         dj.talking = true;
         changed();
@@ -340,7 +342,6 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         changed();
         await fadeTo(1, duckFadeMs);
       }
-      if (!mixing) await playItem(item.id);
     } finally {
       duck(1);
       dj.talking = false;
@@ -445,7 +446,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   }, 200);
 
   // mix: blend or echo into the song from the playing one (the DJ), instead of switching.
-  async function loadAndPlay(id, { mix = false, request } = {}) {
+  async function loadAndPlay(id, { mix = false, entry = false, request } = {}) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
     loadingId = id;
@@ -459,6 +460,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         const from = items.find((entry) => entry.id === currentId);
         const mixed = await transitions.mixInto(buffer, {
           mixOutAt: mix.mixOutAt,
+          short: dj.short,
           fromBpm: from?.bpm,
           toBpm: item.bpm,
           stillWanted: () => request === playRequest,
@@ -470,7 +472,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         transitions.cancel();
         deck.stopSource();
         deck.buffer = buffer;
-        deck.offset = 0;
+        deck.offset = entry ? transitions.entryPoint(buffer, true) : 0;
         deck.play();
       }
       currentId = id;
@@ -677,6 +679,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
           mixOutAt: transitions.mixOutPoint(deck.buffer, dj.short),
           fromBpm: current?.bpm,
           toBpm: next.bpm,
+          short: dj.short,
         });
       }
       if (dj.on && !transitioning) {
@@ -1020,7 +1023,7 @@ export function createQueuePanel(queue, deck) {
   });
   const djOptions = element("label", { className: "queuePanel-djOption" }, [
     shortToggle,
-    "Short mixes (about 75 s a song, so a demo hears more transitions)",
+    "Short mixes (about 20 s a song, from its best part: for demos)",
   ]);
   const downloadsList = element("ol", { className: "queuePanel-downloads", "aria-label": "Downloading" });
   const list = element("ol", { className: "queuePanel-list" });
@@ -1295,7 +1298,7 @@ export function createQueuePanel(queue, deck) {
         : (dj.status?.message ??
           (dj.on
             ? dj.short
-              ? "DJ on: it mixes into the next song after about 75 s. Swipe a hand to mix now."
+              ? "DJ on: it mixes into the next song after about 20 s. Swipe a hand to mix now."
               : "DJ on: it mixes into the next song as this one ends. Swipe a hand to mix now."
             : ""));
     shortToggle.checked = dj.short;
