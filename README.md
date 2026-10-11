@@ -79,12 +79,14 @@ how (blend or echo out).
 
 **Play the set**: the AI DJ page opens on a start screen (how to play in three pictures, then the camera and a check
 that it sees both hands, then the DJ picks the first song, then 3, 2, 1). The set is a rhythm game in the style of
-osu!, played with your fingertips. Each target is a shape of four dots: your left thumb and index fingertip (blue)
-and your right ones (green). Shapes fly in about 2 seconds before their beat, shrinking onto their place; have your
-fingertips on the dots as they land. One comes every beat or two, each joined to the next. Those fingertips are the
-DJ controls, so the chart is choreography: the right thumb-index gap is the filter (it narrows through a build-up and
-snaps open on the drop), the distance between your hands is the volume (wider on drops), and the speed stays at
-1.00× while you play. The mixes are part of the chart:
+osu!, played with your pinches. Each shape is a target circle per hand, with small marks inside for where your
+thumb and index fingertip go; a ring closes in on each circle, landing on the beat about 2 seconds after it shows
+up. One comes every beat or two, each joined to the next. The targets are the DJ controls, and they're worked out
+from your pinch calibration and how big your hand is right now: put your pinch in the circle with the gap the marks
+show and you really get that sound. The right pinch is the filter (open = filter off; it narrows through a build-up
+and snaps open on the drop), the distance between your hands is the volume (wider on drops), and the speed stays at
+1.00× while you play. A shape counts when both hands are in their circles and the right pinch is about as open as
+asked. The mixes are part of the chart:
 
 - **Choosing the next song**: a few bars ahead, the DJ's next songs come in as circles on the right, each with a
   balloon saying what it is and why. Your right index finger in one on its beat picks it; otherwise the DJ's pick plays.

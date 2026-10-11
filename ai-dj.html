@@ -496,6 +496,8 @@ function processHand(side, det, now) {
     mid: mid(pts[THUMB_TIP], pts[INDEX_TIP]),
     wristX: det.x,
     pinchRaw, pinch, pinched: s.pinched,
+    // Palm size in pixels, the scale the pinch is measured against (djGame.js sizes its targets with it).
+    palmPx: (dist3(px[0], px[5]) + dist3(px[0], px[9]) + dist3(px[0], px[17]) + dist3(px[5], px[17])) / 4,
     height, open, ext,
     pose: s.pose,
   };
@@ -763,7 +765,22 @@ $("transport").append(createTransport(queue, deck));
 
 // The set as a rhythm game over the camera view, plus its card in the rail (djGame.js).
 const stage = document.querySelector(".stage");
-const djGame = createDjGame(queue, { stage, camera: canvas, rail: $("djSet"), deck, startEnabled: false });
+const djGame = createDjGame(queue, {
+  stage,
+  camera: canvas,
+  rail: $("djSet"),
+  deck,
+  startEnabled: false,
+  // The pinch calibration and control ranges, so the game's targets mean real sounds.
+  controlMap: () => ({
+    pinchClosed: PINCH_CLOSED,
+    pinchOpen: PINCH_OPEN,
+    freqMin: FREQ_MIN,
+    freqMax: FREQ_MAX,
+    betweenClosed: BETWEEN_CLOSED,
+    betweenOpen: BETWEEN_OPEN,
+  }),
+});
 
 $("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it
