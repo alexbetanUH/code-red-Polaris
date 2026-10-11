@@ -23,7 +23,7 @@ More gestures, on the hand tracker page `index.html` (**DJ Deck** in the top bar
 | **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
 | A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
 
-Songs come from the same queue and library as the AI DJ page (**Queue** button; the up-next strip on the camera view shows what the AI DJ plays next).
+Songs come from the queue and the song library (**Queue** button; the up-next strip on the camera view shows what the AI DJ plays next).
 
 Keyboard test keys (no camera needed): `S` song mode, `←→` blend, `Enter` finish blend, `F` effects mode, `V` visuals mode, `1`–`5` pick, `↑↓` effect amount, `L` frame, `K` lock, `Esc` leave a mode.
 
@@ -37,7 +37,7 @@ python3 server.py
 
 If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
 
-Open http://localhost:8000 in Chrome (the landing page) and pick **AI DJ**, or go straight to http://localhost:8000/ai-dj.html. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
+Open http://localhost:8000 in Chrome (the landing page) and pick **DJ Deck**. Click **Start camera**, then **Calibrate pinch**. Click **Queue** and pick
 songs from the **Library** (▶ plays one now, + adds it, **Add all** queues them all), or let the AI DJ choose. Drag
 songs to reorder them. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to
 jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
@@ -77,28 +77,37 @@ quiet intro) and mix it out after about 20 s, in whole phrases, with shorter ble
 transitions. The camera view shows what's up next, when the DJ mixes into it and
 how (blend or echo out).
 
-**Play the set**: the AI DJ page opens on a start screen (how to play in three pictures, then the camera and a check
-that it sees both hands, then the DJ picks the first song, then 3, 2, 1). The set is a rhythm game in the style of
-osu!, played with your pinches. Each shape is four dots, two per hand: where your thumb (hollow) and index fingertip
-(filled) go. A ring closes in on each dot, landing on the beat about 2 seconds after it shows up. One comes every beat or two, each joined to the next. The targets are the DJ controls, and they're worked out
-from your pinch calibration and how big your hand is right now: put your fingertips on the dots, with the gap
-between them, and you really get that sound. The right pinch is the filter (open = filter off; it narrows through a build-up
-and snaps open on the drop), the distance between your hands is the volume (wider on drops), and the speed stays at
-1.00× while you play. A shape counts when both hands are on their dots and the right pinch is about as open as asked. The mixes are part of the chart:
+### AirMix
 
-- **Choosing the next song**: a few bars ahead, the DJ's next songs come in as circles on the right, each with a
-  balloon saying what it is and why. Your right index finger in one on its beat picks it; otherwise the DJ's pick plays.
+AirMix (`ai-dj.html`, on hold: not linked from the home page yet) is a single-player rhythm game in the style of
+osu!: you play a DJ set with your hands. It opens on **Pick your set**: tick 2–5 songs from the library in the
+order you want them (each pair shows whether it'll be a blend or a cut, and the last set is remembered). Then, the
+first time, how to play in three pictures, the camera and a check that it sees both hands; the set loads while
+you do that, then 3, 2, 1.
+
+Each shape is four dots, two per hand: where your thumb (hollow) and index fingertip (filled) go. A ring closes in on
+each dot, landing on the beat about 2 seconds after it shows up. One comes every beat or two, each joined to the next.
+The targets are the DJ controls, and they're worked out from your pinch calibration and how big your hand is right
+now: put your fingertips on the dots, with the gap between them, and you really get that sound. The right pinch is
+the filter (open = filter off; it narrows through a build-up and snaps open on the drop), the distance between your
+hands is the volume (wider on drops), and the speed stays at 1.00× while you play. A shape counts when both hands are
+on their dots and the right pinch is about as open as asked. The mixes into each next song of your set are part of
+the chart:
+
 - **Blends** (tempos close): your right thumb and index slide the new song in along a track (how far along you are is
-  its volume), then your left ones slide the old song out: it thins out (its high-pass sweeps up) as it goes, and its last beat is thrown into an echo. If you don't follow, the AI moves the music along for you.
+  its volume), then your left ones slide the old song out: it thins out (its high-pass sweeps up) as it goes, and its
+  last beat is thrown into an echo. If you don't follow, the music moves along anyway.
 - **Cuts** (tempos far apart): one shape on the downbeat; the new song slams in and the old one is thrown into an echo.
 
 Shapes hit within about 160 ms of the beat are Perfect, within 320 ms Good, and you hear them: each hit claps on its
 beat and every 10 in a row sounds the air horn. Slides have a tick on every beat: each one your fingers are on
-clicks and keeps the combo going, and the slide is graded on how many held. Your combo and accuracy show in the corner and
-the Set card, and how well you play is the crowd's hype, which the DJ hears about when it picks the next songs. Your
-filter and volume stay live (the volume holds still only during a mix's slides); with nobody in frame nothing counts
-as a miss. Untick **Play the set** in the Set card for plain pinch controls; without the camera the DJ mixes by itself. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
-looping. You can still drag, remove or ▶ anything (those switch instantly).
+clicks and keeps the combo going, and the slide is graded on how many held. Your combo shows in the corner; the
+Your set card shows the set (played, playing, to come), the crowd's hype and your accuracy. With nobody in frame
+nothing counts as a miss. The last song fades out where it would have been mixed out, and the results come up
+(grade, score, accuracy, best combo, Perfect / Good / Miss) with **Play again** and **New set**.
+
+The AI doesn't pick anything in AirMix; it only talks: with an ElevenLabs key, a DJ voice opens the set, calls out
+genre switches and your result. Without a key it stays quiet.
 
 It needs API keys. The easy way: copy `.env.example` to `.env` and put your keys in it; `server.py` reads it every
 time it starts (`.env` is gitignored, so the keys never get pushed). Or set them in the terminal before starting the
@@ -114,7 +123,6 @@ library songs by genre and tempo, and says so. The server prints whether Gemini 
 `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, 500 free requests a day) and `ELEVENLABS_VOICE_ID`.
 The server only answers this computer, so nobody on the venue Wi-Fi can spend your API credits (set
 `AIRDECK_HOST=0.0.0.0` to open it up), and only AirDeck's own pages may call its API.
-The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ**), which opens with the DJ ready.
 `index.html` is the plain hand tracker, with the same queue as its music source.
 
 ### Files
@@ -123,12 +131,12 @@ The AI DJ has its own page, `ai-dj.html` (the landing page's **Talk to the AI DJ
   modes (fist zones for effects and visuals; lock zone; easter eggs)
 - `audio.js`: its audio engine (load, play/pause, speed, filter, volume, waveform, effects)
 - `frame.js`: WebGL visual inside the shape between both hands' thumb and index tips
-- `ai-dj.html`, `aiDeck.js`: the AI DJ page, with the same hand tracking and a frozen copy of `audio.js`, so
-  changes to `index.html` or `audio.js` can't break it
-- `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
+- `ai-dj.html`, `aiDeck.js`: AirMix, with the same hand tracking and a frozen copy of `audio.js`, so changes to
+  `index.html` or `audio.js` can't break it
+- `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ, AirMix sets)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
-- `djGame.js`: the set as a rhythm game: the chart, hits and their sounds, the playable mixes, pause, the Set card
-- `djStart.js`: the AI DJ's start screen: how to play, camera and hand check, loading, 3-2-1
+- `djGame.js`: AirMix's game: the chart, hits and their sounds, the playable mixes, the set's end, the Your set card
+- `djStart.js`: AirMix's screens: pick your set, how to play, camera and hand check, loading, 3-2-1, results
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 - `tests/tracking.cjs`: `node tests/tracking.cjs` runs the hand tracking / gesture mode tests

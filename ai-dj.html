@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AirDeck · AI DJ</title>
+<title>AirDeck · AirMix</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="aero.css">
 <style>
-  /* AI DJ page: the shared Aero look (aero.css) in the sunset world.
+  /* AirMix page (the DJ-set rhythm game): the shared Aero look (aero.css) in the sunset world.
      Card styles adapted from Carlos's white-glass version of this page (club.html).
      queue.js reads --panel, --border, --bg, --text, --muted, --left, --between. */
   :root {
@@ -85,12 +85,6 @@
   .left .control { color: #0a6bc0; }
   .right .control { color: #3f8f17; }
   .between .control { color: #c35f08; }
-  .song h2 { align-items: center; }
-  .song h2 button { min-height: 34px; padding: 0 14px; font-size: 13px; text-transform: none; letter-spacing: 0; }
-  #queueCount {
-    display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px;
-    background: rgba(255,255,255,.85); color: #3d1800; font-size: 11px; text-align: center; text-shadow: none;
-  }
   #songStatus { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
   #songStatus.error { color: #b3261e; }
   .song .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
@@ -119,12 +113,11 @@
 
   <aside>
     <div class="card glass song">
-      <h2><span>Song</span><button id="queueBtn" class="sun" data-queue-toggle>Queue <span id="queueCount">0</span></button></h2>
-      <div id="transport"></div>
-      <div id="songStatus">Open the queue to pick songs from the library or start the AI DJ.</div>
+      <h2><span>Song</span></h2>
+      <div id="songStatus">Pick your songs to start.</div>
     </div>
     <div id="djSet" style="display: contents"></div>
-    <!-- The per-hand debug readouts stay out of the AI DJ's rail (they still update, hidden). -->
+    <!-- The per-hand debug readouts stay out of AirMix's rail (they still update, hidden). -->
     <div id="cards" hidden></div>
     <div class="card glass between">
       <h2><span><span class="side">●</span> Between hands · volume</span></h2>
@@ -138,7 +131,7 @@
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./aiDeck.js";
-import { createQueue, createQueuePanel, createTransport } from "./queue.js";
+import { createQueue } from "./queue.js";
 import { createDjGame } from "./djGame.js";
 import { createStartScreen } from "./djStart.js";
 
@@ -755,13 +748,11 @@ function updateFps(now) {
   }
 }
 
-// ---- Song + queue -------------------------------------------------------------------
-// Songs are added, ordered and picked in the queue panel (queue.js); the player
-// bar (progress, ⏮ ⏯ ⏭) shows here and at the top of the panel.
+// ---- The set -------------------------------------------------------------------------
+// You pick the set on the start screen (djStart.js); the queue (queue.js) plays exactly
+// those songs, and the game (djGame.js) is how you mix them.
 const songStatus = $("songStatus");
 const queue = createQueue(deck);
-const queuePanel = createQueuePanel(queue, deck);
-$("transport").append(createTransport(queue, deck));
 
 // The set as a rhythm game over the camera view, plus its card in the rail (djGame.js).
 const stage = document.querySelector(".stage");
@@ -780,24 +771,20 @@ const djGame = createDjGame(queue, {
     betweenClosed: BETWEEN_CLOSED,
     betweenOpen: BETWEEN_OPEN,
   }),
+  onSetEnd: (results) => {
+    screens.results(results);
+    queue.say(`That's the set! ${Math.round(results.accuracy * 100)} percent, best combo ${results.best}. Make some noise!`);
+  },
 });
 
-$("queueBtn").addEventListener("click", () => {
-  deck.ensureContext(); // create audio inside the click so the browser allows it
-  queuePanel.toggle();
-});
-
-// The first song loads the moment the page opens (while you read the start screen and
-// check the camera), so the set starts the instant you're ready. The DJ picks the rest.
-queue.libraryReady().then(() => {
-  const first = queue.getState().library.find((song) => song.available);
-  if (first && !queue.getState().items.length) queue.addFromLibrary(first.id, { autoplay: false });
-});
-
-// The start screen: how to play, the camera and a hand check, the first song, 3-2-1.
-createStartScreen(stage, {
+// The screens: pick your set, how to play and the camera (first time), 3-2-1, results.
+const screens = createStartScreen(stage, {
+  library: async () => {
+    await queue.libraryReady();
+    return queue.getState().library;
+  },
   startCamera: async () => {
-    deck.ensureContext(); // inside the Start click, so the browser allows sound
+    deck.ensureContext(); // inside a click, so the browser allows sound
     try {
       await modelReady;
     } catch {
@@ -806,8 +793,10 @@ createStartScreen(stage, {
     return video.srcObject ? true : startCamera();
   },
   handSeen: (side) => performance.now() - sides[side].lastSeen < 300,
-  prepare: async () => {
-    queue.startDj("", { wait: true });
+  prepare: async (ids) => {
+    deck.ensureContext(); // the Play click
+    djGame.reset();
+    await queue.playSet(ids);
     await queue.readyToStart();
   },
   begin: () => {
@@ -816,15 +805,14 @@ createStartScreen(stage, {
   },
 });
 
-// Keep the song card's count and status line in step with the queue.
+// Keep the song card's status line in step with the queue.
 function updateSongCard() {
   const { items, downloads, status, dj } = queue.getState();
-  $("queueCount").textContent = items.length;
   const active = downloads.filter((download) => download.stage !== "failed");
-  const idle = items.length ? "" : "Open the queue to pick songs from the library or start the AI DJ.";
+  const idle = items.length ? "" : "Pick your songs to start.";
   songStatus.textContent =
     status?.message ??
-    (dj.talking ? "🎙 The DJ is on the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
+    (dj.talking ? "🎙 On the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);
   songStatus.classList.toggle("error", Boolean(status?.isError));
 }
 queue.on(updateSongCard);

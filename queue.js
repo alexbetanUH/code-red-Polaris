@@ -55,7 +55,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let library = [];
   // short: short mixes (each song plays about 20 s from where it gets going), so a
   // one-minute demo hears several transitions.
-  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true, crowd: null };
+  const dj = { on: false, set: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true, crowd: null };
   const listeners = new Set();
 
   const changed = () => {
@@ -292,6 +292,14 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // ---- AI DJ ----------------------------------------------------------------------
 
+  // An AirMix set's DJ line for a song (spoken as it comes in, if the genre changed).
+  function setLine(song, previous) {
+    const name = `${song.title} by ${song.artist}`;
+    if (!previous) return `Welcome to AirMix! Hands up. First up: ${name}.`;
+    const genre = (song.genre ?? "").split("/")[0].trim();
+    return genre ? `Switching it up, ${genre} time: ${name}!` : `Next up: ${name}!`;
+  }
+
   // The ElevenLabs clip's URL for a DJ line, or null to fall back to the browser's voice.
   async function prepareVoice(text) {
     try {
@@ -320,6 +328,14 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     return before.length > 0 && after.length > 0 && !after.some((genre) => before.includes(genre));
   }
 
+  // Whether a line will actually be heard: lines without the browser voice to fall back
+  // on (an AirMix set's) need their ElevenLabs clip, so the music isn't ducked for nothing.
+  async function canSpeak(item) {
+    if (item.dj?.browserVoice !== false) return true;
+    const late = new Promise((resolve) => setTimeout(() => resolve(null), voiceWaitMs));
+    return Boolean(await Promise.race([voiceFor(item), late]));
+  }
+
   // Plays a DJ line and resolves when it's done (or after a timeout).
   async function speak(item) {
     const intro = item.dj?.intro;
@@ -338,7 +354,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         audio.onended = done;
         audio.onerror = done;
         audio.play().catch(done);
-      } else if ("speechSynthesis" in window) {
+      } else if (item.dj.browserVoice !== false && "speechSynthesis" in window) {
         const line = new SpeechSynthesisUtterance(intro);
         line.onend = done;
         line.onerror = done;
@@ -362,7 +378,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       // entry with short mixes. Either way the DJ talks over the music, not before it.
       await playItem(item.id, mixing ? { mix: { mixOutAt, startAt, style, hands } } : { entry: dj.short });
       if (currentId !== item.id) return; // skipped or paused meanwhile
-      if (talks) {
+      if (talks && (await canSpeak(item))) {
         dj.talking = true;
         changed();
         await fadeTo(duckedVolume, duckFadeMs);
@@ -381,7 +397,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
 
   // Asks the DJ for more songs whenever fewer than djSongsAhead are queued.
   async function topUpDj() {
-    if (!dj.on || dj.busy || upcoming().length >= djSongsAhead) return;
+    if (!dj.on || dj.set || dj.busy || upcoming().length >= djSongsAhead) return;
     const generation = dj.generation;
     const stillValid = () => dj.on && dj.generation === generation;
     dj.busy = true;
@@ -528,7 +544,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       downloads,
       library,
       status,
-      dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status, short: dj.short },
+      dj: { on: dj.on, set: dj.set, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status, short: dj.short },
     }),
 
     // Fast-changing playback state for progress bars; read it every frame.
@@ -682,6 +698,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // wait: pick songs but don't start playing; the page calls beginSet() when it's ready.
     startDj(vibe = "", { wait = false } = {}) {
       dj.on = true;
+      dj.set = false;
       dj.vibe = vibe.trim();
       dj.generation += 1;
       dj.waitToStart = wait;
@@ -710,8 +727,52 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     },
 
 
+    // AirMix: a set of library songs (ids, in order) your hands play through. The queue
+    // becomes exactly that set and the mixes work as with the DJ, but nothing gets picked:
+    // the AI only talks (ElevenLabs, if there's a key; otherwise it stays quiet) as the set
+    // starts and when the genre changes. The first song starts decoding right away; call
+    // beginSet() to play it.
+    async playSet(ids) {
+      await queue.libraryReady();
+      playRequest += 1; // any load still running is stale now
+      transitions.cancel();
+      deck.stopSource();
+      currentId = null;
+      Object.assign(dj, { on: true, set: true, vibe: "", busy: false, waitToStart: true, status: null });
+      dj.generation += 1;
+      const songs = ids.map((id) => library.find((song) => song.id === id)).filter(Boolean);
+      const entries = await Promise.all(songs.map((song) => libraryEntry(song, "AirMix set")));
+      items = [];
+      entries.forEach((entry, index) => {
+        const intro = setLine(songs[index], songs[index - 1]);
+        add({ ...entry, dj: { intro, voice: null, reason: null, browserVoice: false } }, { autoplay: false });
+      });
+      prefetch();
+    },
+
+    // Ends a set: the last song fades out, muffling as it goes, then stops (the queue
+    // keeps the set). Resolves once it's quiet.
+    async endSet(ms = 3000) {
+      dj.on = false;
+      dj.set = false;
+      if (deck.filter) deck.filter.frequency.setTargetAtTime(300, deck.ctx.currentTime, ms / 3000);
+      await fadeTo(0, ms);
+      transitions.cancel();
+      deck.stopSource();
+      currentId = null;
+      duck(1);
+      if (deck.filter) deck.filter.frequency.setTargetAtTime(20000, deck.ctx.currentTime, 0.05);
+      changed();
+    },
+
+    // Says a line in the DJ's voice (ElevenLabs only; quiet without a key).
+    say(text) {
+      return speak({ dj: { intro: text, voice: null, browserVoice: false } });
+    },
+
     stopDj() {
       dj.on = false;
+      dj.set = false;
       dj.generation += 1;
       dj.busy = false;
       setDjStatus(null);

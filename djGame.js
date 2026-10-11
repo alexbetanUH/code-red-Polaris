@@ -1,4 +1,4 @@
-// The AI DJ as a rhythm game played with your fingertips on the camera view.
+// AirMix: a DJ set as a rhythm game, played with your fingertips on the camera view.
 //
 // Each target is a shape of four dots: your left thumb and index fingertip (blue) and
 // your right thumb and index fingertip (green). Shapes fly in about 2 seconds before
@@ -13,10 +13,7 @@
 // Hitting the shapes is how a good DJ would move right then; your hands really set the
 // filter and volume, so missing them sounds like it.
 //
-// The mixes are part of the chart:
-//   - Choose: the DJ's next songs come in as circles on the right with balloons saying
-//     what each is and why. Your right index finger in one on its beat picks it;
-//     otherwise the DJ's pick plays.
+// You pick the set before you play (queue.playSet); the mixes are part of the chart:
 //   - Blend (tempos close): your right thumb and index slide the new song in along a
 //     track, then your left ones slide the old song out. Not following? The AI does it.
 //   - Cut (tempos far apart): one shape on the downbeat; the new song slams in and the
@@ -25,8 +22,8 @@
 // Shapes hit within ~160 ms of the beat are Perfect, within ~320 ms Good: both hands in
 // place, and the right pinch about as open as the shape asks (that's the filter). Hits clap on their beat and every 10 in a row sounds the air
 // horn. Slides have a tick on every beat: each one your fingers are on clicks and keeps
-// the combo going. How well you play is the crowd's hype, which the DJ hears about when
-// it picks the next songs. With nobody in frame, nothing counts as a miss.
+// the combo going. How well you play is the crowd's hype. With nobody in frame, nothing
+// counts as a miss. The last song fades out at its end and onSetEnd gets your results.
 //
 // The page calls update() every camera frame with its hands (ai-dj.html's hand objects:
 // thumb and index = the fingertips in camera-canvas pixels, pose).
@@ -42,8 +39,7 @@ const pinchTolerance = 0.3; // and your right pinch this close to the target's (
 const followReach = 0.18; // fingertips within this of a slider's dots are following it
 const gapBars = { short: 2, full: 4 }; // the new song's slide
 const outBars = 2; // the old song's slide
-const chooseBars = 4; // the choice lands this many bars before the mix (or as early as it can after the last one)
-const leadBars = 6; // a mix is planned at least this many bars ahead (2 to read the choice, 4 to the mix)
+const leadBars = 4; // a mix (or the set's end) is planned at least this many bars ahead
 const phraseBars = 4; // and moved on by whole phrases to get there
 const idleMs = 2000; // no hands this long: shapes are skipped, not missed
 const hypeWeight = 0.08; // how fast the crowd's hype follows your hits
@@ -63,14 +59,12 @@ const moves = {
 // The page's control mapping, used until the page tells us its own (see controlMap).
 const defaultControls = { pinchClosed: 0.05, pinchOpen: 0.9, freqMin: 150, freqMax: 10000, betweenClosed: 0.04, betweenOpen: 0.8 };
 const defaultPalm = 0.11; // a hand's palm size (as the page measures it) before we've seen it, in shares of the stage height
-const choiceSpots = [[0.86, 0.24], [0.86, 0.45], [0.86, 0.66]];
 const inPath = [[0.9, 0.24], [0.56, 0.6]]; // the right hand slides the new song in
 const outPath = [[0.44, 0.5], [0.08, 0.5]]; // the left hand slides the old song out
 const cutShape = { cx: 0.5, cy: 0.46, volume: moves.volume.drop, rightPinch: moves.filterOpen };
 
-const colors = { left: "#1e95e3", right: "#5cb82c", accent: "#f5861f", ink: "#1b1b1b", balloon: "#ffffe1" };
+const colors = { left: "#1e95e3", right: "#5cb82c", accent: "#f5861f" };
 const gameFont = '"Trebuchet MS", "Segoe UI", sans-serif'; // Windows XP's title-bar face
-const uiFont = 'Tahoma, "Segoe UI", sans-serif'; // and its interface face
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 // Small seeded random numbers, so a song's chart is the same every time it plays.
@@ -87,7 +81,9 @@ function seeded(text) {
 
 // controlMap: () => the page's pinch calibration and control ranges ({ pinchClosed,
 // pinchOpen, freqMin, freqMax, betweenClosed, betweenOpen }), read live.
-export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = true, controlMap = () => defaultControls }) {
+// onSetEnd(results): the set is over (its last song faded out): { score, perfect, good,
+// miss, best, accuracy (0-1) }.
+export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = true, controlMap = () => defaultControls, onSetEnd = () => {} }) {
   const canvas = document.createElement("canvas");
   canvas.className = "djGame";
   stage.append(canvas);
@@ -112,7 +108,8 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   let step = 0; // shapes so far in this song (the movement's position)
 
   let mix = null; // the next mix: planned on the playing song, then performed in real time
-  const score = { combo: 0, best: 0, hits: 0, judged: 0, points: 0, hype: 0.5 };
+  const freshScore = () => ({ combo: 0, best: 0, hits: 0, judged: 0, points: 0, hype: 0.5, perfect: 0, good: 0, miss: 0 });
+  const score = freshScore();
   const effects = [];
 
   // ---- geometry -------------------------------------------------------------------
@@ -198,6 +195,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     target.verdict = verdict;
     if (verdict === "skip") return;
     score.judged += 1;
+    score[verdict] += 1;
     if (verdict === "miss") {
       score.combo = 0;
     } else {
@@ -309,7 +307,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       const beats = quiet ? [0] : loud && beatSeconds >= 0.42 ? [0, 1, 2, 3] : [0, 2];
       for (const beat of beats) {
         const time = downbeat + (beat * bar) / 4;
-        if (quietAt(time)) continue; // the choice and the mix have their own targets
+        if (quietAt(time)) continue; // the mix has its own targets (and the set's end, none)
         // Every shape gets its whole approach (a new song's first ones too, after a mix).
         if (((time - playback.position) / playback.rate) * 1000 < approachMs(beatSeconds * 1000)) continue;
         let [cx, cy] = placement(pattern, step);
@@ -324,8 +322,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
           cy -= 0.08 * clamp01(progress); // and the shape rises with it
         }
         const pins = makeShape({ cx, cy, volume, rightPinch });
-        // While the song choice is up, the right hand is picking: the left hand keeps playing.
-        if (choosingAt(time)) delete pins.right;
         const key = `${playback.songId}:${k}:${beat}`;
         shapes.set(key, target(pins, { key, song: playback.songId, time, center: [cx, cy], drop: drop && beat === 0 }));
       }
@@ -338,11 +334,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   function quietAt(time) {
     return Boolean(mix) && time >= mix.cue - mix.bar / 2;
   }
-  // Song times the choice is up (its balloons fill the right side).
-  function choosingAt(time) {
-    return Boolean(mix) && mix.chooseAt !== null && time >= mix.chooseAt - 2 * mix.bar && time <= mix.chooseAt + mix.bar / 2;
-  }
-
   // Plans the next mix on the playing song (song seconds), or drops a stale plan.
   function planMix(playback) {
     if (mix && mix.song !== playback.songId && mix.state === "planned") mix = null;
@@ -356,33 +347,33 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     const short = queue.getState().dj.short;
     const gap = short ? gapBars.short : gapBars.full;
     const onBar = (time) => grid.first + Math.round((time - grid.first) / bar) * bar;
-    const barAfter = (time) => grid.first + Math.ceil((time - grid.first) / bar) * bar;
-    // The mix lands mixOut, but never sooner than leadBars from now (time to choose the
-    // song and see the first targets coming): a song that came in by your last mix has
+    // The mix lands mixOut, but never sooner than leadBars from now (time to see its
+    // first targets coming): a song that came in by your last mix has
     // already played those bars, so its mix moves on by whole phrases.
+    // The set's last song: it ends where it would have been mixed out (a little later,
+    // like a mix, if it came in late).
+    if (!queue.getUpNext()) {
+      let end = onBar(mixOut);
+      while (end < playback.position + leadBars * bar) end += phraseBars * bar;
+      mix = { song: playback.songId, state: "finale", bar, cue: Math.min(end, playback.duration - 1) };
+      return;
+    }
     let cue = onBar(mixOut - (gap + outBars) * bar);
     while (cue < playback.position + leadBars * bar) cue += phraseBars * bar;
     if (cue + (gap + outBars + 1) * bar > playback.duration) {
       queue.mixNow(); // no room left in this one: the AI mixes it
       return;
     }
-    // The choice: ideally chooseBars before the mix, at least 2 bars from now (time to
-    // read the balloons), and at least 2 bars before the mix (time to load the song).
-    // (3 bars, so the chosen song is loaded well before its first targets show up.)
-    const earliest = barAfter(playback.position + 2 * bar);
-    const chooseAt = earliest <= cue - 3 * bar ? Math.max(earliest, cue - chooseBars * bar) : null;
     mix = {
       song: playback.songId,
-      state: "planned", // → starting → blend | cut → landing → done
+      state: "planned", // → starting → blend | cut → landing → done (or "finale": the set ends at cue)
       bar,
       gap,
       cue,
-      chooseAt, // null: no time to choose, the DJ's pick plays
-      // When the mix is set up (it then waits for the cue): once the choice is made.
-      startAt: chooseAt !== null ? Math.min(chooseAt + bar / 2, cue - bar / 2) : Math.max(playback.position, cue - 2 * bar),
-      choices: null,
+      // When the mix is set up (it then waits for the cue).
+      startAt: Math.max(playback.position, cue - 2 * bar),
       // Blend or cut, from the songs' tempos in the library: known right away (before the
-      // chosen song has loaded), so the mix's targets can show up on time; the mix obeys it.
+      // next song has loaded), so the mix's targets can show up on time; the mix obeys it.
       style: styleOf(queue.getUpNext()?.item),
     };
   }
@@ -390,12 +381,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   function styleOf(item) {
     const choice = item && queue.getChoices().find((option) => option.item.id === item.id);
     return choice?.blends === false ? "cut" : "blend";
-  }
-
-  function offerChoices() {
-    const choices = queue.getChoices();
-    if (choices.length < 2) return;
-    mix.choices = choices.map((choice, index) => ({ spot: choiceSpots[index], choice }));
   }
 
   function startMix() {
@@ -499,6 +484,22 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     chartSong = null;
   }
 
+  // The set's over: the last song fades out, then the results.
+  function finishSet() {
+    finishMix();
+    enabled = false;
+    queue.holdControls({});
+    const results = {
+      score: Math.round(score.points * 100),
+      perfect: score.perfect,
+      good: score.good,
+      miss: score.miss,
+      best: score.best,
+      accuracy: score.judged ? score.points / score.judged : 0,
+    };
+    queue.endSet().then(() => onSetEnd(results));
+  }
+
   // ---- every camera frame ---------------------------------------------------------
 
   function update(input, now) {
@@ -532,30 +533,12 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       finishMix();
     }
     if (!mix) planMix(playback);
-    if (mix?.state === "planned") {
-      if (!mix.choices && mix.chooseAt !== null && playback.position >= mix.chooseAt - 2 * mix.bar) offerChoices();
-      if (playback.position >= mix.startAt) startMix();
-    }
+    if (mix?.state === "planned" && playback.position >= mix.startAt) startMix();
+    if (mix?.state === "finale" && playback.position >= mix.cue) return finishSet();
 
     // Shapes of the song (not during a mix: those wait until it's landed).
-    if (!mix || mix.state === "planned" || mix.state === "starting") chart(playback, 12);
+    if (!mix || mix.state === "planned" || mix.state === "starting" || mix.state === "finale") chart(playback, 12);
     for (const shape of shapes.values()) if (shape.song === playback.songId) track(shape, realAt(shape.time), now, present);
-    // The choice: the right index finger in one of the DJ's songs on its beat picks it.
-    if (mix?.choices && !mix.chosen) {
-      const when = realAt(mix.chooseAt);
-      const finger = tips.right?.index;
-      const picked =
-        finger && Math.abs(now - when) <= goodMs ? mix.choices.find((choice) => distance(finger, point(choice.spot)) <= size().height * reach * 1.6) : null;
-      if (picked) {
-        queue.chooseNext(picked.choice.item.id);
-        mix.chosen = picked;
-        mix.style = styleOf(picked.choice.item);
-        judge(picked, Math.abs(now - when) <= perfectMs ? "perfect" : "good", when, picked.spot);
-      } else if (now - when > goodMs) {
-        mix.chosen = mix.choices[0]; // the DJ's own pick stands
-        mix.style = styleOf(mix.chosen.choice.item);
-      }
-    }
     // The mix's own shapes (where the slides start, the cut).
     if (mix?.heads) for (const head of mix.heads) track(head, head.real, now, present);
   }
@@ -728,66 +711,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     fingerDots(pairAt([at.x / size().width, at.y / size().height], side), side, alpha, null, { solid: true });
   }
 
-  // A choice circle and its XP notification balloon.
-  function choiceCircle(p, progress, alpha) {
-    const r = dot() * 2;
-    context.save();
-    context.globalAlpha = alpha;
-    context.fillStyle = "rgba(255, 255, 255, 0.55)";
-    context.strokeStyle = colors.accent;
-    context.lineWidth = r * 0.2;
-    context.beginPath();
-    context.arc(p.x, p.y, r, 0, Math.PI * 2);
-    context.fill();
-    context.stroke();
-    if (progress < 1) {
-      context.lineWidth = r * 0.1;
-      context.beginPath();
-      context.arc(p.x, p.y, r * (1 + 1.4 * (1 - progress)), 0, Math.PI * 2);
-      context.stroke();
-    }
-    context.restore();
-  }
-  function balloon(p, title, detail, alpha) {
-    const pad = 8;
-    context.save();
-    context.globalAlpha = alpha;
-    context.font = `11px ${uiFont}`;
-    const detailWidth = detail ? context.measureText(detail).width : 0;
-    context.font = `bold 13px ${uiFont}`;
-    const width = Math.min(Math.max(context.measureText(title).width, detailWidth) + pad * 2, size().width * 0.34);
-    const height = detail ? 40 : 24;
-    const right = p.x - dot() * 2.6;
-    const x = right - width;
-    const y = p.y - height / 2;
-    context.fillStyle = colors.balloon;
-    context.strokeStyle = colors.ink;
-    context.lineWidth = 1;
-    context.beginPath();
-    context.roundRect(x, y, width, height, 6);
-    context.moveTo(right, p.y - 6);
-    context.lineTo(right + 9, p.y);
-    context.lineTo(right, p.y + 6);
-    context.fill();
-    context.stroke();
-    context.fillStyle = colors.balloon;
-    context.fillRect(right - 1, p.y - 5, 2, 10);
-    context.fillStyle = colors.ink;
-    context.textBaseline = "middle";
-    context.fillText(clip(title, width - pad * 2), x + pad, detail ? y + 13 : p.y);
-    if (detail) {
-      context.font = `11px ${uiFont}`;
-      context.fillText(clip(detail, width - pad * 2), x + pad, y + 28);
-    }
-    context.restore();
-  }
-  function clip(text, width) {
-    if (context.measureText(text).width <= width) return text;
-    let cut = text;
-    while (cut.length > 1 && context.measureText(`${cut}…`).width > width) cut = cut.slice(0, -1);
-    return `${cut}…`;
-  }
-
   function outlinedText(text, x, y, sizePx, color, alpha, align = "center") {
     context.save();
     context.globalAlpha = alpha;
@@ -824,21 +747,6 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     for (let i = 1; i < upcoming.length; i += 1) followPoints(upcoming[i - 1].pins, upcoming[i].pins, realAt(upcoming[i].time), now, beatMs);
     for (const shape of [...upcoming].reverse()) drawShape(shape.pins, realAt(shape.time), now, beatMs, { emphasis: shape.drop });
 
-    if (mix?.choices && !mix.chosen) {
-      const when = realAt(mix.chooseAt);
-      mix.choices.forEach((option, index) => {
-        const { choice } = option;
-        const title = choice.item.title.split(" - ").slice(1).join(" - ") || choice.item.title;
-        const artist = choice.item.title.split(" - ")[0];
-        const detail = [index === 0 ? "The DJ's pick" : artist, choice.reason].filter(Boolean).join(": ");
-        // Up 8 beats ahead (fading in over the first two), so there's time to read them.
-        const shown = clamp01((beatMs * 8 - (when - now)) / (beatMs * 2));
-        if (shown <= 0) return;
-        const p = point(option.spot);
-        balloon(p, title, detail, shown);
-        choiceCircle(p, clamp01(1 - (when - now) / approachMs(beatMs)), shown);
-      });
-    }
     if (mix && (mix.state === "planned" || mix.state === "starting")) {
       // The mix's first targets, drawn from the plan with their whole approach (the mix
       // itself is only set up just before its downbeat).
@@ -900,19 +808,19 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   }
   requestAnimationFrame(draw);
 
-  card.onToggle((on) => {
-    enabled = on;
-    if (!on) queue.holdControls({});
-  });
-  card.setChecked(enabled);
-
   return {
     update,
     // Turns the game on or off (the start screen turns it on at "Go").
     setEnabled(on) {
       enabled = on;
-      card.setChecked(on);
       if (!on) queue.holdControls({});
+    },
+    // A fresh start for a new set (or the same one again): score, chart and mix cleared.
+    reset() {
+      Object.assign(score, freshScore());
+      finishMix();
+      effects.length = 0;
+      wasActive = false;
     },
     // For debugging and tests: the score, the mix, and the next targets: their dots (stage
     // shares) and when (performance.now() ms).
@@ -923,14 +831,13 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
         .filter((shape) => shape.song === playback.songId && !shape.verdict)
         .map((shape) => ({ pins: shape.pins, dots: shape.dots, at: realAt(shape.time) }));
       for (const head of mix?.heads ?? []) if (!head.verdict) targets.push({ pins: head.pins, dots: head.dots, at: head.real });
-      const choices = mix?.choices && !mix.chosen ? { at: realAt(mix.chooseAt), spots: mix.choices.map((choice) => choice.spot) } : null;
       const slides = mix?.state === "blend" ? { right: [inPath, mix.comesIn, mix.swapAt], left: [outPath, mix.swapAt, mix.endAt] } : null;
-      return { score: { ...score }, mix: mix && { state: mix.state, style: mix.style, chosen: mix.chosen?.choice?.item.title ?? null, cueAt: realAt(mix.cue), comesIn: mix.comesIn ?? null }, targets: targets.sort((a, b) => a.at - b.at), choices, slides };
+      return { score: { ...score }, mix: mix && { state: mix.state, style: mix.style, cueAt: realAt(mix.cue), comesIn: mix.comesIn ?? null }, targets: targets.sort((a, b) => a.at - b.at), slides };
     },
   };
 }
 
-// The set card in the side rail: what's next and why, the crowd, and the score.
+// The set card in the side rail: your set (played, playing, to come), the crowd, the score.
 function buildCard(queue, rail) {
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -938,44 +845,34 @@ function buildCard(queue, rail) {
     if (text) node.textContent = text;
     return node;
   };
-  const title = element("strong", "djSet-next");
-  const why = element("p", "djSet-why");
+  const list = element("ol", "djSet-list");
+  const empty = element("p", "djSet-label", "Pick your songs to start.");
   const hype = element("div", "djSet-hype");
   const chunks = Array.from({ length: 12 }, () => hype.appendChild(element("span")));
   const combo = element("span");
   const accuracy = element("span");
   const stats = element("p", "djSet-stats");
   stats.append(combo, accuracy);
-  const toggle = element("input");
-  toggle.type = "checkbox";
-  toggle.checked = true;
-  const label = element("label", "djSet-toggle");
-  label.append(toggle, " Play the set: your hands do the mixes");
   const card = element("div", "card glass djSet");
-  card.append(element("h2", null, "Set"), title, why, element("p", "djSet-label", "Crowd"), hype, stats, label);
+  card.append(element("h2", null, "Your set"), list, empty, element("p", "djSet-label", "Crowd"), hype, stats);
   rail.append(card);
   addStyles();
 
   let last = "";
   return {
-    onToggle(listener) {
-      toggle.addEventListener("change", () => listener(toggle.checked));
-    },
-    setChecked(on) {
-      toggle.checked = on;
-    },
     render(score, enabled) {
-      const next = queue.getUpNext();
-      const shownNext = next ? next.item.title : queue.getState().dj.on ? "The DJ is picking…" : "Start the AI DJ in the queue";
-      const reason = next?.item.dj?.reason ?? "";
+      const { items, currentId } = queue.getState();
+      const playing = items.findIndex((item) => item.id === currentId);
       const lit = Math.round(score.hype * chunks.length);
       const accuracyText = score.judged ? `${Math.round((score.points / score.judged) * 100)}% accuracy` : "No hits yet";
-      const key = [shownNext, reason, lit, score.combo, accuracyText, enabled].join("|");
+      const key = [items.map((item) => item.id).join(","), playing, lit, score.combo, accuracyText, enabled].join("|");
       if (key === last) return;
       last = key;
-      title.textContent = shownNext;
-      why.textContent = reason;
-      why.hidden = !reason;
+      list.replaceChildren(
+        ...items.map((item, index) => element("li", index < playing ? "done" : index === playing ? "now" : "", item.title)),
+      );
+      list.hidden = !items.length;
+      empty.hidden = Boolean(items.length);
       chunks.forEach((chunk, index) => chunk.classList.toggle("on", index < lit));
       combo.textContent = `Combo ${score.combo}`;
       accuracy.textContent = accuracyText;
@@ -1066,8 +963,9 @@ function addStyles() {
   style.id = "djGame-styles";
   style.textContent = `
 .djGame { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
-.djSet .djSet-next { display: block; font-size: 15px; line-height: 1.3; }
-.djSet .djSet-why { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.djSet .djSet-list { margin: 0; padding: 0 0 0 20px; font-size: 13px; line-height: 1.5; }
+.djSet .djSet-list li.done { color: var(--muted); text-decoration: line-through; }
+.djSet .djSet-list li.now { font-weight: bold; color: #2b6fb8; }
 .djSet .djSet-label { margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
 /* The crowd meter: chunks, like the Windows XP progress bar. */
 .djSet .djSet-hype {
@@ -1077,7 +975,6 @@ function addStyles() {
 .djSet .djSet-hype span { height: 10px; border-radius: 1px; background: transparent; }
 .djSet .djSet-hype span.on { background: linear-gradient(#a6e98c, #37b029 45%, #2d9a22 55%, #6fd35a); }
 .djSet .djSet-stats { display: flex; justify-content: space-between; margin: 8px 0 0; font-size: 12px; font-variant-numeric: tabular-nums; }
-.djSet .djSet-toggle { display: flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .djSet.off .djSet-hype, .djSet.off .djSet-stats { opacity: 0.45; }`;
   document.head.append(style);
 }
