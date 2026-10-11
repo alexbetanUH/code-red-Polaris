@@ -137,7 +137,7 @@ console.log('PASS: simple right-hand effect height, full range below lock zone, 
 console.log(JSON.stringify({ ...(baseline ? {before: metrics(baseline)} : {}), after: metrics(path) }, null, 2));
 // A narrow visible shape stays visible through the hysteresis band; hidden shapes
 // need the larger entry area. Debug must retain the renderer's hide reason.
-e=boot(path);start(e);e.internal.drawFrame(1400);
+e=boot(path);start(e);e.run('visualFx="portal"');e.internal.drawFrame(1400);   // visuals start off; pick one
 for (const [area, visible] of [[.00000075,true],[.00000025,false],[.00000075,false],[.000002,true]]) {
   e.run(`shownCorners=null; frame.target=[{x:0,y:0},{x:128,y:0},{x:128,y:${area*7200}},{x:0,y:${area*7200}}];`);
   e.internal.drawFrame(1450);

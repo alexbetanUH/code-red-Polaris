@@ -950,7 +950,7 @@ const FX_LABELS = { reverb: "Reverb", echo: "Echo", bitcrush: "Bitcrush", flange
 const VIS_COLOR = "#a78bfa";
 const VIS_NAMES = ["portal", "color", "kaleido", "bubbles", "off"];   // 1-4 = effects, 5 = all off
 const VIS_LABELS = { portal: "Portal", color: "Color filter", kaleido: "Kaleidoscope", bubbles: "Bubble Aero", off: "All off" };
-let visualFx = "portal";
+let visualFx = "off";   // no visual until one is picked (a saved pick is restored)
 try { const saved = localStorage.getItem("airdeck-visual"); const v = saved === "pixel8" ? "bubbles" : saved; if (VIS_NAMES.includes(v)) visualFx = v; } catch {}
 function setVisual(name) {
   visualFx = name;
