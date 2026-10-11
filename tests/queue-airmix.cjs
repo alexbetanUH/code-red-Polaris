@@ -30,10 +30,12 @@ function setup({empty = false, failDecode = false, libraryFailures = 0} = {}) {
 (async()=>{
   const {queue, downloads} = setup();
   await queue.playSet(['second', 'first']);
-  assert.deepEqual(downloads, ['second', 'first']);
+  assert.deepEqual(downloads, [], 'nothing downloads until it is needed');
   assert.deepEqual(Array.from(queue.getState().items, item=>item.libraryId), ['second', 'first']);
   assert.equal(queue.getState().currentId, null, 'preparation waits for countdown');
   await queue.readyToStart();
+  assert.deepEqual(downloads, ['second'], 'the first song downloads before the countdown (the rest while the set plays)');
+  assert(queue.isReady(queue.getState().items[0].id), 'the first song is ready to play');
   await assert.rejects(setup({empty:true}).queue.libraryReady(), /library could not load/);
   const retry = setup({libraryFailures:2}).queue;
   await assert.rejects(retry.libraryReady(), /library could not load/);
@@ -42,5 +44,5 @@ function setup({empty = false, failDecode = false, libraryFailures = 0} = {}) {
   const failed = setup({failDecode:true}).queue;
   await failed.playSet(['first', 'second']);
   await assert.rejects(failed.readyToStart(), /bad audio/);
-  console.log('PASS: AirMix downloads uncached sets in order, waits to start, and surfaces library/decode failures');
+  console.log('PASS: AirMix downloads uncached songs when needed, waits to start, and surfaces library/decode failures');
 })().catch(error=>{console.error(error);process.exitCode=1});

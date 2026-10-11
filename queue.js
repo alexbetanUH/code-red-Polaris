@@ -179,8 +179,13 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let loadingId = null; // the song being loaded right now, kept even if it moves out of the window
   let hoveredId = null;
 
+  // Songs whose download or decoding failed: not retried in the background (asking to
+  // play one tries again).
+  const loadFailed = new Set();
+
   function decode(item) {
     if (!decoded.has(item.id)) {
+      loadFailed.delete(item.id);
       const promise = retryOnNetworkError(async () => {
         let data;
         if (item.defaultLibrary && !item.url) {
@@ -204,7 +209,10 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         if (decoded.get(item.id) === promise) ready.set(item.id, buffer);
         return buffer;
       });
-      promise.catch(() => decoded.delete(item.id));
+      promise.catch(() => {
+        decoded.delete(item.id);
+        loadFailed.add(item.id);
+      });
       decoded.set(item.id, promise);
     }
     return decoded.get(item.id);
@@ -216,7 +224,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     const wanted = index === -1 ? items.slice(0, 1) : items.slice(Math.max(0, index - 1), index + 2);
     const hovered = items.find((item) => item.id === hoveredId);
     if (hovered) wanted.push(hovered);
-    wanted.forEach(decode);
+    wanted.filter((item) => !loadFailed.has(item.id)).forEach(decode);
     const keep = new Set(wanted.map((item) => item.id));
     for (const id of decoded.keys()) {
       if (!keep.has(id) && id !== loadingId) {
@@ -718,7 +726,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       if (!library.length) throw new Error("The song library could not load. Check the local server and try again.");
     },
 
-    // Resolves once the DJ's first song is picked and decoded, so it can start instantly.
+    // Resolves once the DJ's first song is picked and decoded, so it can start instantly
+    // (rejects if it couldn't be loaded, say its download failed).
     async readyToStart() {
       while (!items.length) await new Promise((resolve) => setTimeout(resolve, 200));
       await decode(items[0]);
@@ -735,8 +744,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     // AirMix: a set of library songs (ids, in order) your hands play through. The queue
     // becomes exactly that set and the mixes work as with the DJ, but nothing gets picked:
     // the AI only talks (ElevenLabs, if there's a key; otherwise it stays quiet) as the set
-    // starts and when the genre changes. The first song starts decoding right away; call
-    // beginSet() to play it.
+    // starts and when the genre changes. A song not in music/ yet downloads when it's
+    // needed (the first one right away, each next one while the one before plays), as in
+    // the DJ Deck's default queue. Call beginSet() to play it.
     async playSet(ids) {
       await queue.libraryReady();
       playRequest += 1; // any load still running is stale now
@@ -746,11 +756,21 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       Object.assign(dj, { on: true, set: true, vibe: "", busy: false, waitToStart: true, status: null });
       dj.generation += 1;
       const songs = ids.map((id) => library.find((song) => song.id === id)).filter(Boolean);
-      const entries = await Promise.all(songs.map((song) => libraryEntry(song, "AirMix set")));
       items = [];
-      entries.forEach((entry, index) => {
-        const intro = setLine(songs[index], songs[index - 1]);
-        add({ ...entry, dj: { intro, voice: null, reason: null, browserVoice: false } }, { autoplay: false });
+      songs.forEach((song, index) => {
+        add(
+          {
+            title: `${song.artist} - ${song.title}`,
+            detail: "AirMix set",
+            libraryId: song.id,
+            bpm: song.bpm,
+            genre: song.genre,
+            defaultLibrary: true, // decode() downloads it if it isn't in music/
+            url: song.available ? song.file : null,
+            dj: { intro: setLine(song, songs[index - 1]), voice: null, reason: null, browserVoice: false },
+          },
+          { autoplay: false },
+        );
       });
       prefetch();
     },
@@ -768,6 +788,15 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       duck(1);
       if (deck.filter) deck.filter.frequency.setTargetAtTime(20000, deck.ctx.currentTime, 0.05);
       changed();
+    },
+
+    // Whether a queued song is downloaded and decoded, ready to play or mix into at once.
+    isReady(id) {
+      return ready.has(id);
+    },
+    // Whether a queued song's download or decoding failed.
+    loadFailed(id) {
+      return loadFailed.has(id);
     },
 
     // Says a line in the DJ's voice (ElevenLabs only; quiet without a key).
