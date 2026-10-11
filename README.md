@@ -19,10 +19,11 @@ More gestures (turn the basic controls off with the **Basic controls** button if
 |---|---|
 | Right fist in the **right-side zone**, then 1–5 fingers on the left hand | Choose a song slot; it applies when the fist leaves the zone. If a song is already playing, the new one queues on the next beat and you blend with your hands: **left hand height** = crossfade, **right hand height** = filter sweep + echo on the old song |
 | Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; hand height sets the amount |
-| Both hands as an **L** (thumb + index out) | A window between your hands with a video effect (8-bit, glitch, wave or kaleidoscope, following the latest audio effect) |
+| Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: Portal (swirling lens), Color filter (neon palette), Glitch, Kaleidoscope, 8-bit |
+| Both hands as an **L** (thumb + index out) | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
 | A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
 
-Keyboard test keys (no camera needed): `S` song mode, `F` effects mode, `1`–`5` pick, `←→` blend, `↑↓` amount / sweep, `L` frame, `K` lock, `Esc` leave a mode.
+Keyboard test keys (no camera needed): `S` song mode, `F` effects mode, `V` visuals mode, `1`–`5` pick, `←→` blend, `↑↓` amount / sweep, `L` frame, `K` lock, `Esc` leave a mode.
 
 ### Run it
 

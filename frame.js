@@ -28,9 +28,10 @@ precision mediump float;
 uniform sampler2D u_tex;
 uniform vec2 u_res;
 uniform vec2 u_center; // quad center in pixels
+uniform float u_radius; // average distance from the center to the corners, in pixels
 uniform float u_time;  // seconds
 uniform float u_bass;  // 0..1
-uniform int u_fx;      // 0 pixel8, 1 glitch, 2 wave, 3 kaleido
+uniform int u_fx;      // 0 pixel8, 1 glitch, 2 wave, 3 kaleido, 4 portal, 5 color filter
 varying vec2 v_px;
 varying vec2 v_local;
 
@@ -70,7 +71,7 @@ void main() {
     vec2 q = p + vec2(sin(p.y * 0.035 + u_time * 3.0),
                       sin(p.x * 0.03 + u_time * 2.4)) * amp;
     col = cam(q);
-  } else {
+  } else if (u_fx == 3) {
     // kaleidoscope: fold angle into mirrored segments around the center
     vec2 d = p - u_center;
     float r = length(d);
@@ -80,6 +81,34 @@ void main() {
     float zoom = 1.0 + 0.25 * s;
     vec2 q = u_center + vec2(cos(a), sin(a)) * r / zoom;
     col = cam(q);
+  } else if (u_fx == 4) {
+    // portal: a swirling lens. The picture twists tighter toward the middle, rings ripple outward,
+    // colors split a little near the rim, and the edge glows.
+    vec2 d = p - u_center;
+    float rad = max(u_radius, 1.0);
+    float r = clamp(length(d) / rad, 0.0, 1.4);          // 0 at the middle, ~1 at the corners
+    float twist = (1.0 - smoothstep(0.0, 1.1, r)) * (1.6 + 2.4 * s) * sin(u_time * 0.7 + 0.6);
+    float ang = atan(d.y, d.x + 1e-5) + twist;
+    float ripple = sin(r * 18.0 - u_time * 4.0) * (3.0 + 7.0 * s) * (1.0 - r * 0.5);
+    float len = length(d) * (0.45 + 0.55 * r) + ripple;   // lens: the middle is magnified
+    vec2 dir = vec2(cos(ang), sin(ang));
+    vec2 q = u_center + dir * len;
+    float split = (2.0 + 9.0 * s) * r;
+    col = vec3(cam(q + dir * split).r, cam(q).g, cam(q - dir * split).b);
+    col *= 0.75 + 0.25 * smoothstep(0.0, 0.5, r);           // a touch darker in the very middle
+    float rim = smoothstep(0.65, 1.05, r);
+    col += vec3(0.35, 0.15, 0.85) * rim * (0.55 + 0.6 * s); // purple glow at the edge
+  } else {
+    // color filter: map brightness to a neon palette (deep violet → hot pink → cyan → white) that drifts with time
+    vec3 c = cam(p);
+    float l = dot(c, vec3(0.299, 0.587, 0.114));
+    l = clamp(l * (1.0 + 0.5 * s) + 0.08 * sin(u_time * 1.5), 0.0, 1.0);
+    vec3 c0 = vec3(0.05, 0.0, 0.25);
+    vec3 c1 = vec3(0.95, 0.12, 0.62);
+    vec3 c2 = vec3(0.1, 0.9, 1.0);
+    vec3 c3 = vec3(1.0, 0.98, 0.9);
+    vec3 m = l < 0.4 ? mix(c0, c1, l / 0.4) : (l < 0.75 ? mix(c1, c2, (l - 0.4) / 0.35) : mix(c2, c3, (l - 0.75) / 0.25));
+    col = mix(c, m, 0.92);
   }
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0); // opaque, so premultiplied is the same
 }`;
@@ -106,7 +135,7 @@ precision mediump float;
 uniform vec4 u_color;
 void main() { gl_FragColor = u_color; }`;
 
-const EFFECTS = { pixel8: 0, glitch: 1, wave: 2, kaleido: 3 };
+const EFFECTS = { pixel8: 0, glitch: 1, wave: 2, kaleido: 3, portal: 4, color: 5 };
 
 export class FrameFx {
   constructor() {
@@ -124,9 +153,11 @@ export class FrameFx {
 
   _init() {
     this.ok = false;
+    this.dirty = true;
+    this.texW = this.texH = 0;   // forces a fresh texture allocation (also after a context restore)
     try {
       const gl = this.canvas.getContext("webgl", {
-        alpha: true, premultipliedAlpha: true, antialias: true, preserveDrawingBuffer: false,
+        alpha: true, premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: false, powerPreference: "high-performance",
       });
       if (!gl) return;
       this.gl = gl;
@@ -141,6 +172,7 @@ export class FrameFx {
         res: gl.getUniformLocation(this.fxProg, "u_res"),
         tex: gl.getUniformLocation(this.fxProg, "u_tex"),
         center: gl.getUniformLocation(this.fxProg, "u_center"),
+        radius: gl.getUniformLocation(this.fxProg, "u_radius"),
         time: gl.getUniformLocation(this.fxProg, "u_time"),
         bass: gl.getUniformLocation(this.fxProg, "u_bass"),
         mode: gl.getUniformLocation(this.fxProg, "u_fx"),
@@ -210,8 +242,14 @@ export class FrameFx {
   }
 
   // Make the canvas fully transparent.
+  // Public clear: does nothing if the canvas is already empty (saves a GPU clear on every idle frame)
   clear() {
-    if (!this.ok) return;
+    if (!this.ok || !this.dirty) return;
+    this._clear();
+    this.dirty = false;
+  }
+
+  _clear() {
     const gl = this.gl;
     gl.viewport(0, 0, this.w, this.h);
     gl.clearColor(0, 0, 0, 0);
@@ -223,12 +261,24 @@ export class FrameFx {
   render(video, quad, effect, bass = 0, timeMs = 0) {
     if (!this.ok) return;
     const gl = this.gl;
-    this.clear();
+    this._clear();
+    this.dirty = true;
     if (!quad || quad.length < 4 || !video || video.readyState < 2) return;
 
     try {
       gl.bindTexture(gl.TEXTURE_2D, this.tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+      const vw = video.videoWidth || video.width, vh = video.videoHeight || video.height;
+      // render() may run at screen rate (60 fps) while the camera gives ~30 frames a second: skip re-uploading the same frame
+      const stamp = video.tagName === "VIDEO" ? video.currentTime : null;
+      if (stamp !== null && stamp === this.lastStamp && this.texW === vw && this.texH === vh) {
+        // same camera frame as last time, the texture is already up to date
+      } else if (this.texW === vw && this.texH === vh) {
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, video);   // same size: update in place (faster)
+      } else {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+        this.texW = vw; this.texH = vh;
+      }
+      this.lastStamp = stamp;
     } catch (e) {
       return; // video not ready yet
     }
@@ -255,6 +305,8 @@ export class FrameFx {
     gl.uniform1i(this.fx.tex, 0);
     gl.uniform2f(this.fx.res, this.w, this.h);
     gl.uniform2f(this.fx.center, center.x, center.y);
+    gl.uniform1f(this.fx.radius, (Math.hypot(a.x - center.x, a.y - center.y) + Math.hypot(b.x - center.x, b.y - center.y) +
+      Math.hypot(c.x - center.x, c.y - center.y) + Math.hypot(d.x - center.x, d.y - center.y)) / 4);
     gl.uniform1f(this.fx.time, timeMs / 1000);
     gl.uniform1f(this.fx.bass, Math.max(0, Math.min(1, bass)));
     gl.uniform1i(this.fx.mode, EFFECTS[effect] !== undefined ? EFFECTS[effect] : 0);

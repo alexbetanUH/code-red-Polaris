@@ -76,7 +76,10 @@ export class Deck {
       for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
     }
     verb.buffer = imp;
-    fxIn.connect(verb);
+    // The convolver is the one expensive effect (long FFT convolution), so it is only wired in while reverb is on
+    this.fxIn = fxIn;
+    this.verb = verb;
+    this.verbLinked = false;
     addWet("reverb", verb);
 
     // echo: 3/8 s delay with feedback
@@ -131,6 +134,17 @@ export class Deck {
     const f = this.fx[name];
     if (!f || !this.ctx) return;
     this.wet[name].gain.setTargetAtTime(f.on ? f.amount : 0, this.ctx.currentTime, RAMP);
+    if (name === "reverb") {
+      clearTimeout(this.verbTimer);
+      if (f.on) {
+        if (!this.verbLinked) { this.fxIn.connect(this.verb); this.verbLinked = true; }
+      } else {
+        // after the wet level has faded out, stop feeding the convolver so it stops using CPU
+        this.verbTimer = setTimeout(() => {
+          if (!this.fx.reverb.on && this.verbLinked) { this.fxIn.disconnect(this.verb); this.verbLinked = false; }
+        }, 400);
+      }
+    }
   }
 
   setEffect(name, on) {

@@ -65,6 +65,11 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def end_headers(self):
+        # Always revalidate files, so edits show up on a normal reload (no stale cached scripts)
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_POST(self):
         if self.path != "/api/youtube":
             return self.send_json(404, {"error": "not found"})
