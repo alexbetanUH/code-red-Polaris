@@ -13,7 +13,10 @@
 
 const djSongsAhead = 2; // the DJ keeps this many songs queued after the current one
 const djPicksPerRequest = 3;
-const songEndMargin = 0.3; // seconds before the end at which the DJ moves on
+const songEndMargin = 0.3; // seconds before the end at which the DJ moves on (no intro)
+const introPadding = 0.5; // the intro starts this much earlier than its length, so it ends with the song
+const duckedVolume = 0.25; // the outgoing song's level while the DJ talks over it
+const duckFadeMs = 600;
 const voiceTimeoutMs = 15000; // never let a stuck voice line stall the set
 
 // Python's dev server sometimes resets the first request on a connection that sat
@@ -77,6 +80,27 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
 
   const upcoming = () => items.slice(items.findIndex((item) => item.id === currentId) + 1);
 
+  // The DJ talks over the end of a song with the music turned down. The hand
+  // controls set the volume every frame, so the duck level multiplies whatever they set.
+  const setDeckVolume = deck.setVolume.bind(deck);
+  let handVolume = 0.8; // audio.js's starting volume
+  let duckLevel = 1;
+  deck.setVolume = (volume) => {
+    handVolume = volume;
+    setDeckVolume(volume * duckLevel);
+  };
+  function duck(level) {
+    duckLevel = level;
+    setDeckVolume(handVolume * duckLevel);
+  }
+  async function fadeTo(level, ms) {
+    const from = duckLevel;
+    for (let step = 1; step <= 8; step += 1) {
+      duck(from + ((level - from) * step) / 8);
+      await new Promise((resolve) => setTimeout(resolve, ms / 8));
+    }
+  }
+
   // Decoding a song into raw audio takes about 3 s, so the current song and the
   // next one are kept decoded: Next (or the DJ moving on) starts instantly. Only
   // those two, since a decoded song is about 100 MB.
@@ -125,15 +149,30 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
 
   // ---- AI DJ ----------------------------------------------------------------------
 
-  // The ElevenLabs clip for a DJ line, or null to fall back to the browser's voice.
+  // The ElevenLabs clip for a DJ line and its length, or null to fall back to the browser's voice.
   async function prepareVoice(text) {
     if (!text) return null;
     try {
-      return (await postJson("/dj/voice", { text })).file;
+      const url = (await postJson("/dj/voice", { text })).file;
+      const seconds = await new Promise((resolve) => {
+        const audio = new Audio();
+        audio.preload = "metadata";
+        audio.onloadedmetadata = () => resolve(audio.duration);
+        audio.onerror = () => resolve(null);
+        setTimeout(() => resolve(null), 3000);
+        audio.src = url;
+      });
+      return { url, seconds };
     } catch (error) {
       console.warn("DJ voice unavailable, using the browser voice:", error.message);
       return null;
     }
+  }
+
+  // How long a song's intro takes: the clip's length, or a guess for the browser voice.
+  function introSeconds(item) {
+    if (!item.dj?.intro) return 0;
+    return item.dj.voiceSeconds ?? item.dj.intro.split(/\s+/).length / 2.7 + 0.4;
   }
 
   // Plays a DJ line and resolves when it's done (or after a timeout).
@@ -162,19 +201,23 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     });
   }
 
-  // Pauses, lets the DJ introduce the song, then plays it. One at a time.
+  // The DJ introduces the next song over the end of the current one (turned down),
+  // then the new song starts. Without an intro it's a straight switch. One at a time.
   async function transitionTo(item) {
     transitioning = true;
     transitionId = item.id;
     try {
-      dj.talking = Boolean(item.dj?.intro);
+      const talking = Boolean(item.dj?.intro);
+      dj.talking = talking;
       changed();
-      if (deck.playing) deck.pause();
       decode(item); // decodes while the DJ talks
+      if (talking && deck.playing) await fadeTo(duckedVolume, duckFadeMs);
+      else if (deck.playing) deck.pause();
       await speak(item);
       dj.talking = false;
-      await queue.play(item.id);
+      await queue.play(item.id); // stops the outgoing song and starts this one
     } finally {
+      duck(1);
       dj.talking = false;
       transitioning = false;
       transitionId = null;
@@ -198,23 +241,34 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
         played,
         count: djPicksPerRequest,
       });
-      for (const pick of picks) {
-        if (!stillValid()) break;
+      // All picks download (and get their voice line) at the same time; they join
+      // the queue in pick order, each as soon as it and the ones before it are ready.
+      setDjStatus(`Downloading ${picks.length} songs…`);
+      const jobs = picks.map((pick) => {
         const label = `${pick.artist} - ${pick.title}`;
-        setDjStatus(`Downloading ${label}…`);
-        try {
-          const song = await postJson("/youtube", { url: label });
-          const voiceUrl = await prepareVoice(pick.intro);
-          if (!stillValid()) break;
-          const entry = add(
-            { title: label, detail: `AI DJ · ${pick.reason}`, url: song.file, dj: { intro: pick.intro, voiceUrl } },
-            { autoplay: false },
-          );
-          added += 1;
-          if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
-        } catch (error) {
+        return Promise.all([postJson("/youtube", { url: label }), prepareVoice(pick.intro)]).then(
+          ([song, voice]) => ({ pick, label, song, voice }),
+          (error) => ({ label, error }),
+        );
+      });
+      for (const job of jobs) {
+        const { pick, label, song, voice, error } = await job;
+        if (!stillValid()) break;
+        if (error) {
           console.warn(`DJ skipped ${label}:`, error.message);
+          continue;
         }
+        const entry = add(
+          {
+            title: label,
+            detail: `AI DJ · ${pick.reason}`,
+            url: song.file,
+            dj: { intro: pick.intro, voiceUrl: voice?.url ?? null, voiceSeconds: voice?.seconds ?? null },
+          },
+          { autoplay: false },
+        );
+        added += 1;
+        if (currentId === null && !transitioning) transitionTo(entry); // nothing playing yet: start the set
       }
       if (stillValid() && !added) throw new Error("none of the picks could be downloaded");
       setDjStatus(null);
@@ -244,9 +298,11 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
     }
     const duration = deck.buffer.duration;
     const phase = deck.position() % duration;
-    const ending = phase >= duration - songEndMargin || phase < lastPhase;
-    lastPhase = phase;
     const next = upcoming()[0];
+    // Start the intro early enough that it finishes as the song does.
+    const lead = next?.dj?.intro ? introSeconds(next) + introPadding : songEndMargin;
+    const ending = phase >= duration - lead || phase < lastPhase;
+    lastPhase = phase;
     if (!ending || !next) return; // no next song yet: let this one loop
     transitionTo(next);
   }, 200);

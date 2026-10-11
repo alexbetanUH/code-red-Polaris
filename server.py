@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -29,6 +30,9 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).parent
 DOWNLOADS = ROOT / "downloads"
 VOICES = DOWNLOADS / "voice"
+# Searches and links already downloaded, so asking again (e.g. in a rehearsed demo) skips yt-dlp.
+DOWNLOAD_INDEX = DOWNLOADS / "index.json"
+index_lock = threading.Lock()
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 PORT = 8000
 # The yt-dlp command, or Python's module when pip's per-user install folder isn't on PATH.
@@ -107,6 +111,26 @@ def download(url, extra):
     if proc.returncode not in (0, 101) or len(lines) < 2:
         return None, (proc.stderr.strip().splitlines() or ["download failed"])[-1]
     return (lines[0], Path(lines[-1])), None
+
+
+def load_index():
+    try:
+        return json.loads(DOWNLOAD_INDEX.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def remembered(target):
+    """The earlier download for this search or link, if its file is still there."""
+    entry = load_index().get(target.lower())
+    return entry if entry and (ROOT / entry["file"]).exists() else None
+
+
+def remember(target, entry):
+    with index_lock:
+        index = load_index()
+        index[target.lower()] = entry
+        DOWNLOAD_INDEX.write_text(json.dumps(index, indent=1), encoding="utf-8")
 
 
 # ---- AI DJ -------------------------------------------------------------------------
@@ -256,6 +280,11 @@ class Handler(SimpleHTTPRequestHandler):
         if not target:
             return self.send_json(400, {"error": "paste a single YouTube video link, or type a song name"})
 
+        hit = remembered(target)
+        if hit:
+            print(f"[youtube] already downloaded: {hit['title']}", flush=True)
+            return self.send_json(200, hit)
+
         DOWNLOADS.mkdir(exist_ok=True)
         errors = []
         for name, extra in STRATEGIES:
@@ -264,7 +293,9 @@ class Handler(SimpleHTTPRequestHandler):
             if result:
                 title, filepath = result
                 print(f"[youtube] ok via {name}: {title}", flush=True)
-                return self.send_json(200, {"file": filepath.relative_to(ROOT).as_posix(), "title": title})
+                entry = {"file": filepath.relative_to(ROOT).as_posix(), "title": title}
+                remember(target, entry)
+                return self.send_json(200, entry)
             print(f"[youtube] {name} failed: {err}", flush=True)
             errors.append(err)
         # The first method's error is the real one; later fallbacks fail for their own reasons.
