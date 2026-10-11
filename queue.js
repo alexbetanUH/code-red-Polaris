@@ -39,7 +39,10 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
   const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0 };
   const listeners = new Set();
 
-  const changed = () => listeners.forEach((listener) => listener());
+  const changed = () => {
+    listeners.forEach((listener) => listener());
+    prefetch(); // the next song may have changed
+  };
   function setStatus(message, isError = false) {
     status = message ? { message, isError } : null;
     changed();
@@ -73,6 +76,43 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
   }
 
   const upcoming = () => items.slice(items.findIndex((item) => item.id === currentId) + 1);
+
+  // Decoding a song into raw audio takes about 3 s, so the current song and the
+  // next one are kept decoded: Next (or the DJ moving on) starts instantly. Only
+  // those two, since a decoded song is about 100 MB.
+  const decoded = new Map(); // item id -> Promise<AudioBuffer>
+  let fallbackDecoder = null;
+  let loadingId = null; // the song being loaded right now, kept even if it's no longer current or next
+
+  function decode(item) {
+    if (!decoded.has(item.id)) {
+      const promise = retryOnNetworkError(async () => {
+        let data;
+        if (item.url) {
+          const response = await fetch(item.url);
+          if (!response.ok) throw new Error(`could not fetch audio (${response.status})`);
+          data = await response.arrayBuffer();
+        } else {
+          data = await item.file.arrayBuffer();
+        }
+        // Before the first click there's no audio context yet; an offline one can still decode.
+        fallbackDecoder ??= new OfflineAudioContext(2, 1, 48000);
+        return (deck.ctx ?? fallbackDecoder).decodeAudioData(data);
+      });
+      promise.catch(() => decoded.delete(item.id));
+      decoded.set(item.id, promise);
+    }
+    return decoded.get(item.id);
+  }
+
+  // Decodes the current and next song ahead of time, and frees any others.
+  function prefetch() {
+    const current = items.find((item) => item.id === currentId);
+    const wanted = [current, upcoming()[0]].filter(Boolean);
+    wanted.forEach(decode);
+    const keep = new Set(wanted.map((item) => item.id));
+    for (const id of decoded.keys()) if (!keep.has(id) && id !== loadingId) decoded.delete(id);
+  }
 
   // Song loads run one at a time and only the newest request plays: the Deck can't
   // cancel a load, so a slow older one finishing late would replace a newer song.
@@ -130,6 +170,7 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       dj.talking = Boolean(item.dj?.intro);
       changed();
       if (deck.playing) deck.pause();
+      decode(item); // decodes while the DJ talks
       await speak(item);
       dj.talking = false;
       await queue.play(item.id);
@@ -213,9 +254,15 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
   async function loadAndPlay(id) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
-    setStatus(`Loading ${item.title}…`);
+    if (!decoded.has(id)) setStatus(`Loading ${item.title}…`);
     try {
-      await retryOnNetworkError(() => (item.url ? deck.loadUrl(item.url) : deck.loadFile(item.file)));
+      loadingId = id;
+      const buffer = await decode(item);
+      // Same steps as Deck.loadArrayBuffer in audio.js, with the decoding already done.
+      deck.ensureContext();
+      deck.stopSource();
+      deck.buffer = buffer;
+      deck.offset = 0;
       deck.play();
       currentId = id;
       if (played.at(-1) !== item.title) played = [...played, item.title].slice(-50);
@@ -223,6 +270,9 @@ export function createQueue(deck, { apiBase = "/api" } = {}) {
       topUpDj();
     } catch (error) {
       setStatus(`Error: ${error.message}`, true);
+    } finally {
+      loadingId = null;
+      prefetch();
     }
   }
 
