@@ -141,13 +141,17 @@ const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/w
 let PINCH_CLOSED = 0.05, PINCH_OPEN = 0.9;
 const PINCH_ON = 0.15, PINCH_OFF = 0.3;             // hysteresis on the 0–1 pinch value (lenient on purpose)
 const RELEASE_GRACE_MS = 150;                       // pinch must stay open this long to let go (rides out tracking glitches)
-const PINCH_MEDIAN_FRAMES = 5;
+const PINCH_MEDIAN_FRAMES = 3;                      // more frames = steadier but laggier
 const PINCH_FILTER = { minCutoff: 0.6, beta: 3 };
 const POINT_FILTER = { minCutoff: 1.5, beta: 8 };   // landmark smoothing (One Euro)
 const VALUE_FILTER = { minCutoff: 1.0, beta: 4 };
 const HEIGHT_BOTTOM = 0.85, HEIGHT_TOP = 0.15;      // palm y range that maps to height 0–1
 const FINGER_STRAIGHT_DEG = 70;                     // finger counts as extended below this total bend
 const HOLD_MS = 250;                                // keep a lost hand this long before dropping it
+// Camera size fed to the hand model. It shrinks frames to ~224 px internally, so a big
+// camera frame only adds cost: 640×360 detects ~4× faster than 1280×720 on a laptop GPU.
+const CAMERA_W = 640, CAMERA_H = 360;
+const STAGE_H = 720;                                // canvas height the stage is drawn at (stays sharp)
 // On-screen controls (sizes relative to stage height H)
 const KNOB_HIT = 1.6;                               // grab radius, × knob radius
 const FADER_HIT = 2.5;                              // grab half-width, × fader width
@@ -175,6 +179,7 @@ const statusEl = $("status"), calibMsg = $("calibMsg");
 const mixer = new Mixer();
 let landmarker, cameraOn = false, lastVideoTime = -1, debug = false, calib = null;
 let frames = 0, fpsTime = performance.now(), fps = 0, statusNote = "";
+let delegate = "", detectMs = 0;                    // shown in the status line, for diagnosing lag
 const fx = { paused: false, pauseSince: null, pauseLatch: false }; // two-hand pause toggle
 
 try {
@@ -436,18 +441,22 @@ async function loadModel() {
     runningMode: "VIDEO", numHands: 2,
     minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.6, minTrackingConfidence: 0.6,
   });
-  try { landmarker = await HandLandmarker.createFromOptions(fileset, options("GPU")); }
-  catch { landmarker = await HandLandmarker.createFromOptions(fileset, options("CPU")); }
+  try { landmarker = await HandLandmarker.createFromOptions(fileset, options("GPU")); delegate = "GPU"; }
+  catch { landmarker = await HandLandmarker.createFromOptions(fileset, options("CPU")); delegate = "CPU"; }
 }
 
 async function startCamera() {
   $("start").disabled = true;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: CAMERA_W }, height: { ideal: CAMERA_H }, frameRate: { ideal: 30 }, facingMode: "user" },
+      audio: false,
+    });
     video.srcObject = stream;
     await video.play();
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Draw at a fixed height whatever the camera size, keeping the camera's aspect ratio
+    canvas.height = STAGE_H;
+    canvas.width = Math.round((STAGE_H * video.videoWidth) / video.videoHeight);
     cameraOn = true;
     $("start").textContent = "Camera on";
     $("calibrate").disabled = false;
@@ -467,7 +476,9 @@ function detect() {
   if (video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     const now = performance.now();
-    const assigned = assignSides(landmarker.detectForVideo(video, now), now);
+    const result = landmarker.detectForVideo(video, now);
+    detectMs = detectMs * 0.9 + (performance.now() - now) * 0.1;
+    const assigned = assignSides(result, now);
     SIDES.forEach((side) => assigned[side] && processHand(side, assigned[side], now));
     updateGestures(liveHands(now), now);
     frames++;
@@ -548,7 +559,7 @@ function render() {
   else if (!mixer.decks[0].loaded && !mixer.decks[1].loaded) drawCenterText(W, H, u, "Load a track on each deck", "or click “Load demo tracks”");
 
   updateLegend();
-  statusEl.textContent = (cameraOn ? `${fps} fps` : statusNote || "camera off") + (mixer.masterBpm ? ` · master ${mixer.masterBpm.toFixed(1)} BPM` : "");
+  statusEl.textContent = (cameraOn ? `${fps} fps · detect ${detectMs.toFixed(0)} ms (${delegate}) · camera ${video.videoWidth}×${video.videoHeight}` : statusNote || "camera off") + (mixer.masterBpm ? ` · master ${mixer.masterBpm.toFixed(1)} BPM` : "");
 }
 
 // Bass level as two bars rising from the bottom corners of the stage
