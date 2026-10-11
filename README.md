@@ -170,3 +170,7 @@ If grabbing feels unreliable, click **Calibrate pinch** once (it's saved). No ca
 - `mix-worklet.js`: audio-thread engine (variable-rate playback, master beat clock, phase lock, bar-aligned loops; also supports scratching, currently unused)
 - `mix-audio.js`: graph, filters, faders, tempo detection, demo loops
 - `mix.html`: hand tracking, on-screen controls, stage visuals. Tuning values are at the top of its script.
+
+## DJ Deck view
+
+The Song/Queue card stays visible. **Show controls & help** reveals effects, visuals, calibration, tracking details and advanced switches. **Full screen** expands the camera stage, keeps the song card and queue accessible, and exits with its button or Escape. The idle screen remains clear; only the explicit L test shape or synthetic hands enable the plain test preview. Arcade links are unavailable until the teammate’s game branch is integrated.

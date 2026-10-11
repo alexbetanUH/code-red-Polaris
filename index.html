@@ -24,7 +24,7 @@
   body { color: var(--text); }
   main {
     display: grid;
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: minmax(0, 1fr) 340px;
     align-items: start;
     gap: 20px;
     padding: 18px;
@@ -41,7 +41,7 @@
     box-shadow: 0 14px 38px rgba(150,70,20,.2), inset 0 0 0 1px rgba(232,160,100,.35);
   }
   video { display: none; }
-  #fxCanvas, #trackingDebugCanvas { position: absolute; inset: 0; pointer-events: none; }
+  #fxCanvas, #bubbleCanvas, #trackingDebugCanvas { position: absolute; inset: 0; pointer-events: none; }
   canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
   .placeholder {
     position: absolute;
@@ -107,9 +107,11 @@
   .help b { color: var(--text); }
   /* Gesture modes */
   .chips { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 6px; }
-  /* The AI DJ's up-next strip (queue.js) sits between the fist zones and hides while a fist mode or a hand blend uses the screen */
-  .stage .upNext { width: min(480px, 56%); transition: opacity .2s; }
-  .stage.picking .upNext { opacity: 0; }
+  /* Upcoming song information belongs with the player, outside the camera. */
+  #songQueue .upNext { position: static; inset: auto; transform: none; width: auto; margin: 0 12px; pointer-events: auto; }
+  #songQueue .upNext-strip { box-sizing: border-box; border-radius: 12px; box-shadow: none; }
+  #songQueue .upNext-line { flex-wrap: wrap; }
+  #songQueue .upNext-line strong { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
   .fxchip { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); }
   .fxchip b { color: var(--text); min-width: 14px; }
   .fxchip.on { border-color: var(--left); color: var(--text); background: rgba(30,149,227,0.12); }
@@ -121,34 +123,77 @@
             opacity: 0; pointer-events: none; transition: opacity 0.3s; }
   #cinema.show { opacity: 1; pointer-events: auto; }
   #cinema img { width: 100%; height: 100%; object-fit: contain; }
+  [hidden] { display: none !important; }
+  .songQueue { display: grid; grid-template-columns: 1fr; padding: 0 !important; overflow: hidden; }
+  #queueMount { min-width: 0; border-top: 1px solid var(--border); }
+  aside { min-width: 0; }
+  @media (max-width: 600px) { .songQueue { grid-template-columns: 1fr; } #queueMount { border-left: 0; border-top: 1px solid var(--border); } }
+  #songCard { padding: 16px; }
+  .queueBadge { font-size: 12px; color: var(--muted); }
+  #queueCount { display: inline-block; min-width: 20px; padding: 2px 6px; border-radius: 20px; background: rgba(255,255,255,.65); text-align: center; }
+  #queueMount .queuePanel { position: static; width: auto; max-height: none; padding: 14px 16px; border: 0; border-radius: 0; box-shadow: none; background: transparent; overflow: visible; }
+  #queueMount .queuePanel-list { max-height: 260px; overflow-y: auto; }
+  #queueMount .queuePanel-header h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+  .queuePanel-tools { border-top: 1px solid var(--border); padding-top: 10px; font-size: 12px; }
+  .queuePanel-tools summary { cursor: pointer; font-weight: 600; }
+  .queuePanel-toolsBody { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+  #queueMount .queuePanel-dj { flex-wrap: wrap; }
+  #queueMount .queuePanel-dj input { flex-basis: 150px; }
+  #deckDetails { display: flex; flex-direction: column; gap: 12px; }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .stage-actions { position: absolute; top: 12px; right: 12px; z-index: 5; }
+  .stage-actions button { min-height: 36px; padding: 0 14px; font-size: 14px; }
+  #deckWorkspace.expanded { position: fixed; inset: 0; z-index: 3000; }
+  body.camera-expanded { overflow: hidden; }
+  #deckWorkspace:is(:fullscreen, .expanded) {
+    box-sizing: border-box; width: 100vw; height: 100vh; padding: 8px; gap: 8px;
+    grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: minmax(0, 1fr); background: #101b24;
+  }
+  #deckWorkspace:is(:fullscreen, .expanded) .stage {
+    width: 100%; height: 100%; max-height: none; aspect-ratio: auto; border-radius: 16px;
+  }
+  #deckWorkspace:is(:fullscreen, .expanded) aside { height: 100%; min-height: 0; overflow-y: auto; }
+  @media (max-width: 900px) {
+    #deckWorkspace:is(:fullscreen, .expanded) { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+    #deckWorkspace:is(:fullscreen, .expanded) aside { height: auto; max-height: 34vh; }
+  }
+
 </style>
 </head>
 <body class="world-sunset">
 <header class="topbar glass">
   <a class="brand" href="landing.html" title="Back to the home page"><svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="lg" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.2" stop-color="#9be0ff"/><stop offset="0.75" stop-color="#1e95e3"/><stop offset="1" stop-color="#0b62b0"/></radialGradient></defs><circle cx="18" cy="18" r="17" fill="url(#lg)"/><path d="M7 20c3-6 6 6 9 0s6 6 9 0 4 2 4 2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="13" cy="10" rx="6" ry="3.4" fill="#fff" opacity="0.75" transform="rotate(-25 13 10)"/></svg>AirDeck</a>
-  <nav class="modes" aria-label="Modes"><a class="dj" href="index.html" aria-current="page">DJ Deck</a><a class="arcade" href="ai-dj.html">Arcade</a></nav>
+  <nav class="modes" aria-label="Modes"><a class="dj" href="index.html" aria-current="page">DJ Deck</a><a class="arcade" href="arcade-versus.html">Arcade</a></nav>
   <button id="start" disabled>Loading model…</button>
-  <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
-  <button id="eggsBtn" class="secondary">Easter eggs: on</button>
-  <button id="blendBtn" class="secondary">Hand blend: on</button>
-  <button id="basicBtn" class="secondary">Basic controls: on</button>
   <span class="note" id="calibMsg"></span>
   <span class="status" id="status"></span>
 </header>
 
-<main>
-  <div class="stage">
+<main id="deckWorkspace">
+  <div class="stage" id="cameraStage">
+    <div class="stage-actions"><button id="fullscreenBtn" class="secondary" aria-pressed="false">Full screen</button></div>
     <video id="video" playsinline muted></video>
     <canvas id="canvas" width="1280" height="720"></canvas>
     <div class="placeholder" id="placeholder"><div class="title">AirDeck</div><div class="hint">Click “Start camera”, then show both hands</div></div>
   </div>
 
   <aside>
-    <div class="card glass song">
-      <h2><span>Song</span><button id="queueBtn" class="sun" data-queue-toggle>Queue <span id="queueCount">0</span></button></h2>
+    <div class="card glass songQueue" id="songQueue">
+    <div class="song" id="songCard">
+      <h2><span>Song</span><span class="queueBadge">Queue <span id="queueCount">0</span></span></h2>
       <div id="transport"></div>
-      <div id="songStatus">Open the queue to pick songs from the library or start the AI DJ.</div>
+      <div id="songStatus">Pick songs from the library below or start the AI DJ.</div>
     </div>
+    <div id="queueMount"></div>
+    </div>
+    <button id="detailsBtn" class="secondary" aria-expanded="false" aria-controls="deckDetails">Show controls &amp; help</button>
+    <div id="deckDetails" hidden>
+      <div class="detail-actions">
+  <button id="calibrate" class="secondary" disabled>Calibrate pinch</button>
+  <button id="eggsBtn" class="secondary">Easter eggs: on</button>
+  <button id="blendBtn" class="secondary">Hand blend: on</button>
+  <button id="basicBtn" class="secondary">Basic controls: on</button>
+      </div>
     <div class="card glass">
       <h2><span>Visual effect <span class="muted">(shape between your fingertips)</span> <span class="muted" id="modeTag"></span></span></h2>
       <div class="chips" id="visChips"></div>
@@ -169,6 +214,7 @@
       <b>Right pinch</b> sets the filter (closed = muffled, open = full sound).
       <b>Hands apart</b> = louder. If a hand leaves the frame, its control holds its last value.
     </p>
+    </div>
   </aside>
 </main>
 
@@ -178,7 +224,8 @@
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./audio.js?v=8";
 import { FrameFx } from "./frame.js?v=8";
-import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js?v=2";
+import { BubbleParticles } from "./bubble-particles.js";
+import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js?v=4";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -205,7 +252,7 @@ const HEIGHT_BOTTOM = 0.85;
 const HEIGHT_TOP = 0.15;
 // Between raw = gap between pinch midpoints as a share of frame width.
 const BETWEEN_CLOSED = 0.04;
-const BETWEEN_OPEN = 0.8;
+const BETWEEN_OPEN = 0.42; // full volume with both hands comfortably inside the central area
 // A finger counts as extended when its joints bend less than this (degrees, summed).
 const FINGER_STRAIGHT_DEG = 70;
 const FINGER_BEND_HYST_DEG = 10; // extended fingers may bend this much farther before switching off
@@ -241,7 +288,7 @@ const FIST_EXIT_MS = 350;       // fist must be out of its zone this long before
 const FIST_ENTER_GRACE_MS = 150; // a fist that flickers away for less than this doesn't restart the 'hold to enter' timer
 const PENDING_CLEAR_MS = 250;   // a closed fist (0 fingers) must last this long to cancel the chosen count
 const BLEND_SLEW = 1.2;         // hand-driven crossfade can move at most this much (0–1) per second
-const BLEND_LOW = 0.3, BLEND_HIGH = 0.65;   // hand height (0–1) that means fully old song / fully new song
+const BLEND_BOTTOM = 0.88, BLEND_TOP = 0.70; // palm Y: short travel near the bottom, far below the lock zone
 const BLEND_ARM_MS = 600;       // ignore the hands this long after a blend opens (the hand that just picked is still up)
 const BLEND_SNAP = 0.1;         // within this of the top/bottom the blend snaps to fully new / fully old
 const BLEND_IDLE_MS = 4000;     // no left hand for this long → the blend finishes by itself
@@ -294,6 +341,35 @@ const statusEl = document.getElementById("status");
 const calibMsg = document.getElementById("calibMsg");
 const $ = (id) => document.getElementById(id);
 const stageEl = document.querySelector(".stage");
+const fullscreenBtn = $("fullscreenBtn");
+const workspaceEl = $("deckWorkspace");
+$("detailsBtn").addEventListener("click", () => {
+  const panel = $("deckDetails"); panel.hidden = !panel.hidden;
+  $("detailsBtn").setAttribute("aria-expanded", String(!panel.hidden));
+  $("detailsBtn").textContent = panel.hidden ? "Show controls & help" : "Hide controls & help";
+});
+function syncCameraFullscreen() {
+  const on = document.fullscreenElement === workspaceEl || workspaceEl.classList.contains("expanded");
+  fullscreenBtn.textContent = on ? "Exit full screen" : "Full screen";
+  fullscreenBtn.setAttribute("aria-pressed", String(on));
+}
+function setCameraExpanded(on) {
+  workspaceEl.classList.toggle("expanded", on);
+  document.body.classList.toggle("camera-expanded", on);
+  syncCameraFullscreen();
+}
+fullscreenBtn.addEventListener("click", async () => {
+  if (workspaceEl.classList.contains("expanded")) { setCameraExpanded(false); return; }
+  if (document.fullscreenElement === workspaceEl) { await document.exitFullscreen(); return; }
+  try {
+    if (!workspaceEl.requestFullscreen) { setCameraExpanded(true); return; }
+    await workspaceEl.requestFullscreen();
+  } catch { setCameraExpanded(true); }
+});
+document.addEventListener("fullscreenchange", syncCameraFullscreen);
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && workspaceEl.classList.contains("expanded")) setCameraExpanded(false);
+});
 
 let landmarker;
 let cameraOn = false;
@@ -1036,7 +1112,7 @@ window.addEventListener("keydown", (e) => {
 // (queue.startHandMix, the same mix the AI DJ coach uses) and hands it to you:
 // left hand height = crossfade into the new song; right hand height = fade the old song out faster.
 // No left hand for BLEND_IDLE_MS → it finishes by itself. With Hand blend off, or when the
-// two songs can't be beat-matched, the AI mixes into the next song on its own.
+// playback is idle, the next song starts without a hand blend.
 let blendOn = true;
 try { blendOn = localStorage.getItem("airdeck-blend") !== "off"; } catch {}
 function setBlendOn(on) {
@@ -1070,10 +1146,9 @@ async function nextSong() {
   const controls = await queue.startHandMix().catch(() => null);
   blend.starting = false;
   if (!controls) {
-    // No hand blend: the tempos couldn't be beat-matched, so the AI already echoed out into
-    // the next song by itself. Only if nothing moved on, skip the plain way.
+    // Playback changed or the next song could not load: fall back to a plain skip.
     if (queue.getState().currentId === currentId) { if (!queue.mixNow()) queue.next(); }
-    flash("⏭ Echo out (these two can't be beat-matched for a hand blend)");
+    flash("⏭ Next song");
     return;
   }
   const now = performance.now();
@@ -1105,15 +1180,15 @@ function updateBlend(left, right, now) {
   if (!free(right)) right = null;
   if (left) {
     const step = BLEND_SLEW * dt;
-    const h = remap(left.height, BLEND_LOW, BLEND_HIGH);
+    const h = remap(left.palmY, BLEND_BOTTOM, BLEND_TOP);
     const target = h > 1 - BLEND_SNAP ? 1 : h < BLEND_SNAP ? 0 : h;
     blend.p += Math.max(-step, Math.min(step, target - blend.p));
     blend.lastInput = now;
   }
-  if (right) blend.sweep += (remap(right.height, BLEND_LOW, BLEND_HIGH) - blend.sweep) * 0.2;
+  if (right) blend.sweep += (remap(right.palmY, BLEND_BOTTOM, BLEND_TOP) - blend.sweep) * 0.2;
   c.setIncoming(blend.p);
   c.setOutgoing((1 - blend.p) * (1 - blend.sweep));
-  if (blend.p >= 0.5) c.swapBass();     // only one bass line at a time, swapped on a downbeat
+  if (blend.p >= 0.5) c.swapBass();     // retained for the shared transition controls
   if (blend.p >= 1) finishBlend(1);
   else if (now - blend.lastInput > BLEND_IDLE_MS) finishBlend();
 }
@@ -1135,14 +1210,14 @@ function drawBlend(now) {
   ctx.fillStyle = "#facc15";
   fillFit(`🎚 BLENDING  ${blend.from}  →  ${blend.to}`, cx, cardY + 24, 24, 700, cardW - 30);
   ctx.fillStyle = "#fff";
-  const lines = blend.finishing ? ["Finishing by itself…"] : blend.waiting ? ["Queued — starts on the next beat…"] : [
-    "LEFT hand UP / DOWN = fade into the new song / back",
+  const lines = blend.finishing ? ["Finishing by itself…"] : blend.waiting ? ["Starting the next song…"] : [
+    "LEFT hand: bottom of the frame = blend new / old",
     "RIGHT hand UP = fade the old song out faster",
     "Put your left hand away and it finishes by itself",
   ];
   lines.forEach((t, i) => fillFit(t, cx, cardY + 54 + i * 22, 18, 500, cardW - 30));
   // Sliders: left = blend, right = sweep
-  const top = Math.max(H * 0.5, cardY + 142), bottom = H * 0.88;
+  const top = H * BLEND_TOP, bottom = H * BLEND_BOTTOM;
   for (const [x, value, color, label] of [[W * 0.27, blend.p, COLORS.left, "BLEND"], [W * 0.73, blend.sweep, COLORS.right, "SWEEP"]]) {
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.beginPath(); ctx.roundRect(x - 9, top, 18, bottom - top, 9); ctx.fill();
@@ -1214,6 +1289,11 @@ function drawModes(now) {
 const frameFx = new FrameFx();
 frameFx.canvas.id = "fxCanvas";
 document.querySelector(".stage").appendChild(frameFx.canvas);
+const bubbleCanvas = document.createElement("canvas");
+bubbleCanvas.id = "bubbleCanvas";
+bubbleCanvas.width = canvas.width; bubbleCanvas.height = canvas.height;
+stageEl.appendChild(bubbleCanvas);
+const bubbleParticles = new BubbleParticles(bubbleCanvas);
 const frame = { forced: false, active: false, target: null, lastSeen: -Infinity, corners: null };
 
 // Any pose works. Keep fixed physical fingertip identities through smoothing;
@@ -1293,38 +1373,90 @@ function drawFrame(now) {
 // The shape has its own screen-rate loop (the camera only delivers ~30 frames a second)
 function fxLoop(t) {
   try { drawFrame(t); } catch (err) { console.error(err); }
+  if (bubbleCanvas.width !== canvas.width || bubbleCanvas.height !== canvas.height) {
+    bubbleCanvas.width = canvas.width; bubbleCanvas.height = canvas.height; bubbleParticles.clear();
+  }
+  if (visualFx === "bubbles") bubbleParticles.render(fxShown && shownCorners ? orderByAngle(shownCorners) : null, deck.bass?.() ?? 0, t);
+  else bubbleParticles.clear();
   requestAnimationFrame(fxLoop);
 }
 requestAnimationFrame(fxLoop);
 
 // The fist zones: left edge = effects, right edge = songs (upper) and visuals (bottom-right corner).
 // They light up when a fist is inside.
+// Canvas-native Aero chrome: glossy glass surfaces and consistent line icons.
+function aeroGlass(x, y, w, h, radius = 12) {
+  ctx.save();
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, "rgba(255,255,255,.93)");
+  g.addColorStop(.48, "rgba(234,247,255,.78)");
+  g.addColorStop(1, "rgba(180,209,226,.75)");
+  ctx.shadowColor = "rgba(14,57,80,.2)"; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(x,y,w,h,radius); ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
+}
+function aeroIcon(type, x, y, size, color = "#14608a") {
+  ctx.save(); ctx.translate(x,y); ctx.scale(size/24,size/24);
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.8; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath();
+  if (type === "song") {
+    ctx.moveTo(8,17); ctx.lineTo(8,5); ctx.lineTo(19,3); ctx.lineTo(19,15); ctx.moveTo(8,9); ctx.lineTo(19,7); ctx.stroke();
+    for (const [a,b] of [[5,18],[16,16]]) { ctx.beginPath(); ctx.ellipse(a,b,3,2.2,-.3,0,Math.PI*2);ctx.fill(); }
+  } else if (type === "fx") {
+    for(const [a,b] of [[5,8],[12,16],[19,10]]) { ctx.moveTo(a,3);ctx.lineTo(a,21); } ctx.stroke();
+    for(const [a,b] of [[5,8],[12,16],[19,10]]) { ctx.beginPath();ctx.roundRect(a-3,b-2,6,4,2);ctx.fill(); }
+  } else if (type === "vis") {
+    ctx.moveTo(12,2);ctx.lineTo(15,9);ctx.lineTo(22,12);ctx.lineTo(15,15);ctx.lineTo(12,22);ctx.lineTo(9,15);ctx.lineTo(2,12);ctx.lineTo(9,9);ctx.closePath();ctx.stroke();
+  } else {
+    ctx.roundRect(5,10,14,11,3);ctx.stroke();ctx.beginPath();ctx.arc(12,10,5,Math.PI,0);ctx.stroke();
+    ctx.beginPath();ctx.arc(12,15,1.5,0,Math.PI*2);ctx.fill();ctx.moveTo(12,15);ctx.lineTo(12,18);ctx.stroke();
+  }
+  ctx.restore();
+}
+function aeroMeter(x,y,w,h,value,color,vertical=false) {
+  ctx.save();
+  ctx.fillStyle = "rgba(20,68,94,.2)";ctx.beginPath();ctx.roundRect(x,y,w,h,Math.min(w,h)/2);ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.65)";ctx.lineWidth=1;ctx.stroke();
+  const v=clamp01(value),fw=vertical?w:Math.max(h,w*v),fh=vertical?Math.max(w,h*v):h,fy=vertical?y+h-fh:y;
+  const g=ctx.createLinearGradient(x,fy,vertical?x+w:x,vertical?fy:fy+h);
+  g.addColorStop(0,"#e8faff");g.addColorStop(.4,color);g.addColorStop(1,"#14608a");
+  ctx.fillStyle=g;ctx.beginPath();ctx.roundRect(x,fy,fw,fh,Math.min(w,h)/2);ctx.fill();
+  ctx.fillStyle="rgba(255,255,255,.65)";ctx.beginPath();
+  ctx.roundRect(x+2,fy+2,vertical?Math.max(2,w*.28):Math.max(2,fw-4),vertical?Math.max(2,fh-4):Math.max(2,h*.3),3);ctx.fill();
+  ctx.restore();
+}
+
 function drawZones(now) {
   const W = canvas.width, H = canvas.height, zw = W * FIST_ZONE_W, split = H * VIS_ZONE_Y;
   const defs = [
-    { x: 0, y: 0, w: zw, h: H, color: COLORS.right, mode: "fx", label: "🎛 EFFECTS", sub: "left fist here" },
-    { x: W - zw, y: 0, w: zw, h: split, color: COLORS.left, mode: "song", label: "🎵 SONGS", sub: "right fist here" },
-    { x: W - zw, y: split, w: zw, h: H - split, color: VIS_COLOR, mode: "vis", label: "✨ VISUALS", sub: "right fist here" },
+    { x: 0, y: 0, w: zw, h: H, color: COLORS.right, mode: "fx", label: "Effects", sub: "left fist here" },
+    { x: W - zw, y: 0, w: zw, h: split, color: COLORS.left, mode: "song", label: "Songs", sub: "right fist here" },
+    { x: W - zw, y: split, w: zw, h: H - split, color: VIS_COLOR, mode: "vis", label: "Visuals", sub: "right fist here" },
   ];
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const z of defs) {
     const active = modes.current === z.mode || (modes.current === "normal" && modes.fistSide === z.mode && modes.hold > 0);
-    ctx.globalAlpha = active ? 0.34 : 0.11;
+    ctx.globalAlpha = active ? 0.16 : 0.035;
     ctx.fillStyle = z.color;
     ctx.fillRect(z.x, z.y, z.w, z.h);
-    ctx.globalAlpha = active ? 0.9 : 0.35;
+    ctx.globalAlpha = active ? 0.75 : 0.25;
     ctx.strokeStyle = z.color;
     ctx.lineWidth = 2;
-    ctx.setLineDash([10, 10]);
+    ctx.setLineDash([]);
     ctx.strokeRect(z.x, z.y, z.w, z.h);
     ctx.setLineDash([]);
-    ctx.globalAlpha = active ? 1 : 0.6;
-    ctx.fillStyle = "#fff";
-    const cy = z.y + z.h / 2;
-    fillFit(z.label, z.x + z.w / 2, cy - 14, 22, 700, z.w - 12);
-    fillFit(z.sub, z.x + z.w / 2, cy + 16, 16, 500, z.w - 12);
+    ctx.globalAlpha = active ? 1 : .8;
+    const cy = z.y + z.h / 2, badgeW = Math.min(160, z.w - 20), bx = z.x + (z.w-badgeW)/2;
+    aeroGlass(bx,cy-30,badgeW,64,16);
+    aeroIcon(z.mode,bx+12,cy-18,20,z.color);
+    ctx.fillStyle = "#174e6b";
+    fillFit(z.label,bx+badgeW*.6,cy-7,17,700,badgeW-48);
+    ctx.fillStyle = "#38657b";
+    fillFit(z.sub,z.x+z.w/2,cy+16,12,500,badgeW-16);
   }
   ctx.restore();
 }
@@ -1349,11 +1481,11 @@ function updateLock(inZone, now) {
     lock.locked = !lock.locked;
     lock.armed = false;
     lock.progress = 0;
-    flash(lock.locked ? "🔒 Locked" : "🔓 Unlocked");
+    flash(lock.locked ? "Controls locked" : "Controls unlocked");
   }
 }
 window.addEventListener("keydown", (e) => {   // test key
-  if (e.key.toLowerCase() === "k" && e.target.tagName !== "INPUT" && !e.metaKey && !e.ctrlKey && !e.repeat) { lock.locked = !lock.locked; flash(lock.locked ? "🔒 Locked" : "🔓 Unlocked"); }
+  if (e.key.toLowerCase() === "k" && e.target.tagName !== "INPUT" && !e.metaKey && !e.ctrlKey && !e.repeat) { lock.locked = !lock.locked; flash(lock.locked ? "Controls locked" : "Controls unlocked"); }
 });
 
 function drawLock(now) {
@@ -1365,12 +1497,14 @@ function drawLock(now) {
   // Faint line marking the zone
   ctx.strokeStyle = lock.locked ? "rgba(250,204,21,0.5)" : "rgba(255,255,255,0.18)";
   ctx.lineWidth = 2;
-  ctx.setLineDash([10, 10]);
+  ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(0, canvas.height * LOCK_ZONE_Y); ctx.lineTo(canvas.width, canvas.height * LOCK_ZONE_Y); ctx.stroke();
   ctx.setLineDash([]);
   if (lock.locked) {
-    ctx.fillStyle = "#facc15";
-    fillFit("🔒 LOCKED", canvas.width / 2, 22, 22, 700, canvas.width - 20);
+    const x=canvas.width/2-68;
+    ctx.shadowBlur=0; aeroGlass(x,8,136,34,17); aeroIcon("lock",x+12,15,20);
+    ctx.fillStyle="#174e6b";
+    fillFit("Locked",x+84,25,16,700,86);
   }
   if (lock.progress > 0) {
     const x = canvas.width / 2, y = canvas.height * LOCK_ZONE_Y + 50;
@@ -1483,34 +1617,21 @@ function draw(left, right, between) {
 // While locked, the speed / filter / volume meters and the waveform are shown in the top zone.
 function drawLockHud() {
   const zoneH = canvas.height * LOCK_ZONE_Y;
-  const pad = 30, barW = Math.min(300, canvas.width * 0.28);
+  const pad = 18, barW = Math.min(260, canvas.width * 0.25);
   const rows = [
-    { label: `SPEED ${controls.speed.toFixed(2)}×`, value: knobs.left, color: COLORS.left },
-    { label: `FILTER ${formatHz(controls.freq)}`, value: knobs.right, color: COLORS.right },
-    { label: `VOLUME ${Math.round(controls.volume * 100)}%`, value: controls.volume, color: COLORS.between },
+    { label: `Speed ${controls.speed.toFixed(2)}×`, value: knobs.left, color: COLORS.left },
+    { label: `Filter ${formatHz(controls.freq)}`, value: knobs.right, color: COLORS.right },
+    { label: `Volume ${Math.round(controls.volume * 100)}%`, value: controls.volume, color: COLORS.between },
   ];
-  const step = Math.min(40, (zoneH - 50) / 3);
+  const step = Math.min(38, (zoneH - 35) / 3);
   ctx.save();
-  // soft backdrop so the readouts stay legible over the video
-  const g = ctx.createLinearGradient(0, 0, 0, zoneH);
-  g.addColorStop(0, "rgba(0,0,0,0.55)");
-  g.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, canvas.width, zoneH);
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  rows.forEach((r, i) => {
-    const y = 44 + i * step;
-    ctx.fillStyle = r.color;
-    ctx.font = "600 15px system-ui, sans-serif";
-    ctx.shadowColor = "rgba(0,0,0,0.8)";
-    ctx.shadowBlur = 4;
-    ctx.fillText(r.label, pad, y);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255,255,255,0.18)";
-    ctx.beginPath(); ctx.roundRect(pad, y + 11, barW, 8, 4); ctx.fill();
-    ctx.fillStyle = r.color;
-    ctx.beginPath(); ctx.roundRect(pad, y + 11, Math.max(8, barW * clamp01(r.value)), 8, 4); ctx.fill();
+  aeroGlass(pad,20,barW+24,step*3+12,16);
+  ctx.textAlign="left";ctx.textBaseline="middle";
+  rows.forEach((r,i)=>{
+    const y=34+i*step;
+    ctx.fillStyle="#174e6b";ctx.font="600 12px system-ui, sans-serif";
+    ctx.fillText(r.label,pad+12,y);
+    aeroMeter(pad+12,y+10,barW,10,r.value,r.color);
   });
   ctx.restore();
   // Waveform fills the rest of the strip
@@ -1679,15 +1800,10 @@ function drawHand(hand, color) {
 // Vertical meter at the screen edge showing a hand's control value.
 function drawKnobMeter(side, x, color, label) {
   const top = canvas.height * 0.15, bottom = canvas.height * 0.85;
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.beginPath();
-  ctx.roundRect(x, top, 16, bottom - top, 8);
-  ctx.fill();
-  const y = bottom - knobs[side] * (bottom - top);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(x, y, 16, bottom - y, 8);
-  ctx.fill();
+  ctx.save();
+  aeroGlass(x-4,top-4,24,bottom-top+8,12);
+  aeroMeter(x,top,16,bottom-top,knobs[side],color,true);
+  ctx.restore();
   const labelX = side === "left" ? x + 100 : x + 16 - 100;
   drawLabel({ x: labelX, y: top - 24 }, label, color);
 }
@@ -1768,34 +1884,18 @@ function updateFps(now) {
 const testCanvas = document.createElement("canvas");
 testCanvas.width = 1280; testCanvas.height = 720;
 const tctx = testCanvas.getContext("2d");
-function paintTest(now) {
-  const g = tctx.createLinearGradient(0, 0, 1280, 720);
-  g.addColorStop(0, "#1e3a8a"); g.addColorStop(0.5, "#6d28d9"); g.addColorStop(1, "#be185d");
-  tctx.fillStyle = g; tctx.fillRect(0, 0, 1280, 720);
-  tctx.strokeStyle = "rgba(255,255,255,0.35)"; tctx.lineWidth = 2;
-  for (let x = 0; x < 1280; x += 80) { tctx.beginPath(); tctx.moveTo(x, 0); tctx.lineTo(x, 720); tctx.stroke(); }
-  for (let y = 0; y < 720; y += 80) { tctx.beginPath(); tctx.moveTo(0, y); tctx.lineTo(1280, y); tctx.stroke(); }
-  tctx.fillStyle = "#fde047";
-  tctx.beginPath(); tctx.arc(640 + 300 * Math.sin(now / 900), 360 + 150 * Math.cos(now / 700), 70, 0, 7); tctx.fill();
-  // colorful rings and a face-ish blob so distortions and color filters are easy to judge
-  for (let i = 0; i < 6; i++) {
-    tctx.strokeStyle = `hsl(${(i * 60 + now / 30) % 360}, 90%, 60%)`; tctx.lineWidth = 14;
-    tctx.beginPath(); tctx.arc(640, 360, 60 + i * 55, 0, 7); tctx.stroke();
-  }
-  tctx.fillStyle = "#f5c6a5"; tctx.beginPath(); tctx.ellipse(640, 360, 70, 90, 0, 0, 7); tctx.fill();
-  tctx.fillStyle = "#222"; tctx.beginPath(); tctx.arc(615, 340, 9, 0, 7); tctx.arc(665, 340, 9, 0, 7); tctx.fill();
-  tctx.fillStyle = "#fff"; tctx.font = "700 60px system-ui"; tctx.fillText("TEST PATTERN", 40, 100);
+function paintTest() {
+  tctx.clearRect(0, 0, 1280, 720);
+  tctx.fillStyle = "#eaf6ff"; tctx.fillRect(0, 0, 1280, 720);
 }
 function frameSource() { return cameraOn ? video : testCanvas; }
 frameFx.resize(canvas.width, canvas.height);
 // Before the camera starts the stage stays a plain (clear) screen with the placeholder text. The test picture and
-// overlays only run in test mode: after a test key is pressed (S, F, V, L, K, D…) or when synthetic hands are fed in.
-let idleTest = false;
-window.addEventListener("keydown", (e) => { if (e.target.tagName !== "INPUT" && !e.metaKey && !e.ctrlKey) idleTest = true; });
+// overlays only run for the explicit L test shape or synthetic hands. Other keys never replace the idle screen.
 let idleBlank = false;
 function idleLoop(now) {
   if (cameraOn) return;
-  const testing = idleTest || !!window.airdeck.fake || frame.forced;
+  const testing = !!window.airdeck.fake || frame.forced;
   if (testing) {
     idleBlank = false;
     $("placeholder")?.style.setProperty("display", "none");
@@ -1804,6 +1904,8 @@ function idleLoop(now) {
   } else {
     if (!idleBlank) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);   // the stage's Aero glass shows through
+      frameFx.clear(); showFx(false);
+      $("placeholder")?.style.setProperty("display", "");
       idleBlank = true;
     }
     // the side panel (effects, visuals) still refreshes while waiting for the camera
@@ -1836,17 +1938,13 @@ function updateSidePanel() {
 // Songs are added, ordered and picked in the queue panel (queue.js); the player
 // bar (progress, ⏮ ⏯ ⏭) shows here and at the top of the panel.
 const queue = createQueue(deck);
-const queuePanel = createQueuePanel(queue, deck);
+const queuePanel = createQueuePanel(queue, deck, { embedded: true });
+$("queueMount").append(queuePanel.element);
 $("transport").append(createTransport(queue, deck));
-// What the AI DJ plays next (and when it mixes), on the camera view, like on the AI DJ page.
+// Keep the upcoming song alongside the player without covering the camera.
 const upNext = createUpNext(queue);
-stageEl.append(upNext.element);
+$("songQueue").insertBefore(upNext.element, $("queueMount"));
 window.airdeck.queue = queue;   // for debugging and tests, like airdeck.deck
-
-$("queueBtn").addEventListener("click", () => {
-  deck.ensureContext(); // create audio inside the click so the browser allows it
-  queuePanel.toggle();
-});
 
 // The AI DJ moved to its own page; old index.html#ai-dj links go there.
 if (location.hash === "#ai-dj") location.replace("ai-dj.html");
@@ -1856,7 +1954,7 @@ function updateSongCard() {
   const { items, downloads, status, dj } = queue.getState();
   $("queueCount").textContent = items.length;
   const active = downloads.filter((download) => download.stage !== "failed");
-  const idle = items.length ? "" : "Open the queue to pick songs from the library or start the AI DJ.";
+  const idle = items.length ? "" : "Pick songs from the library below or start the AI DJ.";
   songStatus.textContent =
     status?.message ??
     (dj.talking ? "🎙 The DJ is on the mic…" : active.length ? `Downloading ${active.length} song${active.length > 1 ? "s" : ""}…` : idle);

@@ -115,6 +115,7 @@
     nav { border-radius: 24px; gap: 8px; }
     nav .beat { max-width: 100%; flex: 1 1 180px; }
   }
+  a[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -148,11 +149,10 @@
     <div class="intro glass">
       <p class="eyebrow">Hand-tracked music &amp; games</p>
       <h1>Turn it around.<br>Play it with your hands.</h1>
-      <p class="lede">AirDeck reads both of your hands through a webcam. Mix songs, effects and visuals in the air, or hit the Arcade and play a DJ set as a rhythm game. Pick your stage and let your hands take over.</p>
+      <p class="lede">AirDeck reads both of your hands through a webcam. Mix songs, effects and visuals in the air, or hit the Arcade: two-player battles, or a DJ set you play as a rhythm game. Pick your stage and let your hands take over.</p>
       <div class="row">
         <a class="aqua" data-preview="dj" href="index.html">DJ Deck</a>
-        <!-- Arcade is AirMix (ai-dj.html) for now; when the real Arcade lands, AirMix becomes one of its games. -->
-        <a class="lime" data-preview="arcade" href="ai-dj.html">Arcade</a>
+        <a class="lime" data-preview="arcade" href="arcade-versus.html">Arcade</a>
       </div>
 
     </div>

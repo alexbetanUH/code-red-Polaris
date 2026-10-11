@@ -7,12 +7,13 @@ function boot(path) {
  const noop=()=>{}, gradient={addColorStop:noop};
  const ctx=new Proxy({measureText:t=>({width:t.length*7}),createLinearGradient:()=>gradient}, {get:(o,k)=>k in o?o[k]:noop});
  const elements=new Map();
- const el=()=>({width:1280,height:720,style:{},classList:{toggle:noop,contains:()=>false,add:noop,remove:noop},addEventListener:noop,appendChild:noop,append:noop,remove:noop,getContext:()=>ctx,querySelector:()=>({style:{}}),querySelectorAll:()=>[],textContent:'',value:''});
+ const el=()=>({width:1280,height:720,style:{},classList:{toggle:noop,contains:()=>false,add:noop,remove:noop},addEventListener:noop,appendChild:noop,insertBefore:noop,append:noop,remove:noop,getContext:()=>ctx,querySelector:()=>({style:{}}),querySelectorAll:()=>[],textContent:'',value:''});
  const events={};
  const box={console,performance,Math,Float32Array,Uint8Array, setTimeout:()=>0,clearTimeout:noop,
- window:{addEventListener:(k,f)=>(events[k]??=[]).push(f)},document:{getElementById:k=>{if(!elements.has(k))elements.set(k,el());return elements.get(k)},createElement:el,querySelector:el,querySelectorAll:()=>[],body:el()},
+ window:{addEventListener:(k,f)=>(events[k]??=[]).push(f)},document:{addEventListener:noop,getElementById:k=>{if(!elements.has(k))elements.set(k,el());return elements.get(k)},createElement:el,querySelector:el,querySelectorAll:()=>[],body:el()},
  localStorage:{getItem:()=>null,setItem:noop},requestAnimationFrame:noop,Audio:class{play(){return Promise.resolve()}},
  Deck:class {constructor(){return new Proxy({currentSlot:null,blendState:()=>null,effectState:()=>({}),slotState:()=>[],waveform:()=>new Float32Array(128),bass:()=>0},{get:(o,k)=>k in o?o[k]:noop})}},
+ BubbleParticles:class{render(){}clear(){}},
  FrameFx:class{constructor(){this.canvas=el();this.ok=true} resize(){}clear(){}render(){}},
  createQueue:()=>({calls:[],on:noop,next(){this.calls.push('next')},play(id){this.calls.push('play:'+id)},seek(t){this.calls.push('seek:'+t)},getUpNext:()=>null,mixNow:()=>false,holdControls:noop,coachPing:noop,startHandMix:async()=>null,startDefaultQueue(){this.calls.push('default');return new Promise(()=>{})},getState:()=>({items:[{id:'a'},{id:'b'}],currentId:'b',downloads:[],status:null,dj:{}})}),createQueuePanel:()=>({toggle:noop}),createTransport:el,createUpNext:()=>({element:el()}),location:{hash:'',replace:noop},
  FilesetResolver:{forVisionTasks:async()=>({})},HandLandmarker:{createFromOptions:async()=>({})}};
@@ -169,3 +170,29 @@ for(const points of [[[0,0],[4,0],[1,1],[0,4]],[[0,0],[4,0],[4,4],[1,1]],[[0,0],
 const rng=seed();
 for(let i=0;i<1000;i++){const q=Array.from({length:4},()=>({x:rng(),y:rng()}));e.box.geometry=q;verify(e.run('orderByAngle(geometry)'));}
 console.log('PASS: open-palm activation, simultaneous controls, same-height crossing/rotation, concave triangulation in both windings (1000 random layouts)');
+
+// Manual blend reaches both endpoints with palms in the bottom third of the frame.
+{
+ const e=boot(path);
+ e.run(`Object.assign(blend,{active:true,since:0,last:1000,lastInput:1000,p:0,sweep:0,finishing:false,controls:{done:false,startsIn:0,setIncoming(){},setOutgoing(){},swapBass(){},finish(){}}});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.70,pose:'open'}, {palmY:.70,pose:'open'}, 1000+i*34);`);
+ assert(e.api.blend.p>=.999,'full blend at palm Y .70, well below the lock zone');
+ assert(e.api.blend.sweep>.99,'outgoing fade also reachable at .70');
+ e.run(`Object.assign(blend,{p:1,sweep:1,finishing:false,last:3000,since:0});
+ for(let i=1;i<=40;i++) updateBlend({palmY:.88,pose:'open'}, {palmY:.88,pose:'open'}, 3000+i*34);`);
+ assert(e.api.blend.p<.001,'low palm returns to outgoing song');
+ assert(e.api.blend.sweep<.001,'low palm restores outgoing level');
+}
+console.log('PASS: comfortable bottom-third hand blend endpoints');
+
+// Full volume requires only 42% of frame width, clear of the side gesture zones.
+{
+ const e=boot(path);
+ for(let i=0;i<60;i++) feed(e,[hand(.29,.7,{label:'Left'}),hand(.71,.7,{label:'Right'})],1000+i*34);
+ assert(e.api.controls.volume>.98,'full volume at a comfortable central spread');
+ assert(e.api.sides.left.hand.palmX>.2 && e.api.sides.right.hand.palmX<.8,'both palms remain outside side zones');
+ const low=boot(path);
+ for(let i=0;i<60;i++) feed(low,[hand(.48,.7,{label:'Left'}),hand(.52,.7,{label:'Right'})],1000+i*34);
+ assert(low.api.controls.volume<.02,'hands close together still reach minimum volume');
+}
+console.log('PASS: full volume range within the central gesture-safe area');

@@ -489,6 +489,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     changed();
     try {
       const buffer = await decode(item);
+      // A newer selection may arrive while decoding. Never start a superseded song.
+      if (request !== playRequest || !items.some((entry) => entry.id === id)) return;
       deck.ensureContext();
       if (mix && deck.playing) {
         loadingId = null;
@@ -520,9 +522,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       status = null;
       topUpDj();
     } catch (error) {
-      status = { message: `Error: ${error.message}`, isError: true };
+      if (request === playRequest) status = { message: `Error: ${error.message}`, isError: true };
     } finally {
-      loadingId = null;
+      if (loadingId === id) loadingId = null;
       changed();
     }
   }
@@ -804,10 +806,10 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       coachSeen = performance.now();
     },
 
-    // Starts a mix the hands perform: the next song comes in on the next downbeat, and
-    // this resolves with its live controls (see transitions.mixInto's hands option), or
-    // with null when there's nothing to mix (or it can't be beat-matched: use mixNow).
-    // startAt: the downbeat (song seconds) it starts on; the next one by default.
+    // Starts a mix the hands perform, and resolves with its live controls (see
+    // transitions.mixInto's hands option), or with null when there's nothing to mix.
+    // With no startAt or style (the DJ Deck): any next song comes in immediately.
+    // startAt: the downbeat (song seconds) it starts on, beat-matched (AirMix);
     // style: "blend" or "cut" to insist on one.
     startHandMix({ startAt = null, style = null } = {}) {
       const next = upcoming()[0];
@@ -1223,7 +1225,7 @@ export function createUpNext(queue) {
 // Floating panel for a queue: the player, add (YouTube link, song name or file),
 // downloads with progress, drag to reorder, ✕ to remove, ▶ to play, and the AI DJ.
 // Uses the page's CSS variables for colors.
-export function createQueuePanel(queue, deck) {
+export function createQueuePanel(queue, deck, { embedded = false } = {}) {
   addStyles();
   let draggedId = null;
   let dropIndex = null; // insertion point, 0..items.length
@@ -1345,6 +1347,23 @@ export function createQueuePanel(queue, deck) {
   // "Beta" label with its warning (built here because it mixes bold and plain text).
   const betaLabel = panel.querySelector(".queuePanel-betaLabel");
   betaLabel.append(element("b", { text: "Beta: " }), "any song from YouTube. Downloads can take 10–30 seconds.");
+  if (embedded) {
+    panel.classList.add("queuePanel-embedded");
+    panel.setAttribute("role", "region");
+    panel.hidden = false;
+    panel.querySelector(".queuePanel-close").remove();
+    panel.querySelector(".queueTransport").remove();
+    panel.querySelector(".queuePanel-header p").textContent = "Your songs · drag to reorder";
+    const library = panel.querySelector(".queuePanel-library");
+    library.open = true;
+    // Keep the playlist directly below its heading, with optional tools below it.
+    panel.querySelector(".queuePanel-header").after(list, empty, status);
+    const tools = element("details", { className: "queuePanel-tools" }, [
+      element("summary", { text: "AI DJ & import" }),
+      element("div", { className: "queuePanel-toolsBody" }, [djRow, djOptions, djStatus, panel.querySelector(".queuePanel-beta")]),
+    ]);
+    library.after(tools);
+  }
   document.body.append(panel);
 
   function setDropIndex(index) {
@@ -1537,10 +1556,11 @@ export function createQueuePanel(queue, deck) {
   queue.on(render);
   render();
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !panel.hidden) controls.close();
+    if (!embedded && event.key === "Escape" && !panel.hidden) controls.close();
   });
 
   const controls = {
+    element: panel,
     get isOpen() {
       return !panel.hidden;
     },
@@ -1548,14 +1568,17 @@ export function createQueuePanel(queue, deck) {
       panel.hidden = false;
     },
     close() {
+      if (embedded) return;
       panel.hidden = true;
     },
     toggle() {
+      if (embedded) { panel.scrollIntoView({ block: "nearest" }); return; }
       panel.hidden = !panel.hidden;
     },
     // Opens the panel with the AI DJ's vibe box ready to type in.
     openDj() {
       panel.hidden = false;
+      if (embedded) panel.querySelector(".queuePanel-tools").open = true;
       djRow.scrollIntoView({ block: "nearest" });
       vibeInput.focus();
     },

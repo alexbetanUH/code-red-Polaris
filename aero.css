@@ -187,3 +187,5 @@ input[type="text"], input[type="url"], input[type="search"] {
   color: var(--ink);
   font: 600 14px var(--font);
 }
+
+.modes a[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
