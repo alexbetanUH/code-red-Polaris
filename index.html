@@ -60,7 +60,7 @@
     aspect-ratio: 16 / 9;
   }
   video { display: none; }
-  #fxCanvas { position: absolute; inset: 0; pointer-events: none; }
+  #fxCanvas, #trackingDebugCanvas { position: absolute; inset: 0; pointer-events: none; }
   canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
   .placeholder {
     position: absolute;
@@ -179,7 +179,7 @@
       <div class="slots" id="visChips"></div>
       <h2 style="margin-top:14px"><span>Effects</span></h2>
       <div class="slots" id="fxChips"></div>
-      <p class="keyhelp">Test keys: <b>V</b> visuals mode · <b>K</b> lock · <b>←→</b> blend · <b>Enter</b> finish blend · <b>S</b> song mode · <b>F</b> effects mode · <b>1–5</b> pick · <b>↑↓</b> amount · <b>L</b> frame · <b>Esc</b> leave mode.<br>
+      <p class="keyhelp">Test keys: <b>V</b> visuals mode · <b>K</b> lock · <b>←→</b> blend · <b>Enter</b> finish blend · <b>S</b> song mode · <b>F</b> effects mode · <b>1–5</b> pick · <b>↑↓</b> amount · <b>L</b> frame · <b>Esc</b> leave mode · <b>D</b> tracking debug.<br>
       Right fist in the right zone → left hand picks a song (1–5 fingers). Left fist in the left zone → right hand picks an effect (open hand = all off, hand height = amount). The choice applies when the fist leaves its zone. Right fist in the bottom-right corner → left hand picks a visual (1–5); then make an L with both hands: the shape between your two thumb tips and two index tips shows it.</p>
     </div>
     <div id="cards"></div>
@@ -209,8 +209,8 @@ const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/w
 
 // ---- Tuning knobs -------------------------------------------------------
 // Pinch raw = closest gap between the last finger segments of thumb and index
-// (not just the tip points), divided by palm size. Measured on the 2D image
-// landmarks in pixels, which are more precise than MediaPipe's 3D "world" ones.
+// (not just the tip points), divided by palm size. Image x/y plus relative z
+// are scaled to pixel units; this is a depth-aware metric, not a 2D gap.
 // Defaults; "Calibrate pinch" measures your own and saves them.
 let PINCH_CLOSED = 0.05;     // raw at/below this → 0
 let PINCH_OPEN = 0.9;        // raw at/above this → 1
@@ -232,10 +232,19 @@ const BETWEEN_CLOSED = 0.04;
 const BETWEEN_OPEN = 0.8;
 // A finger counts as extended when its joints bend less than this (degrees, summed).
 const FINGER_STRAIGHT_DEG = 70;
+const FINGER_BEND_HYST_DEG = 10; // extended fingers may bend this much farther before switching off
+const THUMB_EXTEND_RATIO = 0.55; // thumb tip / index knuckle distance in palm lengths
+const THUMB_HYST_RATIO = 0.06;   // thumb must retract this far below the enter threshold to switch off
+const HAND_LABEL_CONFIDENCE = 0.8; // use confident handedness only as a soft identity hint
+const HAND_LABEL_PENALTY = 0.12; // normalized distance cost for disagreeing handedness
+const HAND_MATCH_MAX = 0.35;     // maximum wrist jump before resetting a track
+const HAND_PREDICT_MS = 100;     // cap motion prediction across dropouts
+const HAND_VELOCITY_EASE = 0.5;  // smooth wrist velocity for crossing assignment
+const LANDMARK_EPSILON = 1e-6;   // reject degenerate palm geometry before it reaches filters
 const POSE_STABLE_FRAMES = 4; // pose must hold this many frames before it changes
 // Smoothing (One Euro filter): lower minCutoff = smoother when still,
 // higher beta = less lag when moving fast.
-const POINT_FILTER = { minCutoff: 1.5, beta: 8 };   // landmark positions (0–1 units)
+const POINT_FILTER = { minCutoff: 0.6, beta: 12 };   // landmark positions (0–1 units)
 const VALUE_FILTER = { minCutoff: 1.0, beta: 4 };   // the 0–1 output values
 const HOLD_MS = 400;         // keep a lost hand on screen this long before dropping it (tracker dropouts are usually shorter)
 // Hand → audio mapping (all inputs are 0–1)
@@ -275,7 +284,9 @@ const L_GRACE_MS = 400;         // once an L, a hand can look wrong for this lon
 const SHAPE_CORNER_FILTER = { minCutoff: 0.8, beta: 10 };   // One Euro on the 4 shape corners: steady when still, quick when moving
 const SHAPE_EASE_MS = 30;       // the shape is redrawn at screen rate (60 fps) and eases toward the tracked corners this fast
 const SHAPE_MIN_AREA = 0.004;   // smallest shape worth drawing, as a share of the frame area
-const SHAPE_RELEASE_PINCH = 0.1; // thumb + index pinched shut on a hand = "let go" of the shape
+const SHAPE_RELEASE_TIP_RATIO = 0.22; // actual thumb/index tip distance in palm lengths releases the shape
+const SHAPE_RELEASE_MS = 180;   // a fresh fist or touching fingertips must persist before release
+const SHAPE_HIDE_AREA = 0.002;  // once visible, tolerate a smaller area than SHAPE_MIN_AREA
 const SHAPE_GRACE_MS = 500;     // the shape keeps a hand's last fingertips this long (counted from the last real detection)
 const LOCK_ZONE_GRACE_MS = 300; // stepping out of the lock zone for less than this doesn't restart the hold
 // -------------------------------------------------------------------------
@@ -371,6 +382,7 @@ function makeSide() {
     height: new OneEuro(VALUE_FILTER),
     open: new OneEuro(VALUE_FILTER),
     pinched: false,
+    ext: null, identity: null, track: null,
     pose: "—", poseCandidate: "—", poseFrames: 0,
     lActive: false, lFrames: 0, lBadSince: null,
     lastSeen: -Infinity,
@@ -385,6 +397,7 @@ function resetSide(s) {
   for (const f of [s.pinch, s.height, s.open]) f.reset();
   s.pinchRecent = [];
   s.pinched = false;
+  s.ext = null; s.identity = null; s.track = null;
   s.pose = s.poseCandidate = "—";
   s.lActive = false; s.lFrames = 0; s.lBadSince = null;
   s.poseFrames = 0;
@@ -511,13 +524,13 @@ function angleDeg(u, v) {
 // ---- Hand analysis ---------------------------------------------------------
 // Finger is extended when its segments line up (small total bend). Uses 3D
 // world landmarks, so it works whether the palm faces the camera or not.
-function fingerExtended(w, [mcp, pip, dip, tip]) {
+function fingerBend(w, [mcp, pip, dip, tip]) {
   const bend = angleDeg(sub3(w[pip], w[mcp]), sub3(w[dip], w[pip])) +
                angleDeg(sub3(w[tip], w[dip]), sub3(w[dip], w[pip]));
-  return bend < FINGER_STRAIGHT_DEG;
+  return bend;
 }
 // Thumb is "out" when its tip is well away from the index knuckle.
-const thumbExtended = (w, palm) => dist3(w[THUMB_TIP], w[INDEX_MCP]) / palm > 0.55;
+const thumbExtension = (w, palm) => dist3(w[THUMB_TIP], w[INDEX_MCP]) / palm;
 
 function classifyPose(ext, lms) {
   const [t, i, m, r, p] = ext;
@@ -534,34 +547,46 @@ function classifyPose(ext, lms) {
   return `${fingers + (t ? 1 : 0)} fingers`;
 }
 
-// Assign detections to left/right. In the mirrored view, the hand on the left
-// of the screen is the user's left hand. With one hand visible, stick with the
-// side it was on last frame so it doesn't flip when crossing the middle.
+// Initialize by mirrored screen side, then match physical tracks across crossings.
+// Handedness is a soft label only; no assumption about anatomical/mirrored naming.
 function assignSides(result, now) {
-  const dets = result.landmarks.map((lms, i) => ({
-    lms,
-    world: result.worldLandmarks[i],
-    x: 1 - lms[WRIST].x,
-  }));
-  dets.sort((a, b) => a.x - b.x);
-
-  if (dets.length >= 2) return { left: dets[0], right: dets[dets.length - 1] };
-  if (dets.length === 0) return {};
-
-  const d = dets[0];
-  const recent = (s) => s.hand && now - s.lastSeen < HOLD_MS;
-  const gap = (s) => Math.abs(s.hand.wristX - d.x);
-  if (recent(sides.left) && recent(sides.right)) {
-    return gap(sides.left) <= gap(sides.right) ? { left: d } : { right: d };
+  const valid = (ps) => ps?.length === 21 && ps.every((p) =>
+    p && [p.x, p.y, p.z].every(Number.isFinite));
+  const dets = (result.landmarks || []).flatMap((lms, i) => {
+    const world = result.worldLandmarks?.[i], label = result.handedness?.[i]?.[0];
+    if (!valid(lms) || !valid(world) || dist3(world[0], world[9]) < LANDMARK_EPSILON ||
+        dist3(lms[0], lms[9]) < LANDMARK_EPSILON) return [];
+    return [{ lms, world, x: 1 - lms[WRIST].x, y: lms[WRIST].y,
+      label: label?.categoryName || null, score: label?.score || 0 }];
+  }).slice(0, 2).sort((a, b) => a.x - b.x);
+  const recent = (s) => s.track && now - s.lastSeen < HOLD_MS;
+  const gap = (s, d) => {
+    const dt = Math.min(now - s.lastSeen, HAND_PREDICT_MS) / 1000;
+    return Math.hypot(s.track.x + s.track.vx * dt - d.x, s.track.y + s.track.vy * dt - d.y);
+  };
+  const cost = (side, d) => {
+    const s = sides[side];
+    if (!recent(s)) return HAND_MATCH_MAX + (side === "left" ? d.x : 1 - d.x) * HAND_LABEL_PENALTY;
+    return gap(s, d) + (s.identity && d.score >= HAND_LABEL_CONFIDENCE && d.label !== s.identity ? HAND_LABEL_PENALTY : 0);
+  };
+  let assigned = {};
+  if (dets.length === 2) {
+    const [a, b] = dets;
+    assigned = cost("left", a) + cost("right", b) <= cost("left", b) + cost("right", a)
+      ? { left: a, right: b } : { left: b, right: a };
+  } else if (dets.length === 1) {
+    const d = dets[0];
+    assigned[cost("left", d) <= cost("right", d) ? "left" : "right"] = d;
   }
-  if (recent(sides.left)) return { left: d };
-  if (recent(sides.right)) return { right: d };
-  return d.x < 0.5 ? { left: d } : { right: d };
+  for (const [side, d] of Object.entries(assigned)) {
+    d.fresh = recent(sides[side]) && gap(sides[side], d) > HAND_MATCH_MAX;
+  }
+  return assigned;
 }
 
 function processHand(side, det, now) {
   const s = sides[side];
-  if (now - s.lastSeen > HOLD_MS) resetSide(s);
+  if (det.fresh || now - s.lastSeen >= HOLD_MS) resetSide(s);
   const w = det.world;
   const palm = dist3(w[WRIST], w[MIDDLE_MCP]);
 
@@ -591,7 +616,11 @@ function processHand(side, det, now) {
   const open = clamp01(s.open.filter(remap(reach, OPEN_FIST, OPEN_FLAT), now));
 
   // Finger states + pose (debounced so it doesn't flicker)
-  const ext = [thumbExtended(w, palm), ...FINGER_NAMES.map((f) => fingerExtended(w, FINGERS[f]))];
+  const extensionValues = [thumbExtension(w, palm), ...FINGER_NAMES.map((f) => fingerBend(w, FINGERS[f]))];
+  const extensionThresholds = [THUMB_EXTEND_RATIO - (s.ext?.[0] ? THUMB_HYST_RATIO : 0),
+    ...FINGER_NAMES.map((_, i) => FINGER_STRAIGHT_DEG + (s.ext?.[i + 1] ? FINGER_BEND_HYST_DEG : 0))];
+  const ext = extensionValues.map((v, i) => i === 0 ? v > extensionThresholds[i] : v < extensionThresholds[i]);
+  s.ext = ext;
   const candidate = classifyPose(ext, det.lms);
   if (candidate === s.poseCandidate) s.poseFrames++;
   else { s.poseCandidate = candidate; s.poseFrames = 1; }
@@ -614,8 +643,17 @@ function processHand(side, det, now) {
   const isL = s.lActive;
   const lNow = s.lActive && looseL;   // looks like an L right now (isL alone also stays true through the grace period)
 
+  const dt = (now - s.lastSeen) / 1000;
+  const prev = s.track;
+  s.track = { x: det.x, y: det.y,
+    vx: prev && dt > 0 ? prev.vx + HAND_VELOCITY_EASE * ((det.x - prev.x) / dt - prev.vx) : 0,
+    vy: prev && dt > 0 ? prev.vy + HAND_VELOCITY_EASE * ((det.y - prev.y) / dt - prev.vy) : 0 };
+  if (!s.identity && det.score >= HAND_LABEL_CONFIDENCE) s.identity = det.label;
   s.lastSeen = now;
   s.hand = {
+    rawPts: det.lms.map((p) => ({ x: (1 - p.x) * canvas.width, y: p.y * canvas.height })),
+    extensionValues, extensionThresholds, handedness: det.label, handednessScore: det.score,
+    tipRatio: dist3(px[THUMB_TIP], px[INDEX_TIP]) / ((dist3(px[0], px[5]) + dist3(px[0], px[9]) + dist3(px[0], px[17]) + dist3(px[5], px[17])) / 4),
     seenAt: now, isL, lNow, web: pts[INDEX_MCP], palmY, palmX: 1 - PALM.reduce((sum, i) => sum + det.lms[i].x, 0) / PALM.length,
     pts,
     thumb: pts[THUMB_TIP],
@@ -683,6 +721,7 @@ function update(result, now) {
   drawZones(now);
   drawLock(now);
   drawEasterEggs(now);
+  drawTrackingDebug(left, right, now);
   // The side panel is plain DOM text, which is slow to update, so it refreshes ~10 times a second
   if (now - lastPanel >= PANEL_MS) {
     lastPanel = now;
@@ -694,6 +733,37 @@ function update(result, now) {
   }
 }
 let lastPanel = -Infinity;
+
+// D: raw cyan crosses versus smoothed yellow dots, plus actual decision thresholds.
+function drawTrackingDebug(left, right, now) {
+  debugCanvas.style.visibility = trackingDebug.enabled ? "visible" : "hidden";
+  if (!trackingDebug.enabled) return;
+  if (debugCanvas.width !== canvas.width) debugCanvas.width = canvas.width;
+  if (debugCanvas.height !== canvas.height) debugCanvas.height = canvas.height;
+  const ctx = debugCanvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  for (const h of [left, right]) {
+    if (!h) continue;
+    h.rawPts.forEach((p, i) => {
+      ctx.strokeStyle = "#00ffff"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(p.x - 4, p.y); ctx.lineTo(p.x + 4, p.y);
+      ctx.moveTo(p.x, p.y - 4); ctx.lineTo(p.x, p.y + 4); ctx.stroke();
+      ctx.fillStyle = "#ffe600"; ctx.beginPath(); ctx.arc(h.pts[i].x, h.pts[i].y, 2, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+  const lines = ["D: debug | cyan raw + / yellow filtered dot", `Shape: ${trackingDebug.renderReason || trackingDebug.shapeReason}`];
+  for (const [side, h] of [["left", left], ["right", right]]) {
+    lines.push(h ? `${side} track / model ${h.handedness || "?"} ${h.handednessScore.toFixed(2)} / age ${Math.round(now - h.seenAt)}ms` : `${side}: not tracked`);
+    if (!h) continue;
+    lines.push(h.extensionValues.map((v, i) => `${["T", "I", "M", "R", "P"][i]} ${v.toFixed(i ? 0 : 2)}${i ? "<" : ">"}${h.extensionThresholds[i].toFixed(i ? 0 : 2)}:${h.ext[i] ? "on" : "off"}`).join("  "));
+    lines.push(`pinch raw ${h.pinchRaw.toFixed(3)} -> ${h.pinch.toFixed(3)} | tip gap ${h.tipRatio.toFixed(2)} / release <${SHAPE_RELEASE_TIP_RATIO}`);
+  }
+  ctx.fillStyle = "rgba(0,0,0,.82)"; ctx.fillRect(8, canvas.height - 22 - lines.length * 18, canvas.width - 16, lines.length * 18 + 14);
+  ctx.fillStyle = "#fff"; ctx.font = "13px monospace"; ctx.textAlign = "left";
+  lines.forEach((line, i) => ctx.fillText(line, 16, canvas.height - 16 - (lines.length - 1 - i) * 18, canvas.width - 32));
+  ctx.restore();
+}
 
 // ---- Easter eggs (temporary, for fun) ------------------------------------------
 // On/off button in the header; the choice is remembered.
@@ -918,7 +988,8 @@ function pick(n) {
 window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.repeat) return;
   const k = e.key.toLowerCase();
-  if (k === "s") enterMode(modes.current === "song" ? "normal" : "song", true);
+  if (k === "d") trackingDebug.enabled = !trackingDebug.enabled;
+  else if (k === "s") enterMode(modes.current === "song" ? "normal" : "song", true);
   else if (k === "f") enterMode(modes.current === "fx" ? "normal" : "fx", true);
   else if (k === "v") enterMode(modes.current === "vis" ? "normal" : "vis", true);
   else if (k === "escape") enterMode("normal");
@@ -1096,16 +1167,37 @@ const frame = { forced: false, active: false, target: null, lastSeen: -Infinity,
 // own requestAnimationFrame loop, easing between camera frames, so it moves at screen rate instead of 30 fps steps.
 const frameTips = { left: null, right: null };   // last fingertips per hand: { thumb, index, t }
 const cornerFilters = Array.from({ length: 4 }, () => ({ x: new OneEuro(SHAPE_CORNER_FILTER), y: new OneEuro(SHAPE_CORNER_FILTER) }));
-const holdsShape = (h) => h.pose !== "✊ fist" && h.pinch > SHAPE_RELEASE_PINCH;
+const shapeReleaseSince = { left: null, right: null };
+const debugCanvas = document.createElement("canvas");
+debugCanvas.id = "trackingDebugCanvas";
+debugCanvas.style.visibility = "hidden";
+document.querySelector(".stage").appendChild(debugCanvas);
+const trackingDebug = { enabled: false, shapeReason: "waiting for both L poses" };
+function holdsShape(h, side, now) {
+  // Held copies do not confirm a release; absent hands use the existing loss grace.
+  if (h.seenAt !== now) { shapeReleaseSince[side] = null; return true; }
+  const release = h.ext.slice(1).every((v) => !v) || h.tipRatio < SHAPE_RELEASE_TIP_RATIO;
+  if (!release) shapeReleaseSince[side] = null;
+  else shapeReleaseSince[side] ??= now;
+  return shapeReleaseSince[side] === null || now - shapeReleaseSince[side] < SHAPE_RELEASE_MS;
+}
 
 function updateFrame(left, right, now) {
-  if (!frame.active && left?.lNow && right?.lNow) {
+  if (!frame.active && left?.lNow && right?.lNow &&
+      left.tipRatio >= SHAPE_RELEASE_TIP_RATIO && right.tipRatio >= SHAPE_RELEASE_TIP_RATIO) {
     frame.active = true;
+    shapeReleaseSince.left = shapeReleaseSince.right = null;
     cornerFilters.forEach((f) => { f.x.reset(); f.y.reset(); });
   }
   for (const [side, h] of [["left", left], ["right", right]]) {
-    if (!h) continue;
-    const ok = frame.active ? holdsShape(h) : h.lNow;
+    if (!h) { shapeReleaseSince[side] = null; continue; }
+    if (frame.active && !holdsShape(h, side, now)) {
+      frame.active = false; frame.target = null; frame.lastSeen = -Infinity;
+      frameTips.left = frameTips.right = null;
+      trackingDebug.shapeReason = `${side}: confirmed fist / fingertips closed`;
+      return;
+    }
+    const ok = frame.active || h.lNow;
     // t = when the hand was last actually detected (not the held copy), so the grace doesn't stack on top of HOLD_MS
     if (ok && (!frameTips[side] || h.seenAt > frameTips[side].t)) {
       frameTips[side] = { thumb: { x: h.thumb.x, y: h.thumb.y }, index: { x: h.index.x, y: h.index.y }, t: h.seenAt };
@@ -1113,7 +1205,10 @@ function updateFrame(left, right, now) {
   }
   const l = frameTips.left, r = frameTips.right;
   if (!frame.active) return;
-  if (!l || !r || now - l.t > SHAPE_GRACE_MS || now - r.t > SHAPE_GRACE_MS) { frame.active = false; return; }
+  if (!l || !r || now - l.t > SHAPE_GRACE_MS || now - r.t > SHAPE_GRACE_MS) {
+    frame.active = false; trackingDebug.shapeReason = "hand lost beyond grace"; return;
+  }
+  trackingDebug.shapeReason = "tracking four fingertips";
   // Fixed corner identities (left thumb, left index, right index, right thumb), each smoothed on its own
   const raw = [l.thumb, l.index, r.index, r.thumb];
   frame.target = raw.map((p, i) => ({
@@ -1137,11 +1232,12 @@ function showFx(on) {
 }
 let shownCorners = null, lastFxT = 0;
 function drawFrame(now) {
-  if (!frameFx.ok) return;
+  trackingDebug.renderReason = null;
+  if (!frameFx.ok) { trackingDebug.renderReason = "WebGL unavailable"; return; }
   const dt = Math.min(100, now - lastFxT);
   lastFxT = now;
   let target;
-  if (visualFx === "off") { shownCorners = null; frameFx.clear(); showFx(false); return; }   // visuals switched off (5)
+  if (visualFx === "off") { trackingDebug.renderReason = "visual selected: off"; shownCorners = null; frameFx.clear(); showFx(false); return; }   // visuals switched off (5)
   if (frame.forced) {   // test key: a slowly turning, skewed shape
     const cx = canvas.width * 0.5, cy = canvas.height * 0.5, t = now / 1400;
     target = [[-0.22, -0.2], [0.2, -0.28], [0.26, 0.22], [-0.18, 0.28]].map(([x, y]) => ({
@@ -1156,7 +1252,9 @@ function drawFrame(now) {
   if (!shownCorners) shownCorners = target.map((p) => ({ ...p }));
   else shownCorners.forEach((p, i) => { p.x += (target[i].x - p.x) * k; p.y += (target[i].y - p.y) * k; });
   const quad = orderByAngle(shownCorners);
-  if (polyArea(quad) < SHAPE_MIN_AREA * canvas.width * canvas.height) { frameFx.clear(); showFx(false); return; }
+  if (polyArea(quad) < (fxShown ? SHAPE_HIDE_AREA : SHAPE_MIN_AREA) * canvas.width * canvas.height) {
+    trackingDebug.renderReason = "projected shape too small"; frameFx.clear(); showFx(false); return;
+  }
   showFx(true);
   frameFx.render(frameSource(), quad, visualFx, deck.bass?.() ?? 0, now);
 }
@@ -1852,7 +1950,7 @@ startBtn.addEventListener("click", startCamera);
 calibBtn.addEventListener("click", calibrate);
 updateControls();
 
-Object.assign(window.airdeck, { modes, frame, FX_NAMES, lock, controls, blend, update, canvas });
+Object.assign(window.airdeck, { modes, frame, FX_NAMES, lock, controls, blend, update, canvas, trackingDebug, sides });
 
 loadModel()
   .then(() => {
