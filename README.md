@@ -57,6 +57,12 @@ songs to reorder them. The player bar (in the Song card and the queue) shows the
 jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead,
 so skipping back and forth is instant.
 
+### Live site
+
+AirDeck runs at https://airdeck.design on a Vultr server (Caddy for HTTPS in front of `server.py`). The server checks
+`main` every minute and deploys new commits automatically, so a push to `main` is live within about a minute. Songs in
+`music/` and `downloads/` and the server's `.env` are not in git and survive deploys.
+
 ### Song library
 
 `library.json` is the list of songs (YouTube video id, artist, title, BPM). They play from `music/<id>.m4a`, the same
