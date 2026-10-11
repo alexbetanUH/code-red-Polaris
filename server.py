@@ -76,13 +76,16 @@ def to_target(text):
 JS_RUNTIME = [] if shutil.which("deno") or not shutil.which("node") else ["--js-runtimes", "node"]
 
 # YouTube often answers 403 Forbidden for one download method but not another,
-# so try several in order. The first two keep the original audio file (m4a/webm
-# decode natively in the browser). The last gets a video file and extracts the
+# so try several in order. The first three keep the original audio file (m4a/webm
+# decode natively in the browser), or at worst a small mp4. The last gets a video file and extracts the
 # audio with ffmpeg, so it's only tried when ffmpeg is installed.
 AUDIO_ONLY = ["-f", "bestaudio[ext=m4a]/bestaudio"]
 STRATEGIES = [
     ("default", AUDIO_ONLY),
     ("alt clients", [*AUDIO_ONLY, "--extractor-args", "youtube:player_client=tv,web_safari,mweb"]),
+    # Some music videos 403 on every client above. These clients often still work, and
+    # "best" (a small mp4 with audio) is a last resort the browser can still decode.
+    ("more clients", ["-f", "bestaudio/best", "--extractor-args", "youtube:player_client=android_vr,web_embedded,ios"]),
 ]
 if shutil.which("ffmpeg"):
     STRATEGIES.append(("convert", ["-f", "best", "-x", "--audio-format", "m4a"]))
