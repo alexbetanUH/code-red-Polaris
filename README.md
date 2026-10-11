@@ -79,19 +79,17 @@ how (blend or echo out).
 
 **Play the set**: the AI DJ page opens on a start screen (how to play in three pictures, then the camera and a check
 that it sees both hands, then the DJ picks the first song, then 3, 2, 1). The set is a rhythm game in the style of
-osu!, played with your pinches. Each shape is a target circle per hand, with small marks inside for where your
-thumb and index fingertip go; a ring closes in on each circle, landing on the beat about 2 seconds after it shows
-up. One comes every beat or two, each joined to the next. The targets are the DJ controls, and they're worked out
-from your pinch calibration and how big your hand is right now: put your pinch in the circle with the gap the marks
-show and you really get that sound. The right pinch is the filter (open = filter off; it narrows through a build-up
+osu!, played with your pinches. Each shape is four dots, two per hand: where your thumb (hollow) and index fingertip
+(filled) go. A ring closes in on each dot, landing on the beat about 2 seconds after it shows up. One comes every beat or two, each joined to the next. The targets are the DJ controls, and they're worked out
+from your pinch calibration and how big your hand is right now: put your fingertips on the dots, with the gap
+between them, and you really get that sound. The right pinch is the filter (open = filter off; it narrows through a build-up
 and snaps open on the drop), the distance between your hands is the volume (wider on drops), and the speed stays at
-1.00× while you play. A shape counts when both hands are in their circles and the right pinch is about as open as
-asked. The mixes are part of the chart:
+1.00× while you play. A shape counts when both hands are on their dots and the right pinch is about as open as asked. The mixes are part of the chart:
 
 - **Choosing the next song**: a few bars ahead, the DJ's next songs come in as circles on the right, each with a
   balloon saying what it is and why. Your right index finger in one on its beat picks it; otherwise the DJ's pick plays.
 - **Blends** (tempos close): your right thumb and index slide the new song in along a track (how far along you are is
-  its volume), then your left ones slide the old song out. If you don't follow, the AI moves the music along for you.
+  its volume), then your left ones slide the old song out: it thins out (its high-pass sweeps up) as it goes, and its last beat is thrown into an echo. If you don't follow, the AI moves the music along for you.
 - **Cuts** (tempos far apart): one shape on the downbeat; the new song slams in and the old one is thrown into an echo.
 
 Shapes hit within about 160 ms of the beat are Perfect, within 320 ms Good, and you hear them: each hit claps on its

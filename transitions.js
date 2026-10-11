@@ -24,6 +24,7 @@ const maxNudge = 0.08; // the incoming song's speed may be nudged up to 8% to ma
 const tempoTolerance = 0.06; // a detected tempo is trusted if it's within 6% of the library's
 const bassCutHz = 300; // in a blend, the bass line of one song is cut below this
 const openHz = 10; // a high-pass this low lets everything through
+const thinHz = 2000; // the hands thin the old song out up to this as it leaves
 const echoFeedback = 0.5;
 const echoRingSeconds = 4; // how long an echo-out rings
 const echoFadeInSeconds = 1.5; // the incoming song's fade-in under the echoes
@@ -99,8 +100,21 @@ function grid(buffer, from) {
 }
 // Where a song's music starts, and the grid there.
 const introGrid = (buffer) => grid(buffer, bounds(buffer).start);
+// A grid already worked out whose stretch of audio covers a point (the one centered
+// nearest it), else a new one from `from`. The analysis takes a few hundred ms, so a
+// playing song asked about every frame mustn't redo it for each new half second.
+function gridNear(buffer, seconds, from) {
+  const span = Math.min(analysisSeconds, buffer.duration);
+  let nearest = null;
+  for (const [start, found] of gridCache.get(buffer) ?? []) {
+    if (seconds < start || seconds > start + span) continue;
+    const off = Math.abs(seconds - (start + span / 2));
+    if (!nearest || off < nearest.off) nearest = { off, found };
+  }
+  return nearest ? nearest.found : grid(buffer, from);
+}
 // The grid leading up to a point in the song (for mixing out there).
-const gridBefore = (buffer, seconds) => grid(buffer, seconds - analysisSeconds + 10);
+const gridBefore = (buffer, seconds) => gridNear(buffer, seconds, seconds - analysisSeconds + 10);
 
 const barOf = ({ bpm }) => 240 / bpm;
 
@@ -246,12 +260,10 @@ export function createTransitions(deck) {
   return {
     // Decodes are slow anyway; analyzing a song as soon as it's decoded keeps the
     // moment of the transition smooth.
+    // One analysis per task, so the page (and the game's frames) never freezes for long.
     prepare(buffer) {
-      setTimeout(() => {
-        introGrid(buffer);
-        gridBefore(buffer, mixOutPoint(buffer, false));
-        gridBefore(buffer, mixOutPoint(buffer, true));
-      }, 0);
+      const steps = [() => introGrid(buffer), () => gridBefore(buffer, mixOutPoint(buffer, true)), () => gridBefore(buffer, mixOutPoint(buffer, false))];
+      steps.forEach((step, i) => setTimeout(step, i * 300));
     },
 
     // Where (seconds into the song) it should be mixed out by; short = short mixes.
@@ -283,7 +295,7 @@ export function createTransitions(deck) {
 
     // The beat grid ({ bpm, first downbeat }, song seconds) of a song around a point in it.
     beatGridAt(buffer, seconds) {
-      return grid(buffer, seconds - 10);
+      return gridNear(buffer, seconds, seconds - 10);
     },
 
     // How loud a song is around a point, relative to its median level (1 = typical).
@@ -471,6 +483,13 @@ export function createTransitions(deck) {
             inFilter.frequency.setValueAtTime(bassCutHz, Math.max(ctx.currentTime, swapAt - beat));
             inFilter.frequency.exponentialRampToValueAtTime(openHz, swapAt);
             return swapAt;
+          },
+          // Thins the old song out once the bass lines have swapped: 0 keeps it as it is, 1
+          // leaves only its highs (the high-pass sweeps up to thinHz).
+          thinOutgoing(amount) {
+            if (!live() || closing || swapAt === null || ctx.currentTime < swapAt) return;
+            const hz = bassCutHz * (thinHz / bassCutHz) ** Math.max(0, Math.min(1, amount));
+            tailFilter.frequency.setTargetAtTime(hz, ctx.currentTime, 0.08);
           },
           // Throws the old song into an echo (its dry sound cuts out) and lands the mix as it rings.
           echoOut() {

@@ -446,7 +446,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // No next song yet: the current one loops (and gets mixed out next time around).
   // While a game (djGame.js) is running, it decides when to mix instead.
   let coachSeen = 0;
-  const coached = () => performance.now() - coachSeen < 1000;
+  const coached = () => performance.now() - coachSeen < 4000; // a hiccup (a song decoding) mustn't hand a mix to the AI
   setInterval(() => {
     if (!dj.on || transitioning || !deck.playing || !deck.buffer) return;
     const next = upcoming()[0];

@@ -43,6 +43,8 @@ const followReach = 0.18; // fingertips within this of a slider's dots are follo
 const gapBars = { short: 2, full: 4 }; // the new song's slide
 const outBars = 2; // the old song's slide
 const chooseBars = 4; // the choice lands this many bars before the mix (or as early as it can after the last one)
+const leadBars = 6; // a mix is planned at least this many bars ahead (2 to read the choice, 4 to the mix)
+const phraseBars = 4; // and moved on by whole phrases to get there
 const idleMs = 2000; // no hands this long: shapes are skipped, not missed
 const hypeWeight = 0.08; // how fast the crowd's hype follows your hits
 const hornEvery = 10; // the air horn sounds every this many hits in a row
@@ -291,7 +293,9 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     for (; grid.first + k * bar <= horizon; k += 1) {
       charted = k;
       const downbeat = grid.first + k * bar;
-      if (downbeat < playback.position) continue;
+      // A bar too close to show its first shape a whole approach early (the set's first
+      // bars, say) stays empty.
+      if (downbeat < playback.position + (approachMs(beatSeconds * 1000) / 1000) * playback.rate) continue;
       if (k % 4 === 0 || !pattern) pattern = patterns[Math.floor(random() * patterns.length)];
       const energy = queue.energyAt(downbeat + bar / 2);
       const before = queue.energyAt(downbeat - bar / 2);
@@ -343,19 +347,25 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
   function planMix(playback) {
     if (mix && mix.song !== playback.songId && mix.state === "planned") mix = null;
     if (mix) return;
+    // Not while the DJ is busy (talking over the last mix, say): the mix couldn't start.
+    if (queue.getUpNext()?.mixing) return;
     const mixOut = queue.mixOutAt();
     if (mixOut === null) return;
-    if (mixOut - playback.position < 2) {
-      queue.mixNow(); // too late to play this one: the AI mixes it
-      return;
-    }
     const grid = queue.beatGridAt(mixOut);
     const bar = 240 / grid.bpm;
     const short = queue.getState().dj.short;
     const gap = short ? gapBars.short : gapBars.full;
     const onBar = (time) => grid.first + Math.round((time - grid.first) / bar) * bar;
     const barAfter = (time) => grid.first + Math.ceil((time - grid.first) / bar) * bar;
-    const cue = onBar(mixOut - (gap + outBars) * bar);
+    // The mix lands mixOut, but never sooner than leadBars from now (time to choose the
+    // song and see the first targets coming): a song that came in by your last mix has
+    // already played those bars, so its mix moves on by whole phrases.
+    let cue = onBar(mixOut - (gap + outBars) * bar);
+    while (cue < playback.position + leadBars * bar) cue += phraseBars * bar;
+    if (cue + (gap + outBars + 1) * bar > playback.duration) {
+      queue.mixNow(); // no room left in this one: the AI mixes it
+      return;
+    }
     // The choice: ideally chooseBars before the mix, at least 2 bars from now (time to
     // read the balloons), and at least 2 bars before the mix (time to load the song).
     // (3 bars, so the chosen song is loaded well before its first targets show up.)
@@ -444,10 +454,13 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     if (now >= mix.swapAt) {
       controls.swapBass();
       mix.out = slide(outPath, mix.swapAt, mix.endAt, "left");
-      controls.setOutgoing(1 - mix.out.level);
+      // As the old song slides out it thins (its high-pass sweeps up) and drops back, and
+      // at the end of the slide its last beat gets thrown into the echo.
+      controls.setOutgoing(1 - 0.6 * mix.out.level);
+      controls.thinOutgoing(mix.out.level);
       ticks(mix.outTicks, mix.swapAt, mix.endAt, mix.out.following, outPath[1], now);
       if (now >= mix.endAt) {
-        controls.finish(mix.barMs / 2000);
+        controls.echoOut();
         mix.state = "landing";
       }
     }
@@ -549,53 +562,53 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
 
   // ---- drawing --------------------------------------------------------------------
 
-  // One hand's target: a big circle where its pinch goes, sized to fit the fingertips,
-  // with small marks inside at the exact thumb (hollow) and index (filled) spots: their
-  // gap is how open the pinch has to be. Returns the circle's radius.
-  function pinchTarget(pin, side, alpha, { solid = false } = {}) {
+  // One hand's two dots: where its thumb (hollow) and index fingertip (filled) go, the
+  // gap between them set by your pinch calibration and hand size (how open the pinch is).
+  // A closed pinch shows them touching, never stacked. With approach (0–1), each gets a
+  // ring closing in on it, landing on the beat.
+  function fingerDots(pin, side, alpha, approach = null, { solid = false } = {}) {
     const { thumb, index } = resolvePin(pin, side);
-    const t = point(thumb);
-    const i = point(index);
     const c = point(pin.at);
-    const r = Math.max(dot() * 1.25, distance(t, i) / 2 + dot() * 0.55);
+    let t = point(thumb);
+    let i = point(index);
+    const r = dot();
+    const gap = distance(t, i);
+    if (gap < r * 1.3) {
+      const dir = gap > 1e-6 ? { x: (i.x - t.x) / gap, y: (i.y - t.y) / gap } : { x: 0, y: -1 };
+      const half = (r * 1.3) / 2;
+      t = { x: c.x - dir.x * half, y: c.y - dir.y * half };
+      i = { x: c.x + dir.x * half, y: c.y + dir.y * half };
+    }
     context.save();
     context.globalAlpha = alpha;
-    context.fillStyle = solid ? "rgba(255, 255, 255, 0.5)" : "rgba(255, 255, 255, 0.3)";
-    context.beginPath();
-    context.arc(c.x, c.y, r, 0, Math.PI * 2);
-    context.fill();
-    context.lineWidth = Math.max(3, dot() * 0.22);
-    context.strokeStyle = colors[side];
-    context.stroke();
-    context.lineWidth = 1.5;
-    context.strokeStyle = "rgba(255, 255, 255, 0.95)";
-    context.beginPath();
-    context.arc(c.x, c.y, r * 0.9, 0, Math.PI * 2);
-    context.stroke();
-    // The pinch: the gap between the two marks.
-    context.lineWidth = 2.5;
+    // The pinch: a bar between the two.
+    context.lineWidth = Math.max(3, r * 0.2);
     context.strokeStyle = colors[side];
     context.beginPath();
     context.moveTo(t.x, t.y);
     context.lineTo(i.x, i.y);
     context.stroke();
-    const mark = Math.max(4, dot() * 0.32);
-    context.lineWidth = 2.5;
-    context.fillStyle = "#ffffff";
-    context.beginPath();
-    context.arc(t.x, t.y, mark, 0, Math.PI * 2);
-    context.fill();
-    context.stroke();
-    context.fillStyle = colors[side];
-    context.beginPath();
-    context.arc(i.x, i.y, mark, 0, Math.PI * 2);
-    context.fill();
+    for (const [p, filled] of [[t, false], [i, true]]) {
+      context.fillStyle = filled ? colors[side] : solid ? "rgba(255, 255, 255, 0.85)" : "rgba(255, 255, 255, 0.6)";
+      context.beginPath();
+      context.arc(p.x, p.y, r, 0, Math.PI * 2);
+      context.fill();
+      context.lineWidth = r * 0.28;
+      context.strokeStyle = colors[side];
+      context.stroke();
+      // Luna gloss: a thin white inner rim.
+      context.lineWidth = 1.5;
+      context.strokeStyle = "rgba(255, 255, 255, 0.95)";
+      context.beginPath();
+      context.arc(p.x, p.y, r * 0.84, 0, Math.PI * 2);
+      context.stroke();
+    }
     context.restore();
-    return r;
+    if (approach !== null) for (const p of [t, i]) approachRing(p, r, colors[side], approach, alpha);
   }
 
-  // A shape: each hand's target (where it'll be from the moment it shows up), joined by a
-  // faint line (orange on a drop). A ring closes in on each target, landing on the beat.
+  // A shape: each hand's two dots (where they'll be from the moment they show up), the
+  // hands joined by a faint line (orange on a drop). A ring closes in on each dot.
   function drawShape(pins, when, now, beatMs, { emphasis = false } = {}) {
     const leadMs = approachMs(beatMs);
     if (when - now > leadMs || now - when > goodMs) return;
@@ -618,8 +631,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     for (const side of ["left", "right"]) {
       const pin = pins[side];
       if (!pin) continue;
-      const r = pinchTarget(pin, side, alpha);
-      if (now < when) approachRing(point(pin.at), r, colors[side], progress, alpha);
+      fingerDots(pin, side, alpha, now < when ? progress : null);
     }
   }
 
@@ -713,7 +725,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
     context.arc(at.x, at.y, size().height * followReach * 0.8, 0, Math.PI * 2);
     context.stroke();
     context.restore();
-    pinchTarget(pairAt([at.x / size().width, at.y / size().height], side), side, alpha, { solid: true });
+    fingerDots(pairAt([at.x / size().width, at.y / size().height], side), side, alpha, null, { solid: true });
   }
 
   // A choice circle and its XP notification balloon.
@@ -913,7 +925,7 @@ export function createDjGame(queue, { stage, camera, rail, deck, startEnabled = 
       for (const head of mix?.heads ?? []) if (!head.verdict) targets.push({ pins: head.pins, dots: head.dots, at: head.real });
       const choices = mix?.choices && !mix.chosen ? { at: realAt(mix.chooseAt), spots: mix.choices.map((choice) => choice.spot) } : null;
       const slides = mix?.state === "blend" ? { right: [inPath, mix.comesIn, mix.swapAt], left: [outPath, mix.swapAt, mix.endAt] } : null;
-      return { score: { ...score }, mix: mix && { state: mix.state, style: mix.style, chosen: mix.chosen?.choice?.item.title ?? null }, targets: targets.sort((a, b) => a.at - b.at), choices, slides };
+      return { score: { ...score }, mix: mix && { state: mix.state, style: mix.style, chosen: mix.chosen?.choice?.item.title ?? null, cueAt: realAt(mix.cue), comesIn: mix.comesIn ?? null }, targets: targets.sort((a, b) => a.at - b.at), choices, slides };
     },
   };
 }
