@@ -25,8 +25,9 @@ const WASM_URL = TASKS_URL + "/wasm";
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const HAND_GAIN = 7;           // radians of turn per full frame width of hand travel
 
-// Landing page music. Shuffled on every page load; server.py's /api/youtube
-// downloads each song once (into downloads/) and the page streams the file.
+// Landing page music, shuffled on every page load. Each song plays from
+// music/<id>.m4a when that file exists (fast, works on any static host);
+// otherwise server.py's /api/youtube downloads it once into downloads/.
 const PLAYLIST = [
   { title: "New Look (Wii U Mii Maker Lofi Mix)", artist: "Secret Potion", id: "NoWJIeNtFds" },
   { title: "Butterflies", artist: "Tsundere Twintails", id: "11dAGSfNvMI" },
@@ -454,7 +455,14 @@ class Landing {
   }
   fetchTrack(tr) {
     if (tr.file) return tr.file;
-    const p = fetch("/api/youtube", {
+    const local = "music/" + tr.id + ".m4a";
+    const p = fetch(local, { method: "HEAD" }).then((res) => (res.ok ? local : this.downloadTrack(tr)));
+    p.catch(() => { if (tr.file === p) tr.file = null; });  // let a failed song be retried later
+    tr.file = p;
+    return p;
+  }
+  downloadTrack(tr) {
+    return fetch("/api/youtube", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: "https://www.youtube.com/watch?v=" + tr.id }),
@@ -464,13 +472,10 @@ class Landing {
       if (!res.ok) throw new Error(body.error || "download failed");
       return body.file;
     });
-    p.catch(() => { if (tr.file === p) tr.file = null; });  // let a failed song be retried later
-    tr.file = p;
-    return p;
   }
   fallbackSynth() {
     this.src = "synth"; this.track = null;
-    this.status = "Playlist needs server.py · playing a built-in beat";
+    this.status = "Songs not found · playing a built-in beat";
     if (this.playing) this.startSynth();
     this.renderPlayer();
   }
