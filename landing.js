@@ -40,7 +40,6 @@ const PLAYLIST = [
   { title: "Wii Party Main Menu Theme (Lofi Mix)", artist: "Nostalgiacore", id: "-olyU4FxIqY" },
   { title: "reflection pond", artist: "frutiger pm", id: "K2NQ8tnSzBY" },
 ];
-const IDLE_SUB = "10 songs, shuffled · the clouds move to the music";
 
 const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -485,7 +484,7 @@ class Landing {
     document.getElementById("iconPlay").toggleAttribute("hidden", this.playing);  // SVGs have no .hidden property
     document.getElementById("iconPause").toggleAttribute("hidden", !this.playing);
     document.getElementById("playLabel").textContent = tr ? tr.title : this.src === "synth" ? "Built-in beat" : "Play music";
-    document.getElementById("playSub").textContent = this.status || (tr ? tr.artist + (this.playing ? "" : " · paused") : IDLE_SUB);
+    document.getElementById("playSub").textContent = this.status || (tr ? tr.artist + (this.playing ? "" : " · paused") : "");
     document.getElementById("skip").hidden = !(this.src === "music" && tr);
   }
 
