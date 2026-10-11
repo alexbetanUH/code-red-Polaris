@@ -1408,5 +1408,11 @@ export function createQueuePanel(queue, deck) {
       vibeInput.focus();
     },
   };
+  // A click anywhere outside the panel closes it. The page's own Queue button toggles
+  // it instead: mark that button with data-queue-toggle.
+  document.addEventListener("pointerdown", (event) => {
+    if (panel.hidden || panel.contains(event.target) || event.target.closest?.("[data-queue-toggle]")) return;
+    controls.close();
+  });
   return controls;
 }
