@@ -1,4 +1,4 @@
-// frame.js - WebGL "window" effect shown only inside a quad (the L-frame).
+// frame.js - WebGL "window" effect shown only inside a simple four-point polygon (convex or concave).
 // Usage: const fx = new FrameFx(); fx.resize(w, h); fx.render(video, quad, "glitch", bass, ms);
 
 const VERT = `
@@ -257,7 +257,7 @@ export class FrameFx {
   }
 
   // Draw the effect inside the quad, plus a viewfinder outline.
-  // quad: [{x,y} x4] = TL, TR, BR, BL in canvas pixels (mirrored view).
+  // quad: four perimeter-ordered canvas points, clockwise or counterclockwise.
   render(video, quad, effect, bass = 0, timeMs = 0) {
     if (!this.ok) return;
     const gl = this.gl;
@@ -289,11 +289,11 @@ export class FrameFx {
       y: (a.y + b.y + c.y + d.y) / 4,
     };
 
-    // Two triangles, each vertex: pixel x, y, local u, v.
-    const verts = new Float32Array([
-      a.x, a.y, 0, 0,  b.x, b.y, 1, 0,  c.x, c.y, 1, 1,
-      a.x, a.y, 0, 0,  c.x, c.y, 1, 1,  d.x, d.y, 0, 1,
-    ]);
+    // The interior diagonal changes when one fingertip lies inside the other three.
+    // A fixed 0–2 split would fill outside some concave polygons.
+    const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    const verts = new Float32Array(triangulateQuad(quad).flatMap((i) =>
+      [quad[i].x, quad[i].y, ...uv[i]]));
     gl.useProgram(this.fxProg);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
@@ -354,4 +354,17 @@ export class FrameFx {
     gl.uniform4f(this.ln.color, 1, 1, 1, 1); // bright white
     gl.drawArrays(gl.TRIANGLES, 0, out.length / 2);
   }
+}
+
+// For a simple quadrilateral, a reflex vertex must connect to its opposite
+// vertex. Convex quadrilaterals accept either diagonal; keep 0–2 in that case.
+export function triangulateQuad(q) {
+  const cross = (a, b, c) => (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+  const area = q.reduce((sum, p, i) => {
+    const n = q[(i + 1) % 4]; return sum + p.x * n.y - n.x * p.y;
+  }, 0);
+  const winding = Math.sign(area);
+  const reflex = q.findIndex((p, i) => cross(q[(i + 3) % 4], p, q[(i + 1) % 4]) * winding < 0);
+  const i = reflex < 0 ? 0 : reflex;
+  return [i, (i + 1) % 4, (i + 2) % 4, i, (i + 2) % 4, (i + 3) % 4];
 }

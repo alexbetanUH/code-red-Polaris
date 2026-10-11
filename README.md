@@ -20,7 +20,7 @@ More gestures (turn the basic controls off with the **Basic controls** button if
 | Right fist in the **right-side zone**, then 1–5 fingers on the left hand | Choose a song slot; it applies when the fist leaves the zone. If a song is already playing, the new one queues on the next beat and you blend with your hands: **left hand height** = crossfade, **right hand height** = filter sweep + echo on the old song |
 | Left fist in the **left-side zone**, then 1–4 fingers on the right hand (open hand = all off) | Toggle reverb / echo / bitcrush / flanger; hand height sets the amount |
 | Right fist in the **bottom-right corner**, then 1–5 fingers on the left hand | Choose the visual effect: 1 Portal (swirling lens), 2 Color filter (neon palette), 3 Kaleidoscope, 4 8-bit, 5 all off |
-| Both hands as an **L** (thumb + index out) | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
+| **Both hands visible, any pose** | A shape joins your two thumb tips and two index tips and shows the chosen visual only inside it; it stretches and moves with your fingers |
 | A hand held in the **top zone** | Locks speed / filter / volume (the readouts show up there). Hold again for 2 s to unlock |
 
 Keyboard test keys (no camera needed): `S` song mode, `F` effects mode, `V` visuals mode, `1`–`5` pick, `←→` blend, `↑↓` amount / sweep, `L` frame, `K` lock, `Esc` leave a mode.
@@ -39,7 +39,7 @@ Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate p
 
 - `index.html`: hand tracking, gesture smoothing, hand → audio mapping, drawing
 - `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform, effects, 5 song slots, beat-synced and hand-driven transitions)
-- `frame.js`: WebGL window effect for the L gesture
+- `frame.js`: WebGL effect inside the four-fingertip polygon
 - `server.py`: local server (localhost only; set `AIRDECK_HOST=0.0.0.0` to open it to the network); serves the site and downloads YouTube audio via yt-dlp into `downloads/`
 - `FEATURES_PLAN.md`: the plan the gesture modes were built from
 

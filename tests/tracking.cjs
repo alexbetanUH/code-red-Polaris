@@ -56,16 +56,16 @@ const path = require('path').join(__dirname, '..', 'index.html');
 const baseline = process.argv[2];
 
 function pair(){return [hand(.25,.65,{pinch:null,label:'Left'}),hand(.75,.7,{pinch:null,label:'Right'})]}
-function start(e){for(let i=0;i<12;i++)feed(e,pair(),1000+i*1000/30);assert(e.api.frame.active,'L starts shape');}
+function start(e){for(let i=0;i<12;i++)feed(e,pair(),1000+i*1000/30);assert(e.api.frame.active,'two tracked hands start shape');}
 function projection(e){start(e);for(let i=0;i<45;i++){let hs=pair();for(let h of hs){h.l[3]={...h.l[6]};h.l[4]={...h.l[6],x:h.l[6].x+.005};}feed(e,hs,1400+i*1000/30)}return e.api.frame.active}
 if (baseline) console.log('Shape survives false segment pinch:', {before:projection(boot(baseline)),after:projection(boot(path))});
 assert(projection(boot(path)));
 let e=boot(path);start(e);
-// One bad close sample must not hide the visual; a deliberate release must.
+// Pose and pinch do not release the shape; only missing/degenerate geometry does.
 let close=pair();close[0].l[4]={...close[0].l[8]};close[0].l[3]={...close[0].l[8]};
 feed(e,close,1400);assert(e.api.frame.active);feed(e,pair(),1433);assert(e.api.frame.active);
 for(let i=0;i<7;i++)feed(e,close,1500+i*1000/30);
-assert(!e.api.frame.active,'confirmed closed tips release');
+assert(e.api.frame.active,'closed tips do not impose a pose gate');
 e=boot(path);start(e);feed(e,[],1600);assert(e.api.frame.active,'brief loss held');feed(e,pair(),1633);assert(e.api.frame.active,'returns smoothly');feed(e,[],2200);assert(!e.api.frame.active,'sustained loss expires');
 e=boot(path);start(e);const before=e.internal.sides.left.lastSeen;let bad=pair();bad[0].l[8].x=NaN;feed(e,bad,1400);assert.equal(e.internal.sides.left.lastSeen,before,'invalid hand skipped');feed(e,pair(),1433);assert(Number.isFinite(e.internal.sides.left.hand.pinch));
 // Assignment without handedness, reversed result order, and a single moving hand.
@@ -76,7 +76,7 @@ feed(e,[hand(.8)],6000);assert.equal(e.internal.sides.right.hand.pts[0].x,.8*128
 // All original keyboard mode entries still work, and D toggles diagnostics.
 e=boot(path);for(const [key,mode] of [['s','song'],['f','fx'],['v','vis'],['Escape','normal']]){for(const f of e.events.keydown)f({key,target:{tagName:'BODY'},preventDefault(){}});assert.equal(e.api.modes.current,mode)}
 for(const f of e.events.keydown)f({key:'d',target:{tagName:'BODY'},preventDefault(){}});assert(e.api.trackingDebug.enabled);start(e);e.internal.drawFrame(1400);
-console.log('PASS: false pinch, transient/confirmed release, loss/reacquisition, malformed input, unlabeled crossings, single-hand continuity, keyboard modes, debug draw');
+console.log('PASS: false pinch, pose-independent activation, loss/reacquisition, malformed input, unlabeled crossings, single-hand continuity, keyboard modes, debug draw');
 // Synthetic gesture workflows: fist zones, held choices, commit on exit, and lock.
 function counted(x,y,n,label){const h=hand(x,y,{pinch:null,label});h.w[4]={...h.w[5]};for(let j=0;j<4;j++){const m=5+j*4,b=j<n?0:150;h.w[m+2]={x:h.w[m].x+.024*Math.sin(b*Math.PI/180),y:-.078-.024*Math.cos(b*Math.PI/180),z:0};h.w[m+3]={x:h.w[m+2].x,y:h.w[m+2].y-.018,z:0};}if(n===5)h.w[4]={x:-.08,y:-.028,z:0};return h;}
 for(const mode of ['song','fx','vis']){const e=boot(path),picks=[];e.api.deck.pickSlot=(n)=>picks.push(n);e.api.deck.toggleEffect=(name)=>{picks.push(name);return false};for(let i=0;i<40;i++){const hs=mode==='fx'?[counted(.06,.6,0,'Left'),counted(.6,.6,2,'Right')]:[counted(.3,.6,3,'Left'),counted(.9,mode==='vis'?.94:.6,0,'Right')];feed(e,hs,1000+i*1000/30)}assert.equal(e.api.modes.current,mode);assert.equal(e.api.modes.pending,mode==='fx'?2:3);for(let i=0;i<20;i++)feed(e,[counted(.3,.6,3,'Left'),counted(.6,.6,2,'Right')],2400+i*1000/30);assert.equal(e.api.modes.current,'normal');if(mode==='song')assert.equal(picks[0],2);if(mode==='fx')assert.equal(picks[0],'echo');if(mode==='vis')assert.equal(e.run('visualFx'),'kaleido');}
@@ -89,10 +89,41 @@ console.log(JSON.stringify({ ...(baseline ? {before: metrics(baseline)} : {}), a
 // A narrow visible shape stays visible through the hysteresis band; hidden shapes
 // need the larger entry area. Debug must retain the renderer's hide reason.
 e=boot(path);start(e);e.internal.drawFrame(1400);
-for (const [area, visible] of [[.003,true],[.001,false],[.003,false],[.005,true]]) {
+for (const [area, visible] of [[.00000075,true],[.00000025,false],[.00000075,false],[.000002,true]]) {
   e.run(`shownCorners=null; frame.target=[{x:0,y:0},{x:128,y:0},{x:128,y:${area*7200}},{x:0,y:${area*7200}}];`);
   e.internal.drawFrame(1450);
   assert.equal(e.run('fxShown'),visible);
   if(!visible) assert.equal(e.api.trackingDebug.renderReason,'projected shape too small');
 }
 console.log('PASS: shape area hysteresis and renderer diagnostic reason');
+
+// Open palms must activate directly, without passing through L.
+e=boot(path);
+for(let i=0;i<12;i++) feed(e,[counted(.25,.7,5,'Left'),counted(.75,.7,5,'Right')],1000+i*1000/30);
+assert(e.api.frame.active); assert(!e.internal.sides.left.hand.lNow);
+// Basic controls remain live while the automatic visual is active.
+const oldSpeed=e.api.controls.speed;
+for(let i=0;i<30;i++) feed(e,[hand(.25,.7,{pinch:.1}),hand(.75,.7,{pinch:.8,label:'Right'})],1500+i*1000/30);
+assert(e.api.frame.active); assert.notEqual(e.api.controls.speed,oldSpeed);
+// Cross at the same wrist height, independently rotate one hand, reverse detector order.
+e=boot(path);
+for(let i=0;i<121;i++) {
+  const a=hand(.2+.6*i/120,.7,{pinch:null,label:'Left'}), b=hand(.8-.6*i/120,.7,{pinch:null,label:'Right'});
+  const angle=i/120*Math.PI*2, origin={...a.l[0]};
+  for(const p of a.l) {const x=p.x-origin.x,y=p.y-origin.y;p.x=origin.x+x*Math.cos(angle)-y*Math.sin(angle);p.y=origin.y+x*Math.sin(angle)+y*Math.cos(angle);}
+  feed(e,i%2?[b,a]:[a,b],1000+i*1000/30);
+  assert(e.api.frame.active);
+  assert(Math.abs(e.internal.sides.left.hand.wristX-(1-a.l[0].x))<1e-6);
+}
+// Test the renderer's actual triangulation: both windings, each reflex position,
+// and randomized angularly sorted points. Triangle areas must sum to polygon area.
+const frameSource=fs.readFileSync(require('path').join(__dirname,'..','frame.js'),'utf8');
+const tri=vm.runInNewContext(frameSource.slice(frameSource.indexOf('export function triangulateQuad')).replace('export ', '')+';triangulateQuad');
+const area=q=>Math.abs(q.reduce((s,p,i)=>{const n=q[(i+1)%q.length];return s+p.x*n.y-n.x*p.y},0))/2;
+const verify=q=>{const ids=tri(q);assert.equal(new Set(ids).size,4);const sum=area(ids.slice(0,3).map(i=>q[i]))+area(ids.slice(3).map(i=>q[i]));assert(Math.abs(sum-area(q))<1e-8);};
+for(const points of [[[0,0],[4,0],[1,1],[0,4]],[[0,0],[4,0],[4,4],[1,1]],[[0,0],[4,0],[4,4],[0,4]]]) {
+ for(const rev of [false,true])for(let shift=0;shift<4;shift++){let q=points.map(([x,y])=>({x,y}));if(rev)q.reverse();q=q.slice(shift).concat(q.slice(0,shift));verify(q);}
+}
+const rng=seed();
+for(let i=0;i<1000;i++){const q=Array.from({length:4},()=>({x:rng(),y:rng()}));e.box.geometry=q;verify(e.run('orderByAngle(geometry)'));}
+console.log('PASS: open-palm activation, simultaneous controls, same-height crossing/rotation, concave triangulation in both windings (1000 random layouts)');
