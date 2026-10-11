@@ -1737,7 +1737,11 @@ function drawWaveform(a, b, amplitude = WAVE_AMPLITUDE) {
 // Quiet text label (no box), for the volume readout above the waveform
 function drawSoftLabel(at,text) {
   ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";
-  hudChip(text,Math.max(65,Math.min(canvas.width-65,at.x)),Math.max(20,Math.min(canvas.height-20,at.y)),120);
+  ctx.font="500 16px system-ui, sans-serif";
+  const pad=ctx.measureText(text).width/2+8;
+  const x=Math.max(pad,Math.min(canvas.width-pad,at.x)),y=Math.max(16,Math.min(canvas.height-16,at.y));
+  ctx.shadowColor="rgba(0,0,0,.85)";ctx.shadowBlur=4;
+  ctx.fillStyle="rgba(255,255,255,.9)";ctx.fillText(text,x,y);
   ctx.restore();
 }
 
@@ -1805,7 +1809,14 @@ function drawLine(a, b, color, width, dash = []) {
 }
 
 function drawLabel(at,text,color) {
-  drawSoftLabel(at,String(text).replace(/^[^\p{L}\p{N}]+/u,""));
+  const label=String(text).replace(/^[^\p{L}\p{N}]+/u,"");
+  ctx.save();ctx.font="600 13px system-ui, sans-serif";
+  const w=ctx.measureText(label).width+16,h=24;
+  const x=Math.max(w/2+2,Math.min(canvas.width-w/2-2,at.x)),y=Math.max(h/2+2,Math.min(canvas.height-h/2-2,at.y));
+  ctx.fillStyle="rgba(0,0,0,.55)";
+  ctx.beginPath();ctx.roundRect(x-w/2,y-h/2,w,h,6);ctx.fill();
+  ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle=color;
+  ctx.fillText(label,x,y+1);ctx.restore();
 }
 
 // ---- Panel updates ---------------------------------------------------------------
