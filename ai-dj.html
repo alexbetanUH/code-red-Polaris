@@ -811,7 +811,9 @@ const screens = createStartScreen(stage, {
     deck.ensureContext(); // the Play click
     djGame.reset();
     await queue.playSet(ids);
-    if (!(await queue.readyToStart())) {
+    try {
+      await queue.readyToStart();
+    } catch {
       const first = queue.getState().items[0];
       const name = first ? first.title.split(" - ").slice(1).join(" - ") || first.title : "the first song";
       throw new Error(`Couldn't download ${name}${/[.!?]$/.test(name) ? "" : "."}`);

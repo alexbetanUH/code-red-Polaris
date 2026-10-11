@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 
 ROOT = Path(__file__).parent
 
@@ -520,6 +520,19 @@ class Handler(SimpleHTTPRequestHandler):
         parts = urlparse(self.path)
         if parts.path == "/":
             self.path = "/landing.html" + (f"?{parts.query}" if parts.query else "")
+
+    def send_head(self):
+        # Local configuration and Git metadata are never browser assets. Decode
+        # before checking so an encoded dot cannot bypass the restriction.
+        path = unquote(urlparse(self.path).path)
+        if any(part.startswith(".") for part in path.split("/") if part):
+            self.send_error(404, "File not found")
+            return None
+        return super().send_head()
+
+    def list_directory(self, path):
+        self.send_error(404, "File not found")
+        return None
 
     def end_headers(self):
         # Always revalidate files, so edits show up on a normal reload (no stale cached scripts)

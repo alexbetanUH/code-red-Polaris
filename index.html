@@ -1025,15 +1025,13 @@ function updateEffectHeight(hand, inLockZone) {
 function drawEffectHeight(hand) {
   if (!hand || !lastFx || !deck.effectState?.()[lastFx]?.on || blend.active || !["normal", "fx"].includes(modes.current)) return;
   const value = deck.effectState()[lastFx].amount;
-  const x = canvas.width * 0.75, top = canvas.height * FX_HEIGHT_TOP, bottom = canvas.height * FX_HEIGHT_BOTTOM;
-  ctx.save(); ctx.fillStyle = "rgba(0,0,0,.55)";
-  ctx.fillRect(x - 5, top, 10, bottom - top);
-  ctx.fillStyle = "#9be0ff"; ctx.fillRect(x - 5, bottom - value * (bottom - top), 10, value * (bottom - top));
-  ctx.beginPath(); ctx.arc(x, bottom - value * (bottom - top), 8, 0, Math.PI * 2); ctx.fill();
-  ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "600 16px system-ui";
-  ctx.shadowColor = "#000"; ctx.shadowBlur = 5;
-  ctx.fillText(`${FX_LABELS[lastFx]} ${Math.round(value * 100)}%`, x, top - 14);
-  ctx.fillText("right hand ↑ stronger", x, bottom + 24); ctx.restore();
+  const x=canvas.width*.70,top=canvas.height*FX_HEIGHT_TOP,bottom=canvas.height*FX_HEIGHT_BOTTOM;
+  ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";
+  aeroGlass(x-10,top-4,20,bottom-top+8,10);
+  aeroMeter(x-5,top,10,bottom-top,value,"#55c5f4",true);
+  hudChip(`${FX_LABELS[lastFx]} ${Math.round(value*100)}%`,x,top-24,126);
+  hudChip("Raise for more",x,bottom+22,116);
+  ctx.restore();
 }
 
 // Song zone: 1 finger = next song, 2 = previous song, 3 or more = nothing (changed your mind).
@@ -1193,93 +1191,65 @@ function updateBlend(left, right, now) {
   else if (now - blend.lastInput > BLEND_IDLE_MS) finishBlend();
 }
 
-// Instructions + two vertical sliders while a blend is open
+// Compact glass captions stay inside the center lane, clear of meters and zones.
+function hudText(text, x, y, maxW, size = 14, weight = 600) {
+  ctx.font = `${weight} ${size}px system-ui, sans-serif`;
+  let label = String(text);
+  if (ctx.measureText(label).width > maxW) {
+    while (label.length && ctx.measureText(label + "…").width > maxW) label = label.slice(0,-1);
+    label += "…";
+  }
+  ctx.fillText(label,x,y);
+}
+function hudCaption(title, hint, y = 56) {
+  const w = Math.min(460, canvas.width * (1-2*FIST_ZONE_W)-40), x = (canvas.width-w)/2;
+  aeroGlass(x,y,w,hint ? 60 : 36,16);
+  ctx.fillStyle="#174e6b";hudText(title,canvas.width/2,y+19,w-24,17,700);
+  if(hint) {ctx.fillStyle="#38657b";hudText(hint,canvas.width/2,y+42,w-24,13,500);}
+}
+function hudChip(text,x,y,w=120) {
+  aeroGlass(x-w/2,y-15,w,30,15);ctx.fillStyle="#174e6b";hudText(text,x,y,w-16,12);
+}
 function drawBlend(now) {
   if (!blend.active) return;
-  const cx = canvas.width / 2, W = canvas.width, H = canvas.height;
-  ctx.save();
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.85)";
-  ctx.shadowBlur = 8;
-  // Instruction card
-  const cardW = Math.min(W - 40, 760), cardY = H * LOCK_ZONE_Y + 18;
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.beginPath(); ctx.roundRect(cx - cardW / 2, cardY, cardW, 108, 14); ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#facc15";
-  fillFit(`🎚 BLENDING  ${blend.from}  →  ${blend.to}`, cx, cardY + 24, 24, 700, cardW - 30);
-  ctx.fillStyle = "#fff";
-  const lines = blend.finishing ? ["Finishing by itself…"] : blend.waiting ? ["Starting the next song…"] : [
-    "LEFT hand: bottom of the frame = blend new / old",
-    "RIGHT hand UP = fade the old song out faster",
-    "Put your left hand away and it finishes by itself",
-  ];
-  lines.forEach((t, i) => fillFit(t, cx, cardY + 54 + i * 22, 18, 500, cardW - 30));
-  // Sliders: left = blend, right = sweep
-  const top = H * BLEND_TOP, bottom = H * BLEND_BOTTOM;
-  for (const [x, value, color, label] of [[W * 0.27, blend.p, COLORS.left, "BLEND"], [W * 0.73, blend.sweep, COLORS.right, "SWEEP"]]) {
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.beginPath(); ctx.roundRect(x - 9, top, 18, bottom - top, 9); ctx.fill();
-    const y = bottom - clamp01(value) * (bottom - top);
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.roundRect(x - 9, y, 18, bottom - y, 9); ctx.fill();
-    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
-    ctx.fillStyle = color;
-    fillFit(label, x, top - 18, 18, 700, 120);
+  const W=canvas.width,H=canvas.height;
+  ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";
+  const title = blend.finishing ? "Finishing blend" : blend.waiting ? "Starting blend" : `Blend ${Math.round(blend.p*100)}%`;
+  hudCaption(title, blend.finishing ? "Moving to the new song" : "Left: blend · Right: fade out");
+  const top=H*BLEND_TOP,bottom=H*BLEND_BOTTOM;
+  for(const [x,value,color,label] of [[W*.32,blend.p,COLORS.left,"New song"],[W*.68,blend.sweep,COLORS.right,"Fade old"]]) {
+    aeroGlass(x-14,top-4,28,bottom-top+8,14);
+    aeroMeter(x-8,top,16,bottom-top,value,color,true);
+    hudChip(label,x,top-24,94);
   }
-  ctx.fillStyle = "#fff";
-  fillFit("new song", W * 0.27 + 62, top + 8, 15, 500, 110);
-  fillFit("old song", W * 0.27 + 62, bottom - 8, 15, 500, 110);
   ctx.restore();
 }
-
 function drawModes(now) {
-  if (modes.current === "normal" && modes.hold === 0 && now > toast.until) return;
-  ctx.save();
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.8)";
-  ctx.shadowBlur = 8;
-  const cx = canvas.width / 2;
-  const names = modes.current === "song" ? SONG_CHOICES.map((c, i) => `${i + 1}${i === 2 ? "+" : ""} ${c}`) :
-    modes.current === "vis" ? VIS_NAMES.map((v, i) => `${i + 1} ${VIS_LABELS[v]}`) :
-    ["1 " + FX_LABELS.reverb, "2 " + FX_LABELS.echo, "3 " + FX_LABELS.bitcrush, "4 " + FX_LABELS.flanger, "5 Off"];
-  const title = modes.current === "song" ? "🎵 SONGS · 1 finger next, 2 previous, 3+ nothing · move fist out to apply" :
-    modes.current === "fx" ? "🎛 FX SELECT · pick with right hand, move fist out to apply" :
-    modes.current === "vis" ? "✨ VISUALS · pick with left hand, move fist out to apply. Show both hands in any pose" : "";
-  if (modes.current !== "normal") {
-    ctx.fillStyle = modes.current === "song" ? COLORS.left : modes.current === "vis" ? VIS_COLOR : COLORS.right;
-    fillFit(title, cx, 50, 30, 700, canvas.width - 40);
-    // Row of chips at the bottom; the current finger count fills as it holds
-    const n = names.length, chip = (c) => (modes.current === "song" ? songChoice(c) : c);
-    const gap = 10, w = Math.min(190, (canvas.width * (1 - 2 * FIST_ZONE_W) - (n - 1) * gap) / n), x0 = cx - (n * w + (n - 1) * gap) / 2, y = canvas.height - 60;
-    const state = deck.effectState?.() ?? {};
-    for (let i = 0; i < n; i++) {
-      const x = x0 + i * (w + gap);
-      const active = modes.current === "song" ? false : modes.current === "vis" ? visualFx === VIS_NAMES[i] : i < 4 && state[FX_NAMES[i]]?.on;
-      ctx.fillStyle = active ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.6)";
-      ctx.beginPath(); ctx.roundRect(x, y - 24, w, 48, 12); ctx.fill();
-      const fill = chip(modes.pending) === i + 1 ? 1 : chip(modes.count) === i + 1 ? modes.pick : 0;
-      if (fill > 0) {
-        ctx.fillStyle = chip(modes.pending) === i + 1 ? "rgba(250,204,21,0.75)" : "rgba(250,204,21,0.4)";
-        ctx.beginPath(); ctx.roundRect(x, y - 24, w * fill, 48, 12); ctx.fill();
-      }
-      ctx.fillStyle = "#fff";
-      const label = names[i];
-      fillFit(label, x + w / 2, y + 1, 20, 600, w - 12);
+  if(modes.current === "normal" && modes.hold === 0 && now > toast.until) return;
+  ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";
+  const W=canvas.width,H=canvas.height,cx=W/2;
+  const names = modes.current === "song" ? ["1 Next","2 Previous","3+ Cancel"] :
+    modes.current === "vis" ? VIS_NAMES.map((v,i)=>`${i+1} ${VIS_LABELS[v]}`) :
+    ["1 Reverb","2 Echo","3 Bitcrush","4 Flanger","5 Off"];
+  if(modes.current !== "normal") {
+    const title = {song:"Choose song",fx:"Choose effect",vis:"Choose visual"}[modes.current];
+    hudCaption(title,`${modes.current === "fx" ? "Right" : "Left"} fingers choose · Move fist out to apply`);
+    const n=names.length,gap=8,w=Math.min(150,(W*(1-2*FIST_ZONE_W)-40-(n-1)*gap)/n),x0=cx-(n*w+(n-1)*gap)/2,y=H-54;
+    const state=deck.effectState?.()??{},chip=c=>modes.current === "song" ? songChoice(c) : c;
+    for(let i=0;i<n;i++) {
+      const x=x0+i*(w+gap),active=modes.current === "vis" ? visualFx===VIS_NAMES[i] : modes.current === "fx" && i<4 && state[FX_NAMES[i]]?.on;
+      aeroGlass(x,y-20,w,40,12);
+      const fill=chip(modes.pending)===i+1?1:chip(modes.count)===i+1?modes.pick:0;
+      if(fill>0 || active) aeroMeter(x+8,y+10,w-16,4,fill||1,COLORS.left);
+      ctx.fillStyle="#174e6b";hudText(names[i],x+w/2,y-2,w-12,13);
     }
-  } else if (modes.hold > 0) {
-    // Fist is being held: show the ring filling
-    ctx.strokeStyle = "#facc15"; ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.arc(cx, 80, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * modes.hold); ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.font = "600 22px system-ui, sans-serif";
-    ctx.fillText(modes.fistSide === "song" ? "song mode…" : modes.fistSide === "vis" ? "visuals mode…" : "effects mode…", cx, 125);
+  } else if(modes.hold>0) {
+    hudCaption("Hold fist",`Open ${{song:"songs",fx:"effects",vis:"visuals"}[modes.fistSide] ?? "controls"}`);
+    aeroMeter(cx-90,105,180,4,modes.hold,COLORS.left);
   }
-  if (now < toast.until) {
-    ctx.globalAlpha = clamp01((toast.until - now) / 400);
-    ctx.fillStyle = "#fff";
-    fillFit(toast.text, cx, canvas.height / 2 - 120, 40, 700, canvas.width - 40);
+  if(now<toast.until && !blend.active && modes.current === "normal" && modes.hold === 0) {
+    ctx.globalAlpha=clamp01((toast.until-now)/400);
+    hudCaption(toast.text.replace(/^[^\p{L}\p{N}]+/u,""),null,56);
   }
   ctx.restore();
 }
@@ -1440,15 +1410,29 @@ function drawZones(now) {
   ctx.textBaseline = "middle";
   for (const z of defs) {
     const active = modes.current === z.mode || (modes.current === "normal" && modes.fistSide === z.mode && modes.hold > 0);
+    if (z.mode === "fx" && lock.locked) { z.y = H*LOCK_ZONE_Y; z.h = H-z.y; }
     ctx.globalAlpha = active ? 0.16 : 0.035;
     ctx.fillStyle = z.color;
     ctx.fillRect(z.x, z.y, z.w, z.h);
-    ctx.globalAlpha = active ? 0.75 : 0.25;
-    ctx.strokeStyle = z.color;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([]);
-    ctx.strokeRect(z.x, z.y, z.w, z.h);
-    ctx.setLineDash([]);
+    // Glass rim: a soft halo under a fine colored seam, with rounded joins.
+    ctx.globalAlpha = 1;
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.roundRect(z.x+2,z.y+2,z.w-4,z.h-4,18);
+    ctx.strokeStyle = "rgba(255,255,255," + (active ? ".65" : ".22") + ")";
+    ctx.lineWidth = active ? 5 : 3; ctx.stroke();
+    ctx.shadowColor = z.color; ctx.shadowBlur = active ? 14 : 5;
+    ctx.globalAlpha = active ? .85 : .4;
+    ctx.strokeStyle = z.color; ctx.lineWidth = active ? 2 : 1.2; ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Small luminous corner accents make the area legible without a harsh grid.
+    ctx.globalAlpha = active ? .9 : .5;
+    ctx.strokeStyle = "#f4fdff"; ctx.lineWidth = 2;
+    const innerX = z.x === 0 ? z.x+z.w-2 : z.x+2;
+    const dir = z.x === 0 ? -1 : 1;
+    for (const [y,dy] of [[z.y+3,1],[z.y+z.h-3,-1]]) {
+      ctx.beginPath();ctx.moveTo(innerX+dir*20,y);ctx.lineTo(innerX+dir*9,y);
+      ctx.quadraticCurveTo(innerX,y,innerX,y+dy*9);ctx.lineTo(innerX,y+dy*20);ctx.stroke();
+    }
     ctx.globalAlpha = active ? 1 : .8;
     const cy = z.y + z.h / 2, badgeW = Math.min(160, z.w - 20), bx = z.x + (z.w-badgeW)/2;
     aeroGlass(bx,cy-30,badgeW,64,16);
@@ -1494,24 +1478,30 @@ function drawLock(now) {
   ctx.textBaseline = "middle";
   ctx.shadowColor = "rgba(0,0,0,0.8)";
   ctx.shadowBlur = 8;
-  // Faint line marking the zone
-  ctx.strokeStyle = lock.locked ? "rgba(250,204,21,0.5)" : "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([]);
-  ctx.beginPath(); ctx.moveTo(0, canvas.height * LOCK_ZONE_Y); ctx.lineTo(canvas.width, canvas.height * LOCK_ZONE_Y); ctx.stroke();
-  ctx.setLineDash([]);
+  // A subtle glass seam marks the exact lock boundary, with stronger feedback on hold.
+  ctx.shadowBlur = 0;
+  const y = canvas.height * LOCK_ZONE_Y;
+  const seam = ctx.createLinearGradient(0,y,canvas.width,y);
+  const strength = lock.inZone || lock.locked ? .65 : .26;
+  seam.addColorStop(0,"rgba(255,255,255,0)");
+  seam.addColorStop(.15,`rgba(190,238,255,${strength})`);
+  seam.addColorStop(.5,`rgba(255,255,255,${strength})`);
+  seam.addColorStop(.85,`rgba(190,238,255,${strength})`);
+  seam.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.strokeStyle = seam;ctx.lineWidth=3;ctx.lineCap="round";
+  ctx.shadowColor="#8bdcff";ctx.shadowBlur=lock.inZone?12:4;
+  ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();
+  ctx.shadowBlur=0;
   if (lock.locked) {
     const x=canvas.width/2-68;
     ctx.shadowBlur=0; aeroGlass(x,8,136,34,17); aeroIcon("lock",x+12,15,20);
     ctx.fillStyle="#174e6b";
     fillFit("Locked",x+84,25,16,700,86);
   }
-  if (lock.progress > 0) {
-    const x = canvas.width / 2, y = canvas.height * LOCK_ZONE_Y + 50;
-    ctx.strokeStyle = "#facc15"; ctx.lineWidth = 7;
-    ctx.beginPath(); ctx.arc(x, y, 28, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * lock.progress); ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.font = "600 20px system-ui, sans-serif";
-    ctx.fillText(lock.locked ? "unlocking…" : "locking…", x, y + 50);
+  if(lock.progress>0) {
+    const cy=canvas.height*LOCK_ZONE_Y+18;
+    hudCaption(lock.locked ? "Unlocking" : "Locking","Keep hand raised",cy);
+    aeroMeter(canvas.width/2-90,cy+52,180,4,lock.progress,COLORS.left);
   }
   ctx.restore();
 }
@@ -1617,7 +1607,7 @@ function draw(left, right, between) {
 // While locked, the speed / filter / volume meters and the waveform are shown in the top zone.
 function drawLockHud() {
   const zoneH = canvas.height * LOCK_ZONE_Y;
-  const pad = 18, barW = Math.min(260, canvas.width * 0.25);
+  const pad = 14, barW = Math.min(240, canvas.width * FIST_ZONE_W - 56);
   const rows = [
     { label: `Speed ${controls.speed.toFixed(2)}×`, value: knobs.left, color: COLORS.left },
     { label: `Filter ${formatHz(controls.freq)}`, value: knobs.right, color: COLORS.right },
@@ -1636,7 +1626,7 @@ function drawLockHud() {
   ctx.restore();
   // Waveform fills the rest of the strip
   const x0 = pad + barW + 50, x1 = canvas.width - pad, cy = zoneH * 0.55;
-  if (x1 - x0 > 80) drawWaveform({ x: x0, y: cy }, { x: x1, y: cy }, Math.max(20, zoneH * 0.32));
+  if (modes.current === "normal" && !blend.active && x1 - x0 > 80) drawWaveform({ x: x0, y: cy }, { x: x1, y: cy }, Math.max(20, zoneH * 0.32));
 }
 
 // The line between the hands is the live audio waveform, drawn as a few silky
@@ -1745,16 +1735,13 @@ function drawWaveform(a, b, amplitude = WAVE_AMPLITUDE) {
 }
 
 // Quiet text label (no box), for the volume readout above the waveform
-function drawSoftLabel(at, text) {
-  ctx.save();
-  ctx.font = "500 18px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.letterSpacing = "2px";
-  ctx.shadowColor = "rgba(0,0,0,0.8)";
-  ctx.shadowBlur = 6;
-  ctx.fillStyle = "rgba(255,255,255,0.8)";
-  ctx.fillText(text, at.x, at.y);
+function drawSoftLabel(at,text) {
+  ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";
+  ctx.font="500 16px system-ui, sans-serif";
+  const pad=ctx.measureText(text).width/2+8;
+  const x=Math.max(pad,Math.min(canvas.width-pad,at.x)),y=Math.max(16,Math.min(canvas.height-16,at.y));
+  ctx.shadowColor="rgba(0,0,0,.85)";ctx.shadowBlur=4;
+  ctx.fillStyle="rgba(255,255,255,.9)";ctx.fillText(text,x,y);
   ctx.restore();
 }
 
@@ -1805,7 +1792,7 @@ function drawKnobMeter(side, x, color, label) {
   aeroMeter(x,top,16,bottom-top,knobs[side],color,true);
   ctx.restore();
   const labelX = side === "left" ? x + 100 : x + 16 - 100;
-  drawLabel({ x: labelX, y: top - 24 }, label, color);
+  drawSoftLabel({ x: labelX, y: top - 24 }, label);
 }
 
 function drawLine(a, b, color, width, dash = []) {
@@ -1821,19 +1808,15 @@ function drawLine(a, b, color, width, dash = []) {
   ctx.restore();
 }
 
-function drawLabel(at, text, color) {
-  ctx.save();
-  ctx.font = "600 22px system-ui, sans-serif";
-  const w = ctx.measureText(text).width + 20, h = 32;
-  ctx.fillStyle = "rgba(0,0,0,0.75)";
-  ctx.beginPath();
-  ctx.roundRect(at.x - w / 2, at.y - h / 2, w, h, 8);
-  ctx.fill();
-  ctx.fillStyle = color;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, at.x, at.y + 1);
-  ctx.restore();
+function drawLabel(at,text,color) {
+  const label=String(text).replace(/^[^\p{L}\p{N}]+/u,"");
+  ctx.save();ctx.font="600 13px system-ui, sans-serif";
+  const w=ctx.measureText(label).width+16,h=24;
+  const x=Math.max(w/2+2,Math.min(canvas.width-w/2-2,at.x)),y=Math.max(h/2+2,Math.min(canvas.height-h/2-2,at.y));
+  ctx.fillStyle="rgba(0,0,0,.55)";
+  ctx.beginPath();ctx.roundRect(x-w/2,y-h/2,w,h,6);ctx.fill();
+  ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle=color;
+  ctx.fillText(label,x,y+1);ctx.restore();
 }
 
 // ---- Panel updates ---------------------------------------------------------------
