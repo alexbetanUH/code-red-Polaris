@@ -21,6 +21,8 @@ Requirements: Python 3, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew instal
 python3 server.py
 ```
 
+If you see 404s or the wrong page, another `server.py` (e.g. a second copy of the repo) has the port: stop it, or run `python server.py 8001`.
+
 Open http://localhost:8000 in Chrome, click **Start camera**, then **Calibrate pinch**. Click **Queue** to add songs: paste a YouTube link, type a song name (downloads the top result), or pick a file. Downloads show a live progress bar. Drag songs to reorder them and ▶ plays one. The player bar (in the Song card and the queue) shows the song's progress (click or drag it to jump), with ⏮ (restart, or previous song near the start), ⏯ and ⏭. Songs around the current one are decoded ahead, so skipping back and forth is instant.
 
 ### AI DJ
@@ -62,3 +64,23 @@ the AI DJ or the internet misbehaves on stage.
 - `setlist.txt`, `prefetch.py`: the demo set list and a script that downloads it ahead of time
 
 Tuning values (pinch range, smoothing, speed/filter ranges) are at the top of the script in `index.html`.
+
+## AirDeck Mix (two decks): `mix.html`
+
+Open http://localhost:8000/mix.html. Each deck has an on-screen **volume fader** and **filter knob** (deck A on the left, deck B on the right). Both decks are beat-synced to deck A's tempo (detected automatically).
+
+The point between your thumb and index finger is your cursor. Either hand can use any control.
+
+| Gesture | Does |
+|---|---|
+| Move your cursor onto a fader or knob | It lights up gold |
+| Pinch, then move up/down | Fader: volume |
+| Pinch, then circle around the knob | Filter: clockwise = high-pass (thin), counter-clockwise = low-pass (muffled), centre = off |
+| Open your fingers | Let go (the control keeps its value) |
+| Both open hands held low (~1 s) | Pause / resume hand tracking (music keeps playing) |
+
+If grabbing feels unreliable, click **Calibrate pinch** once (it's saved). No camera? Keys: Space play/pause, 1/2 toggle deck, P pause tracking, H debug overlay. **Load demo tracks** renders two synth loops (124 and 128 BPM) so you can try it without downloading anything.
+
+- `mix-worklet.js`: audio-thread engine (variable-rate playback, master beat clock, phase lock, bar-aligned loops; also supports scratching, currently unused)
+- `mix-audio.js`: graph, filters, faders, tempo detection, demo loops
+- `mix.html`: hand tracking, on-screen controls, stage visuals. Tuning values are at the top of its script.

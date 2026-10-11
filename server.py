@@ -34,7 +34,7 @@ VOICES = DOWNLOADS / "voice"
 DOWNLOAD_INDEX = DOWNLOADS / "index.json"
 index_lock = threading.Lock()
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
-PORT = 8000
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000  # python server.py 8001 for another port
 # The yt-dlp command, or Python's module when pip's per-user install folder isn't on PATH.
 YTDLP = ["yt-dlp"] if shutil.which("yt-dlp") else [sys.executable, "-m", "yt_dlp"]
 # One video only: watch, shorts and live links, or youtu.be short links.
@@ -416,9 +416,21 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
+class Server(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second server silently share a port that's
+    # already taken, so requests go to whichever copy started first (wrong files, 404s).
+    # Refuse the port instead, so the clash is obvious.
+    allow_reuse_address = sys.platform != "win32"
+
+
 if __name__ == "__main__":
-    print(f"AirDeck running at http://localhost:{PORT} (yt-dlp: {' '.join(YTDLP + JS_RUNTIME)})")
+    try:
+        server = Server(("", PORT), Handler)
+    except OSError:
+        sys.exit(f"Port {PORT} is already in use (another server.py still running?)\n"
+                 f"Stop it, or pick another port:  python server.py {PORT + 1}")
+    print(f"AirDeck running at http://localhost:{PORT}/landing.html (yt-dlp: {' '.join(YTDLP + JS_RUNTIME)})")
     gemini = f"on ({GEMINI_MODEL})" if os.environ.get("GEMINI_API_KEY") else "off (set GEMINI_API_KEY)"
     voice = "ElevenLabs" if os.environ.get("ELEVENLABS_API_KEY") else "browser voice (set ELEVENLABS_API_KEY for ElevenLabs)"
     print(f"AI DJ: {gemini}, voice: {voice}")
-    ThreadingHTTPServer(("", PORT), Handler).serve_forever()
+    server.serve_forever()
