@@ -10,6 +10,7 @@
 //   const panel = createQueuePanel(queue, deck);
 //   someElement.append(createTransport(queue, deck)); // progress bar + ⏮ ⏯ ⏭
 //   queueButton.onclick = () => { deck.ensureContext(); panel.toggle(); };
+//   const upNext = createUpNext(queue); stage.append(upNext.element); // what the DJ does next
 //
 // Call deck.ensureContext() inside clicks before queue actions: browsers only
 // allow sound after one. The panel and player bar already do this for their buttons.
@@ -21,6 +22,8 @@ const djPicksPerRequest = 3;
 const duckedVolume = 0.5; // the music's level while the DJ talks over a transition
 const duckFadeMs = 600;
 const voiceTimeoutMs = 15000; // never let a stuck voice line stall the set
+const hypeLines = ["Oh, you want it louder? Let's go!", "I see you! Turning the energy up.", "Say less. Bringing the heat!"];
+const chillLines = ["Alright, let's bring it down a little.", "Peace. Something smoother coming up.", "Easy does it. Let's cool things off."];
 const voiceWaitMs = 4000; // longest wait for the ElevenLabs clip before using the browser's voice
 const restartThreshold = 3; // ⏮ restarts the song if it's past this many seconds, else goes back one
 const progressPollMs = 400;
@@ -50,7 +53,8 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let downloads = [];
   // The song library: { id, artist, title, file: "music/<id>.m4a", available }.
   let library = [];
-  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0 };
+  // short: short mixes (each song plays about 75 s), so a demo hears several transitions.
+  const dj = { on: false, vibe: "", busy: false, talking: false, status: null, generation: 0, short: true };
   const listeners = new Set();
 
   const changed = () => {
@@ -156,6 +160,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // one (previous, current, next) and the one under the mouse are kept decoded:
   // ⏮, ⏭ and ▶ start instantly. Not more, since a decoded song is about 100 MB.
   const decoded = new Map(); // item id -> Promise<AudioBuffer>
+  const ready = new Map(); // item id -> AudioBuffer, once decoded
   let fallbackDecoder = null;
   let loadingId = null; // the song being loaded right now, kept even if it moves out of the window
   let hoveredId = null;
@@ -175,6 +180,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         fallbackDecoder ??= new OfflineAudioContext(2, 1, 48000);
         const buffer = await (deck.ctx ?? fallbackDecoder).decodeAudioData(data);
         transitions.prepare(buffer);
+        if (decoded.get(item.id) === promise) ready.set(item.id, buffer);
         return buffer;
       });
       promise.catch(() => decoded.delete(item.id));
@@ -191,7 +197,12 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     if (hovered) wanted.push(hovered);
     wanted.forEach(decode);
     const keep = new Set(wanted.map((item) => item.id));
-    for (const id of decoded.keys()) if (!keep.has(id) && id !== loadingId) decoded.delete(id);
+    for (const id of decoded.keys()) {
+      if (!keep.has(id) && id !== loadingId) {
+        decoded.delete(id);
+        ready.delete(id);
+      }
+    }
   }
 
   // Song loads run one at a time and only the newest request plays: the Deck can't
@@ -199,6 +210,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   let playRequest = 0;
   let playChain = Promise.resolve();
 
+  // mix: false, or { mixOutAt } to mix into the song (see transitions.mixInto).
   function playItem(id, { mix = false } = {}) {
     const request = ++playRequest;
     playChain = playChain.then(() => (request === playRequest ? loadAndPlay(id, { mix, request }) : undefined));
@@ -309,14 +321,14 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
   // The DJ mixes into the next song (transitions.js) and introduces it over the mix,
   // with the music turned down. With nothing playing, it introduces the song first.
   // One at a time.
-  async function transitionTo(item) {
+  async function transitionTo(item, { mixOutAt } = {}) {
     transitioning = true;
     transitionId = item.id;
     try {
       const mixing = deck.playing && deck.buffer;
       const talks = djSpeaksBefore(item, mixing ? items.find((entry) => entry.id === currentId) : null);
       if (mixing) {
-        await playItem(item.id, { mix: true }); // resolves once the new song comes in
+        await playItem(item.id, { mix: { mixOutAt } }); // resolves once the new song comes in
         if (currentId !== item.id) return; // skipped or paused meanwhile
       }
       if (talks) {
@@ -336,6 +348,22 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       transitionId = null;
     }
   }
+
+  // The DJ says something over the music (turned down), unless it's already talking.
+  async function announce(text) {
+    if (dj.talking) return;
+    dj.talking = true;
+    changed();
+    try {
+      await fadeTo(duckedVolume, duckFadeMs);
+      await speak({ dj: { intro: text, voice: null } });
+    } finally {
+      dj.talking = false;
+      changed();
+      await fadeTo(1, duckFadeMs);
+    }
+  }
+  const pickLine = (lines) => lines[Math.floor(Math.random() * lines.length)];
 
   // Asks the DJ for more songs whenever fewer than djSongsAhead are queued.
   async function topUpDj() {
@@ -411,7 +439,9 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
     const next = upcoming()[0];
     if (!next) return;
     if (djSpeaksBefore(next, items.find((entry) => entry.id === currentId))) voiceFor(next);
-    if (position() >= transitions.mixPoint(deck.buffer)) transitionTo(next);
+    if (position() >= transitions.mixPoint(deck.buffer, dj.short)) {
+      transitionTo(next, { mixOutAt: transitions.mixOutPoint(deck.buffer, dj.short) });
+    }
   }, 200);
 
   // mix: blend or echo into the song from the playing one (the DJ), instead of switching.
@@ -428,6 +458,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
         changed();
         const from = items.find((entry) => entry.id === currentId);
         const mixed = await transitions.mixInto(buffer, {
+          mixOutAt: mix.mixOutAt,
           fromBpm: from?.bpm,
           toBpm: item.bpm,
           stillWanted: () => request === playRequest,
@@ -471,7 +502,7 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       downloads,
       library,
       status,
-      dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status },
+      dj: { on: dj.on, vibe: dj.vibe, busy: dj.busy, talking: dj.talking, status: dj.status, short: dj.short },
     }),
 
     // Fast-changing playback state for progress bars; read it every frame.
@@ -598,6 +629,63 @@ export function createQueue(deck, { apiBase = "/api", libraryUrl = "library.json
       setDjStatus(null);
     },
 
+    // Short mixes on or off (see dj.short).
+    setShortMixes(on) {
+      dj.short = Boolean(on);
+      changed();
+    },
+
+    // Mixes into the next song right away, on the next downbeat (the swipe gesture).
+    // Returns whether there was a song to mix into.
+    mixNow() {
+      if (transitioning) return false;
+      const next = upcoming()[0] ?? items[0];
+      if (!next || next.id === currentId) return false;
+      if (!deck.playing || !deck.buffer) {
+        deck.ensureContext();
+        queue.play(next.id);
+      } else {
+        transitionTo(next, { mixOutAt: 0 });
+      }
+      return true;
+    },
+
+    // Steers the DJ: "up" for more energy, "down" for less (the hand-pose gestures).
+    // It says so on the mic and re-picks the upcoming songs. Starts the DJ if it's off.
+    shiftEnergy(direction) {
+      const up = direction === "up";
+      announce(up ? pickLine(hypeLines) : pickLine(chillLines));
+      const vibe = up
+        ? "turn the energy up from here: harder, faster, more hype"
+        : "bring the energy down from here: smoother, slower, more chill";
+      if (dj.on) queue.changeVibe(vibe);
+      else queue.startDj(vibe);
+    },
+
+    // What happens next, for an on-screen preview, or null when nothing's queued:
+    // { item, mixing, talking, secondsToMix (DJ on and playing), style ("blend" | "echo",
+    // once the next song is decoded) }.
+    getUpNext() {
+      const next = upcoming()[0];
+      if (!next) return null;
+      const preview = { item: next, mixing: transitioning, talking: dj.talking, secondsToMix: null, style: null };
+      if (!deck.buffer || !deck.playing) return preview;
+      const current = items.find((entry) => entry.id === currentId);
+      const buffer = ready.get(next.id);
+      if (buffer) {
+        preview.style = transitions.styleInto(buffer, {
+          mixOutAt: transitions.mixOutPoint(deck.buffer, dj.short),
+          fromBpm: current?.bpm,
+          toBpm: next.bpm,
+        });
+      }
+      if (dj.on && !transitioning) {
+        const start = transitions.mixStartPoint(deck.buffer, dj.short, preview.style);
+        preview.secondsToMix = Math.max(0, start - position()) / (deck.rate || 1);
+      }
+      return preview;
+    },
+
     // New vibe: drops the DJ's not-yet-played picks and picks again.
     changeVibe(vibe) {
       dj.vibe = vibe.trim();
@@ -639,6 +727,26 @@ const styles = `
 .queuePanel-add input[type="file"] { display: none; }
 .queuePanel-dj { padding: 8px; border-radius: 10px; border: 1px dashed var(--border); }
 .queuePanel-dj.on { border: 1px solid var(--between); }
+.upNext {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 2;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: min(560px, calc(100% - 24px)); pointer-events: none;
+}
+.upNext-strip, .upNext-toast {
+  border-radius: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+}
+.upNext-strip { width: 100%; padding: 8px 14px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.upNext-strip[hidden], .upNext-toast[hidden] { display: none; }
+.upNext-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.upNext-line strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upNext-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--between); white-space: nowrap; }
+.upNext-genre { font-size: 11px; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.upNext-when { font-weight: 700; white-space: nowrap; }
+.upNext-hint { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.upNext-toast { padding: 8px 16px; font-size: 15px; font-weight: 800; }
+@media (max-width: 600px) { .upNext-hint { display: none; } }
+.queuePanel-djOption { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; }
 .queuePanel-djLabel { font-size: 12px; font-weight: 700; color: var(--between); white-space: nowrap; }
 .queuePanel-status { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .queuePanel-status.error { color: #ff7b7b; }
@@ -833,6 +941,55 @@ export function createTransport(queue, deck) {
   return root;
 }
 
+// A strip for the camera view: the next song, when and how the DJ mixes into it
+// (blend or echo out), and the gestures. flash(text) shows a message above it for a
+// moment (gesture feedback). Positioned absolutely: put it in a relative container.
+export function createUpNext(queue) {
+  addStyles();
+  const title = element("strong");
+  const genre = element("span", { className: "upNext-genre" });
+  const when = element("span", { className: "upNext-when" });
+  const toast = element("div", { className: "upNext-toast", hidden: "" });
+  const strip = element("div", { className: "upNext-strip" }, [
+    element("div", { className: "upNext-line" }, [element("span", { className: "upNext-label", text: "Up next" }), title, genre]),
+    element("div", { className: "upNext-line" }, [
+      when,
+      element("span", { className: "upNext-hint", text: "✋ swipe = mix now · 🤘 = hype · ✌️ = chill" }),
+    ]),
+  ]);
+  const root = element("div", { className: "upNext" }, [toast, strip]);
+  let toastTimer = null;
+
+  function update() {
+    const next = queue.getUpNext();
+    strip.hidden = !next;
+    if (!next) return;
+    title.textContent = next.item.title;
+    genre.textContent = next.item.genre ?? "";
+    genre.hidden = !next.item.genre;
+    const style = { blend: "Blend", echo: "Echo out" }[next.style] ?? "Mix";
+    when.textContent = next.mixing
+      ? "🎚 Mixing…"
+      : next.talking
+        ? "🎙 DJ on the mic"
+        : next.secondsToMix !== null
+          ? `${style} in ${formatTime(next.secondsToMix)}`
+          : "Swipe to mix in";
+  }
+  setInterval(update, 250);
+  update();
+
+  return {
+    element: root,
+    flash(message) {
+      toast.textContent = message;
+      toast.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => (toast.hidden = true), 2200);
+    },
+  };
+}
+
 // Floating panel for a queue: the player, add (YouTube link, song name or file),
 // downloads with progress, drag to reorder, ✕ to remove, ▶ to play, and the AI DJ.
 // Uses the page's CSS variables for colors.
@@ -857,6 +1014,14 @@ export function createQueuePanel(queue, deck) {
     djButtons,
   ]);
   const djStatus = element("p", { className: "queuePanel-status", hidden: "" });
+  const shortToggle = element("input", {
+    type: "checkbox",
+    onChange: () => queue.setShortMixes(shortToggle.checked),
+  });
+  const djOptions = element("label", { className: "queuePanel-djOption" }, [
+    shortToggle,
+    "Short mixes (about 75 s a song, so a demo hears more transitions)",
+  ]);
   const downloadsList = element("ol", { className: "queuePanel-downloads", "aria-label": "Downloading" });
   const list = element("ol", { className: "queuePanel-list" });
   const empty = element("p", { className: "queuePanel-empty", text: "The queue is empty. Add songs from the library, or start the AI DJ." });
@@ -906,6 +1071,7 @@ export function createQueuePanel(queue, deck) {
     ]),
     createTransport(queue, deck),
     djRow,
+    djOptions,
     djStatus,
     element("details", { className: "queuePanel-library", open: "" }, [
       element("summary", {}, [
@@ -1126,7 +1292,13 @@ export function createQueuePanel(queue, deck) {
       ? "🎙 The DJ is on the mic…"
       : djDownloads
         ? `The DJ is getting ${djDownloads} song${djDownloads > 1 ? "s" : ""} ready (below)…`
-        : (dj.status?.message ?? (dj.on ? "DJ on: it moves to the next song when one ends." : ""));
+        : (dj.status?.message ??
+          (dj.on
+            ? dj.short
+              ? "DJ on: it mixes into the next song after about 75 s. Swipe a hand to mix now."
+              : "DJ on: it mixes into the next song as this one ends. Swipe a hand to mix now."
+            : ""));
+    shortToggle.checked = dj.short;
     djStatus.hidden = !djMessage;
     djStatus.textContent = djMessage;
     djStatus.classList.toggle("error", Boolean(dj.status?.isError));

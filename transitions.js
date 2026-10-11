@@ -27,7 +27,9 @@ const echoFeedback = 0.5;
 const echoRingSeconds = 4; // how long an echo-out rings
 const echoFadeInSeconds = 1.5; // the incoming song's fade-in under the echoes
 const glideSeconds = 16; // after a blend the new song eases back to its own tempo over this long
-const analysisSeconds = 45; // tempo is detected on this much audio near the start or end
+const analysisSeconds = 45; // tempo is detected on this much audio around the point that matters
+const shortSeconds = 75; // short mixes: a song plays about this long (from where its music starts)
+const phraseBars = 8; // ...and is mixed out at the start of a phrase (8 bars), where a section changes
 const scheduleAhead = 0.1; // seconds: a transition is scheduled this far ahead, for exact timing
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,16 +67,15 @@ function bounds(buffer) {
   return found;
 }
 
-// The beat grid near a song's start ("intro") or end ("outro"): its tempo and one
-// downbeat (seconds into the song). Songs like SICKO MODE change tempo, so each end
-// gets its own.
+// The beat grid around a point in a song: its tempo and one downbeat (seconds into the
+// song), detected on the audio from `from` on. Songs like SICKO MODE change tempo, so
+// each part of a song gets its own.
 const gridCache = new WeakMap();
-function grid(buffer, where) {
-  const grids = gridCache.get(buffer) ?? {};
-  if (!grids[where]) {
-    const { start, end } = bounds(buffer);
-    const seconds = Math.min(analysisSeconds, buffer.duration);
-    const from = where === "intro" ? Math.min(start, buffer.duration - seconds) : Math.max(0, end - seconds);
+function grid(buffer, from) {
+  const seconds = Math.min(analysisSeconds, buffer.duration);
+  from = Math.round(Math.max(0, Math.min(from, buffer.duration - seconds)) * 2) / 2;
+  const grids = gridCache.get(buffer) ?? new Map();
+  if (!grids.has(from)) {
     const offset = Math.round(from * buffer.sampleRate);
     const length = Math.min(Math.round(seconds * buffer.sampleRate), buffer.length - offset);
     const part = new AudioBuffer({
@@ -86,11 +87,15 @@ function grid(buffer, where) {
       part.copyToChannel(buffer.getChannelData(channel).subarray(offset, offset + length), channel);
     }
     const { bpm, first } = analyzeTempo(part);
-    grids[where] = { bpm, first: from + first };
+    grids.set(from, { bpm, first: from + first });
     gridCache.set(buffer, grids);
   }
-  return grids[where];
+  return grids.get(from);
 }
+// Where a song's music starts, and the grid there.
+const introGrid = (buffer) => grid(buffer, bounds(buffer).start);
+// The grid leading up to a point in the song (for mixing out there).
+const gridBefore = (buffer, seconds) => grid(buffer, seconds - analysisSeconds + 10);
 
 const barOf = ({ bpm }) => 240 / bpm;
 // The first downbeat of a grid at or after a point in the song.
@@ -102,6 +107,28 @@ function downbeatAfter(beats, seconds) {
 function blendLength(beats) {
   const bar = barOf(beats);
   return Math.max(2, Math.min(8, Math.round(blendSeconds / bar))) * bar;
+}
+
+// Where a song should be mixed out by (seconds into it): before its ending fades out,
+// or with short mixes, at the first phrase after shortSeconds of music.
+function mixOutPoint(buffer, short) {
+  const { start, end } = bounds(buffer);
+  if (!short) return end;
+  const target = start + shortSeconds;
+  const beats = gridBefore(buffer, target);
+  const phrase = barOf(beats) * phraseBars;
+  const point = beats.first + Math.ceil((target - beats.first) / phrase) * phrase;
+  return Math.min(point, end);
+}
+
+// Blend or echo out, for two songs at the current tempo nudge.
+function styleFor(current, next, { mixOutAt, fromBpm, toBpm, nudge = 1 }) {
+  const beatsOut = gridBefore(current, mixOutAt);
+  const beatsIn = introGrid(next);
+  const ratio = fold(beatsOut.bpm / beatsIn.bpm); // the next song's speed that matches beats
+  const knownOut = trusted(beatsOut.bpm, fromBpm);
+  const blend = knownOut && trusted(beatsIn.bpm, toBpm) && Math.abs(nudge * ratio - 1) <= maxNudge;
+  return { blend, knownOut, beatsOut, beatsIn, ratio };
 }
 
 // An equal-power fade (no dip in loudness halfway) on a gain, between two times.
@@ -186,16 +213,37 @@ export function createTransitions(deck) {
     // moment of the transition smooth.
     prepare(buffer) {
       setTimeout(() => {
-        grid(buffer, "intro");
-        grid(buffer, "outro");
+        introGrid(buffer);
+        gridBefore(buffer, mixOutPoint(buffer, false));
+        gridBefore(buffer, mixOutPoint(buffer, true));
       }, 0);
     },
 
+    // Where (seconds into the song) it should be mixed out by; short = short mixes.
+    mixOutPoint,
+
     // Where (seconds into the song) the queue should call mixInto: a little before the
-    // blend has to start for it to end as the song's ending fades out.
-    mixPoint(buffer) {
-      const beats = grid(buffer, "outro");
-      return Math.max(0, bounds(buffer).end - blendLength(beats) - barOf(beats));
+    // blend has to start for it to end at mixOutPoint.
+    mixPoint(buffer, short = false) {
+      const end = mixOutPoint(buffer, short);
+      const beats = gridBefore(buffer, end);
+      return Math.max(0, end - blendLength(beats) - barOf(beats));
+    },
+
+    // Where (seconds into the song) the mix itself starts, for a style ("blend" or "echo").
+    mixStartPoint(buffer, short, style) {
+      const end = mixOutPoint(buffer, short);
+      const beats = gridBefore(buffer, end);
+      return Math.max(0, end - (style === "echo" ? barOf(beats) : blendLength(beats)));
+    },
+
+    // How the playing song would mix into `next` (an AudioBuffer): "blend" or "echo".
+    styleInto(next, { mixOutAt, fromBpm, toBpm } = {}) {
+      if (!deck.buffer) return null;
+      return styleFor(deck.buffer, next, { mixOutAt: mixOutAt ?? bounds(deck.buffer).end, fromBpm, toBpm, nudge })
+        .blend
+        ? "blend"
+        : "echo";
     },
 
     // Manual song changes: no tail, no nudge.
@@ -205,23 +253,23 @@ export function createTransitions(deck) {
       setNudge(1);
     },
 
-    // Mixes from the playing song into `next` (an AudioBuffer). fromBpm/toBpm are the
-    // library's tempos, to sanity-check detection. Once the new song is on the deck,
-    // resolves with what it did ({ style: "blend" | "echo", ... }), or with null if
-    // stillWanted() turned false (or the music stopped) while waiting for the right beat.
-    async mixInto(next, { fromBpm, toBpm, stillWanted = () => true } = {}) {
+    // Mixes from the playing song into `next` (an AudioBuffer), so the playing song is
+    // gone by mixOutAt (seconds into it; its fading ending by default, 0 = right away,
+    // on the next downbeat). fromBpm/toBpm are the library's tempos, to sanity-check
+    // detection. Once the new song is on the deck, resolves with what it did
+    // ({ style: "blend" | "echo", ... }), or with null if stillWanted() turned false (or
+    // the music stopped) while waiting for the right beat.
+    async mixInto(next, { mixOutAt, fromBpm, toBpm, stillWanted = () => true } = {}) {
       finish();
       stopGlide();
       const { ctx } = deck;
       const current = deck.buffer;
       const now = () => Math.max(0, deck.position() % current.duration);
       const speed = () => handSpeed * nudge;
-      const out = bounds(current);
-      const beatsOut = grid(current, "outro");
-      const beatsIn = grid(next, "intro");
-      const knownOut = trusted(beatsOut.bpm, fromBpm);
-      const ratio = fold(beatsOut.bpm / beatsIn.bpm); // the next song's speed that matches beats
-      let blend = knownOut && trusted(beatsIn.bpm, toBpm) && Math.abs(nudge * ratio - 1) <= maxNudge;
+      const outBy = Math.min(mixOutAt ?? bounds(current).end, bounds(current).end);
+      const style = styleFor(current, next, { mixOutAt: Math.max(outBy, now()), fromBpm, toBpm, nudge });
+      const { knownOut, beatsOut, beatsIn, ratio } = style;
+      let { blend } = style;
 
       // Where in the current song the transition starts, and how long a blend gets.
       let at;
@@ -230,14 +278,14 @@ export function createTransitions(deck) {
         const earliest = now() + scheduleAhead * 2;
         if (blend) {
           length = blendLength(beatsOut);
-          at = downbeatAfter(beatsOut, Math.max(earliest, out.end - length));
+          at = downbeatAfter(beatsOut, Math.max(earliest, outBy - length));
           // Late (e.g. a skip near the end)? A shorter blend, down to one bar, else echo out.
           const room = Math.floor((current.duration - 0.05 - at) / barOf(beatsOut)) * barOf(beatsOut);
           length = Math.min(length, room);
           if (length < barOf(beatsOut)) blend = false;
         }
         if (!blend) {
-          const wanted = Math.max(earliest, out.end - barOf(beatsOut));
+          const wanted = Math.max(earliest, outBy - barOf(beatsOut));
           at = knownOut ? downbeatAfter(beatsOut, wanted) : wanted;
           if (at > current.duration - 0.2) at = earliest;
         }

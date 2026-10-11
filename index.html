@@ -140,7 +140,8 @@
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 import { Deck } from "./audio.js";
-import { createQueue, createQueuePanel, createTransport } from "./queue.js";
+import { createQueue, createQueuePanel, createTransport, createUpNext } from "./queue.js";
+import { createDjGestures } from "./djGestures.js";
 
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -507,6 +508,7 @@ function update(result, now) {
   }
   const live = (side) => (now - sides[side].lastSeen < HOLD_MS ? sides[side].hand : null);
   const left = live("left"), right = live("right");
+  djGestures.update({ left, right }, now); // swipe / 🤘 / ✌️ steer the AI DJ
 
   let between = null;
   if (left && right) {
@@ -757,6 +759,17 @@ const songStatus = $("songStatus");
 const queue = createQueue(deck);
 const queuePanel = createQueuePanel(queue, deck);
 $("transport").append(createTransport(queue, deck));
+
+// What the DJ does next, on the camera view, and the gestures that steer it (djGestures.js).
+const upNext = createUpNext(queue);
+document.querySelector(".stage").append(upNext.element);
+const gestureMessages = {
+  swipe: "✋ Mixing into the next song",
+  "swipe-nothing": "✋ Nothing queued to mix into",
+  hype: "🤘 Turning the energy up",
+  chill: "✌️ Bringing it down",
+};
+const djGestures = createDjGestures(queue, { onGesture: (name) => upNext.flash(gestureMessages[name]) });
 
 $("queueBtn").addEventListener("click", () => {
   deck.ensureContext(); // create audio inside the click so the browser allows it

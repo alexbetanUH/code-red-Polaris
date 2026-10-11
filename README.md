@@ -56,7 +56,17 @@ ahead), and a DJ voice speaks up over the mix when the genre switches (and at th
   the next one fades in under the echoes.
 
 Tempo and downbeats are detected from the audio (`analyzeTempo` in `mix-audio.js`) and checked against the library's
-BPM. The browser console logs each mix. **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
+BPM. The browser console logs each mix.
+
+**Short mixes** (on by default, a checkbox under the DJ) mix each song out after about 75 s, at the start of a
+phrase, so a demo hears several transitions. The camera view shows what's up next, when the DJ mixes into it and
+how (blend or echo out). Hand gestures steer the DJ (the right hand is best: the left one also sets the speed):
+
+| Gesture | Does |
+|---|---|
+| ✋ Sweep an open hand sideways | Mix into the next song now, on the next downbeat |
+| 🤘 Hold horns for a moment | More energy: the DJ says so and re-picks the upcoming songs |
+| ✌️ Hold a peace sign for a moment | Less energy | **Change vibe** swaps the upcoming picks, **Stop** goes back to normal
 looping. You can still drag, remove or ▶ anything (those switch instantly).
 
 It needs API keys, set as environment variables in the terminal before starting the server (they stay on your
@@ -77,6 +87,7 @@ The landing page's **Talk to the AI DJ** opens `index.html#ai-dj`, which shows t
 - `audio.js`: audio engine (load, play/pause, speed, filter, volume, waveform)
 - `queue.js`: song queue and its panel (add from YouTube or files, reorder, remove, play, next, AI DJ)
 - `transitions.js`: the AI DJ's mixes between songs (beat-matched blends, echo-outs)
+- `djGestures.js`: the swipe / 🤘 / ✌️ gestures that steer the AI DJ
 - `server.py`: local server; serves the site, downloads YouTube audio via yt-dlp into `downloads/`, and runs the AI DJ (Gemini picks, ElevenLabs voice)
 - `library.json`, `prefetch.py`: the song library and a script that fills `music/` with it
 
